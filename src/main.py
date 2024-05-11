@@ -26,10 +26,10 @@ if __name__ == "__main__":
     #         prod_fr.save()
     #     else:
     #         continue
-    sale_df = sale_df_total[sale_df_total['product'] == "Cinnora AutoInjector"]
-    prod_fr = SalesForecast("Cinnora AutoInjector", sale_df, forecasts)
+    sale_df = sale_df_total[sale_df_total['product'] == "Altebrel 50"]
+    prod_fr = SalesForecast("Altebrel 50", sale_df, forecasts)
     prod_fr.preprocess_data()
     prod_fr.model_selection()
     prod_fr.predict()
-    prod_fr.redistribute_smoothing()
+    # prod_fr.redistribute_smoothing()
     prod_fr.plot()

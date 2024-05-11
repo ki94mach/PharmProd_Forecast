@@ -236,39 +236,51 @@ class SalesForecast:
     def redistribute_smoothing(self, base_window=3):
         # Copy the column to avoid modifying the original data
         data = np.array(self.forecast.copy())
+        
         n = len(data)
         
         # Calculate adjustments needed
         adjustments = np.zeros(n)
         smoothed = np.zeros(n)
         # smoothed[0] = data[0]
-        for i in range(n):
-            if i > 0 and i < len(data) - 1:
-                if data[i] > data[i-1] and data[i] > data[i+1]:  # Peak
-                    window = base_window + 2
-                elif data[i] < data[i-1] and data[i] < data[i+1]:  # Trough
-                    window = base_window + 2
-                else:
-                    window = base_window
-            else:
-                window = base_window
-            # Apply smoothing
-            window_data = data[max(i-window//2, 0):min(i+window//2+1, len(data))]
-            smoothed[i] = window_data.mean()
-        
-        # Ensure total adjustment is zero
-        adjustments = smoothed - data
-        total_adjustment = adjustments.sum()
-        smoothed += total_adjustment / n
-        # applying difference adjustments in each quarter
-        for i in range(n):
+        for i in range(n+1):
             if i % 3 == 0:
-                total_adjustment = adjustments[(i-2):(i+1)].sum()
-                if total_adjustment != 0:
-                    smoothed[(i-2):(i+1)] += total_adjustment / 3
+                # Calculate quarter's mean
+                q_mean = data[(i-3) : i].mean()
+                # Calculate difference from quarter mean and add halve of it to smooth the data
+                for j in range(i - 3, i):
+                    adjustments[j] = (data[j] - q_mean) * 0.7  
+                    smoothed[j] = data[j] - adjustments[j]
+                q_adjustments = adjustments[(i-3) : i].sum()
+                smoothed[(i-3) : i] += q_adjustments
+            
+            # if i > 0 and i < len(data) - 1:
+            #     if data[i] > data[i-1] and data[i] > data[i+1]:  # Peak
+            #         window = base_window + 2
+            #     elif data[i] < data[i-1] and data[i] < data[i+1]:  # Trough
+            #         window = base_window + 2
+            #     else:
+            #         window = base_window
+            # else:
+            #     window = base_window
+            # # Apply smoothing
+            # window_data = data[max(i-window//2, 0):min(i+window//2+1, len(data))]
+            # smoothed[i] = window_data.mean()
+        
+        # # Ensure total adjustment is zero
+        # adjustments = smoothed - data
+        # total_adjustment = adjustments.sum()
+        # smoothed += total_adjustment / n
+        # # applying difference adjustments in each quarter
+        # for i in range(n):
+        #     if i % 3 == 0:
+        #         total_adjustment = adjustments[(i-2):(i+1)].sum()
+        #         if total_adjustment != 0:
+        #             smoothed[(i-2):(i+1)] += total_adjustment / 3
 
         # Apply adjustments
         self.forecast = smoothed
+
     def save(self):
         """
         Converts back date to Jalali and saves the forecast mean in a csv file
