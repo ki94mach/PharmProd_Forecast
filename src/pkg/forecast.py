@@ -108,9 +108,9 @@ class SalesForecast:
 
                         if len(prophet_train)>24:
                             model = Prophet(yearly_seasonality=True,
-                                            changepoint_prior_scale=0.05).fit(prophet_train)
+                                            changepoint_prior_scale=0.1).fit(prophet_train)
                         else:
-                            model = Prophet(changepoint_prior_scale=0.05).fit(prophet_train)
+                            model = Prophet(changepoint_prior_scale=0.1).fit(prophet_train)
                         future = model.make_future_dataframe(periods=h, freq='M')
                         forecast = model.predict(future)
                         prediction = forecast['yhat'].values[-h:]
@@ -136,7 +136,7 @@ class SalesForecast:
                 prediction = model.forecast(steps=len(test))
             
             elif model_type == 'Prophet':
-                model = Prophet(yearly_seasonality=True, changepoint_prior_scale=0.05).fit(prophet_train)
+                model = Prophet(yearly_seasonality=True, changepoint_prior_scale=0.1).fit(prophet_train)
                 future = model.make_future_dataframe(periods=len(test), freq='M')
                 forecast = model.predict(future)
                 prediction = forecast['yhat'].values[-len(test):]
@@ -225,15 +225,15 @@ class SalesForecast:
         elif self.best_model_type == 'Prophet':
             if len(self.sale_df)>24:
                 prophet_model = Prophet(yearly_seasonality=True,
-                                        changepoint_prior_scale=0.02).fit(self.prophet_df)
+                                        changepoint_prior_scale=0.1).fit(self.prophet_df)
             else:
-                prophet_model = Prophet(changepoint_prior_scale=0.02).fit(self.prophet_df)
+                prophet_model = Prophet(changepoint_prior_scale=0.1).fit(self.prophet_df)
             future = prophet_model.make_future_dataframe(periods=len(self.prophet_df)+16, freq='M')
             forecast_df = prophet_model.predict(future)[-15:]
             self.forecast = forecast_df['yhat']
             self.lower_pi = forecast_df['yhat_lower']
             self.upper_pi = forecast_df['yhat_upper']
-    def redistribute_smoothing(self, base_window=3):
+    def redistribute_smoothing(self):
         # Copy the column to avoid modifying the original data
         data = np.array(self.forecast.copy())
         
