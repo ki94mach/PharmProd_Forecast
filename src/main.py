@@ -16,20 +16,21 @@ if __name__ == "__main__":
     products_fr = pd.unique(forecast_df['product'])
     products = pd.unique(sale_df_total['product'])
     sale_df_total.date += 62100
-    # for product in products:
-    #     if product not in products_fr:
-    #         sale_df = sale_df_total[sale_df_total['product'] == product]
-    #         prod_fr = SalesForecast(product, sale_df, forecasts)
-    #         prod_fr.preprocess_data()
-    #         prod_fr.model_selection()
-    #         prod_fr.predict()
-    #         prod_fr.save()
-    #     else:
-    #         continue
-    sale_df = sale_df_total[sale_df_total['product'] == "Zytux 100"]
-    prod_fr = SalesForecast("Zytux 100", sale_df, forecasts)
-    prod_fr.preprocess_data()
-    prod_fr.model_selection()
-    prod_fr.predict()
+    for product in products:
+        if product not in products_fr:
+            sale_df = sale_df_total[sale_df_total['product'] == product]
+            prod_fr = SalesForecast(product, sale_df, forecasts)
+            prod_fr.preprocess_data()
+            prod_fr.model_selection()
+            prod_fr.predict()
+            prod_fr.redistribute_smoothing()
+            prod_fr.save()
+        else:
+            continue
+    # sale_df = sale_df_total[sale_df_total['product'] == "Zytux 100"]
+    # prod_fr = SalesForecast("Zytux 100", sale_df, forecasts)
+    # prod_fr.preprocess_data()
+    # prod_fr.model_selection()
+    # prod_fr.predict()
     # prod_fr.redistribute_smoothing()
-    prod_fr.plot()
+    # prod_fr.plot()

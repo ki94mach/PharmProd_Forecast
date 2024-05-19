@@ -9,19 +9,24 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import AutoMinorLocator
 import numpy as np
 
+
 class SalesForecast:
     """
-    A class for performing sales forecasting on a specified product using a variety of models,
-    including ARIMA, ETS, and Prophet. This class takes a DataFrame containing sales data,
-    preprocesses it for modeling, selects the best-fitting model based on historical data,
-    and then uses that model to forecast future sales.
+    A class for performing sales forecasting on a specified product using a
+    variety of models, including ARIMA, ETS, and Prophet. This class takes a
+    DataFrame containing sales data, preprocesses it for modeling, selects
+    the best-fitting model based on historical data, and then uses that model
+    to forecast future sales.
 
     Attributes:
-        product (str): The product name for which sales forecasting is performed.
-        sale_df (pd.DataFrame): A DataFrame containing the sales data, expected to have at least 'sales' and 'date' columns.
-        model (various): A placeholder for the fitted forecasting model, its type depends on the best model selected.
+        product (str): The product name for which sales forecasting is
+        performed. sale_df (pd.DataFrame): A DataFrame containing the sales
+        data, expected to have at least 'sales' and 'date' columns.
+        model (various): A placeholder for the fitted forecasting model,
+        its type depends on the best model selected.
         forecast (np.array or pd.Series): The forecasted sales values.
-        best_model_type (str): The type of the best-performing model based on RMSE.
+        best_model_type (str): The type of the best-performing model based on 
+        RMSE.
     """
     def __init__(self, product: str, sale_df: pd.DataFrame, output: str):
         """
@@ -30,7 +35,8 @@ class SalesForecast:
         Parameters:
 
         - product (str): The product name to filter and forecast sales for.
-        - sale_df (pd.DataFrame): Sales data of the product with "sales" and "date" columns
+        - sale_df (pd.DataFrame): Sales data of the product with "sales" and
+        "date" columns
         - output (str): csv results path file
         """
         self.product = product
@@ -42,32 +48,42 @@ class SalesForecast:
 
     def preprocess_data(self):
         """
-        Preprocesses the input DataFrame to prepare it for forecasting. This includes converting
-        Jalali dates to Gregorian, handling missing values, converting sales data to a numeric format,
-        and filtering the data to include only the sales after the first non-zero sale. It also
+        Preprocesses the input DataFrame to prepare it for forecasting. This
+        includes converting
+        Jalali dates to Gregorian, handling missing values, converting sales
+        data to a numeric format,
+        and filtering the data to include only the sales after the first
+        non-zero sale. It also
         prepares separate DataFrames for use with the Prophet model.
 
-        No parameters. Modifies the instance's sale_df and prophet_df attributes in place.
+        No parameters. Modifies the instance's sale_df and prophet_df
+        attributes in place.
         """
 
-        self.sale_df.date = pd.to_datetime(self.sale_df['date'], format='%Y%m')
-        self.sale_df.sales = self.sale_df.sales.fillna(value=0)
-        self.sale_df['sales'] = pd.to_numeric(self.sale_df['sales'], errors='coerce')
-        first_sale = self.sale_df[self.sale_df['sales'] > 0].index.min()
+        self.sale_df.loc[:, 'date'] = pd.to_datetime(self.sale_df['date'], 
+                                                     format='%Y%m')
+        self.sale_df.loc[:, 'sales'] = self.sale_df.sales.fillna(value=0)
+        self.sale_df.loc[:, 'sales'] = pd.to_numeric(self.sale_df['sales'], 
+                                                     errors='coerce')
+        first_sale = self.sale_df[self.sale_df['sales'] > 0].copy().index.min()
         self.sale_df = self.sale_df.loc[first_sale:].reset_index()
-        self.prophet_df = self.sale_df[['date', 'sales']][:-1].rename(columns={'date': 'ds', 'sales': 'y'})
+        self.prophet_df = self.sale_df[['date', 'sales']][:-1].rename(
+            columns={'date': 'ds', 'sales': 'y'})
         self.sale_series = self.sale_df.set_index('date')['sales'][:-1]
 
         
     def _rolling_forecast(self, model_type: str) -> tuple:
         """
-        Performs a rolling forecast to evaluate the predictive accuracy of specified forecasting models.
+        Performs a rolling forecast to evaluate the predictive accuracy of
+        specified forecasting models.
 
         Parameters:
-            model_type (str): The type of forecasting model to use. Options are "ARIMA", "ETS", or "Prophet".
+            model_type (str): The type of forecasting model to use. Options
+            are "ARIMA", "ETS", or "Prophet".
 
         Returns:
-            tuple: A tuple containing two lists, the first with the predicted values and the second with the actual values used for testing.
+            tuple: A tuple containing two lists, the first with the predicted
+            values and the second with the actual values used for testing.
         """
 
         h = 1
@@ -77,16 +93,21 @@ class SalesForecast:
         model = None
         if (len(self.sale_series) - size) > 2:
             for t in range(size, len(self.sale_series) - h + 1):
-                train, test = self.sale_series[:t], self.sale_series[t:t+h]
-                prophet_train, prophet_test = self.prophet_df.iloc[:t], self.prophet_df.iloc[t:t+h]
+                train, test = self.sale_series[:t].copy(), self.sale_series[t:t+h].copy()
+                prophet_train, prophet_test = self.prophet_df.iloc[:t].copy(), self.prophet_df.iloc[t:t+h].copy()
+                max_y = prophet_train['y'].max() * 1.2
+                min_y = prophet_train['y'].min() * 0.8
+                prophet_train['cap'] = max_y
+                prophet_train['floor'] = min_y 
+
                 try:
                     # Fit the specified model
                     if model_type == 'ARIMA':
-                        if len(train)>24:
+                        if len(train) > 24:
                             model = pm.auto_arima(train, seasonal=True, m=12,
                                                 max_order=None, max_p=6, max_q=6, max_d=2,
                                                 max_P=4, max_Q=4, max_D=2,
-                                                stepwise=True, suppress_warnings=True, error_action="ignore", 
+                                                stepwise=True, suppress_warnings=True, error_action="ignore",
                                                 )
                         else:
                             model = pm.auto_arima(train, 
@@ -97,21 +118,26 @@ class SalesForecast:
                         prediction = model.predict(n_periods=h)
 
                     elif model_type == 'ETS':
-                        if len(train)>24:
+                        if len(train) > 24:
                             model = ETSModel(train, seasonal_periods=12, error="add", trend="add").fit()
                         else:
-                            model = ETSModel(train, error="add", trend="add").fit()
-                        prediction = model.forecast(steps=h)
-
-                    
+                            model = ETSModel(
+                                train, error="add", trend="add").fit()
+                        prediction = model.forecast(steps=h)                  
                     elif model_type == 'Prophet':
 
-                        if len(prophet_train)>24:
-                            model = Prophet(yearly_seasonality=True,
-                                            changepoint_prior_scale=0.1).fit(prophet_train)
+                        if len(prophet_train) > 24:
+                            model = Prophet(growth='logistic',
+                                        yearly_seasonality=True,
+                                        changepoint_prior_scale=0.1,
+                                        seasonality_prior_scale=10.0).fit(prophet_train)
                         else:
-                            model = Prophet(changepoint_prior_scale=0.1).fit(prophet_train)
-                        future = model.make_future_dataframe(periods=h, freq='M')
+                            model = Prophet(growth='logistic',
+                                        changepoint_prior_scale=0.1).fit(prophet_train)
+                        future = model.make_future_dataframe(
+                            periods=h, freq='M')
+                        future['cap'] = prophet_train.loc[:, 'cap'] .copy()
+                        future ['floor']= prophet_train.loc[:, 'floor'].copy()
                         forecast = model.predict(future)
                         prediction = forecast['yhat'].values[-h:]
 
@@ -126,8 +152,12 @@ class SalesForecast:
                     self.actuals.extend(prophet_test['y'].values)
                 
         else:
-            train, test = self.sale_series[:size], self.sale_series[size:]
-            prophet_train, prophet_test = self.prophet_df.iloc[:size], self.prophet_df.iloc[size:]
+            train, test = self.sale_series[:size].copy(), self.sale_series[size:].copy()
+            prophet_train, prophet_test = self.prophet_df.iloc[:size].copy(), self.prophet_df.iloc[size:].copy()
+            max_y = prophet_train['y'].max() * 1.2
+            min_y = prophet_train['y'].min() * 0.8
+            prophet_train.loc[:, 'cap'] = max_y
+            prophet_train.loc[:, 'floor'] = min_y 
             if model_type == 'ARIMA':
                 return None, None
 
@@ -136,8 +166,12 @@ class SalesForecast:
                 prediction = model.forecast(steps=len(test))
             
             elif model_type == 'Prophet':
-                model = Prophet(yearly_seasonality=True, changepoint_prior_scale=0.1).fit(prophet_train)
-                future = model.make_future_dataframe(periods=len(test), freq='M')
+                model = Prophet(growth='logistic',
+                                changepoint_prior_scale=0.1,).fit(prophet_train)
+                future = model.make_future_dataframe(
+                    periods=len(test), freq='M')
+                future['cap'] = prophet_train.loc[:, 'cap'] .copy()
+                future ['floor']= prophet_train.loc[:, 'floor'].copy()
                 forecast = model.predict(future)
                 prediction = forecast['yhat'].values[-len(test):]
 
@@ -150,15 +184,20 @@ class SalesForecast:
 
     def model_selection(self):
         """"
-        Evaluates different forecasting models (ARIMA, ETS, Prophet) by performing a rolling forecast
-        and computing the Root Mean Squared Error (RMSE) for each. The model with the lowest RMSE is
+        Evaluates different forecasting models (ARIMA, ETS, Prophet) by
+        performing a rolling forecast and computing the Root Mean Squared
+        Error (RMSE) for each. The model with the lowest RMSE is
         selected as the best model for the forecasting task.
 
-        No parameters. Updates the instance's best_model_type attribute with the name of the best-performing model.
+        No parameters. Updates the instance's best_model_type attribute with
+        the name of the best-performing model.
         """
-        arima_predictions, arima_actuals = self._rolling_forecast(model_type='ARIMA')
-        ets_predictions, ets_actuals = self._rolling_forecast(model_type='ETS')
-        prophet_predictions, prophet_actuals = self._rolling_forecast(model_type='Prophet')
+        arima_predictions, arima_actuals = self._rolling_forecast(
+            model_type='ARIMA')
+        ets_predictions, ets_actuals = self._rolling_forecast(
+            model_type='ETS')
+        prophet_predictions, prophet_actuals = self._rolling_forecast(
+            model_type='Prophet')
 
         # print(ets_actuals, ets_predictions)
         # print(arima_actuals, arima_predictions)
@@ -168,9 +207,12 @@ class SalesForecast:
         if not arima_predictions or not arima_actuals:
             arima_rmse = None
         else:
-            arima_rmse = sqrt(mean_squared_error(arima_actuals, arima_predictions))
-        ets_rmse = sqrt(mean_squared_error(ets_actuals, ets_predictions))
-        prophet_rmse = sqrt(mean_squared_error(prophet_actuals, prophet_predictions))
+            arima_rmse = sqrt(mean_squared_error(
+                arima_actuals, arima_predictions))
+        ets_rmse = sqrt(mean_squared_error(
+            ets_actuals, ets_predictions))
+        prophet_rmse = sqrt(mean_squared_error(
+            prophet_actuals, prophet_predictions))
 
         # print(f"ARIMA RMSE: {arima_rmse}")
         # print(f"ETS RMSE: {ets_rmse}")
@@ -180,59 +222,82 @@ class SalesForecast:
             'ETS': ets_rmse,
             'Prophet': prophet_rmse,
             }
-        valid_rmse_values = {k: v for k, v in rmse_values.items() if v is not None}
-        self.best_model_type = min(valid_rmse_values, key=valid_rmse_values.get)
+        valid_rmse_values = {
+            k: v for k, v in rmse_values.items() if v is not None}
+        self.best_model_type = min(
+            valid_rmse_values, key=valid_rmse_values.get)
+        
     def predict(self):
         """
-        Generates a sales forecast using the best-performing model determined by the model_selection method.
-        This involves fitting the selected model to the entire dataset and predicting future sales.
+        Generates a sales forecast using the best-performing model determined
+        by the model_selection method.
+        This involves fitting the selected model to the entire dataset and
+        predicting future sales.
 
-        No parameters. Updates the instance's forecast, lower_pi, and upper_pi attributes with the forecasted sales,
+        No parameters. Updates the instance's forecast, lower_pi, and upper_pi
+        attributes with the forecasted sales,
         lower prediction interval, and upper prediction interval, respectively.
         """
-        if self.best_model_type=='ARIMA':
-            if len(self.sale_series)>24:
-                final_model = pm.auto_arima(self.sale_series, seasonal=True, m=12, stepwise=True,
-                                max_order=None, max_p=6, max_q=6, max_d=2,
-                                max_P=4, max_Q=4, max_D=2, error_action="ignore")
+        if self.best_model_type == 'ARIMA':
+            if len(self.sale_series) > 24:
+                final_model = pm.auto_arima(
+                    self.sale_series, seasonal=True, m=12, stepwise=True,
+                    max_order=None, max_p=6, max_q=6, max_d=2,
+                    max_P=4, max_Q=4, max_D=2, error_action="ignore")
             else:
-                final_model = pm.auto_arima(self.sale_series, stepwise=True,
-                                max_order=None, max_p=6, max_q=6, max_d=2,
-                                max_P=4, max_Q=4, max_D=2, error_action="ignore")
-            forecast_all, pred_intv = final_model.predict(n_periods=16, return_conf_int=True)
+                final_model = pm.auto_arima(
+                    self.sale_series, stepwise=True,
+                    max_order=None, max_p=6, max_q=6, max_d=2,
+                    max_P=4, max_Q=4, max_D=2, error_action="ignore")
+            forecast_all, pred_intv = final_model.predict(
+                n_periods=16, return_conf_int=True)
             self.forecast = forecast_all[-15:]
             self.lower_pi = pred_intv[-15:, 0]
             self.upper_pi = pred_intv[-15:, 1]
             
         elif self.best_model_type == 'ETS':
-            if len(self.sale_df)>24:
-                final_model = ETSModel(self.sale_series,
-                                error="add",
-                                trend="add",
-                                seasonal="add",
-                                seasonal_periods=12).fit()
+            if len(self.sale_series)>24:
+                final_model = ETSModel(
+                    self.sale_series,
+                    error="add",
+                    trend="add",
+                    seasonal="add",
+                    seasonal_periods=12).fit()
             else:
-                final_model = ETSModel(self.sale_series,
-                                error="add",
-                                trend="add",).fit()
+                final_model = ETSModel(
+                    self.sale_series,
+                    error="add",
+                    trend="add",).fit()
             start_period = len(self.sale_series)+1
-            forecast_obj = final_model.get_prediction(start=start_period, end=start_period+14)
+            forecast_obj = final_model.get_prediction(
+                start=start_period, end=start_period+14)
             forecast_summary = forecast_obj.summary_frame(alpha=0.05)
             self.forecast = forecast_summary['mean']
             self.lower_pi = forecast_summary['pi_lower']
             self.upper_pi = forecast_summary['pi_upper']
 
         elif self.best_model_type == 'Prophet':
-            if len(self.sale_df)>24:
-                prophet_model = Prophet(yearly_seasonality=True,
-                                        changepoint_prior_scale=0.1).fit(self.prophet_df)
+            max_y = self.prophet_df['y'].max() * 1.2
+            min_y = self.prophet_df['y'].min() * 0.8
+            self.prophet_df.loc[:, 'cap'] = max_y
+            self.prophet_df.loc[:, 'floor'] = min_y
+            if len(self.prophet_df)>24:
+                prophet_model = Prophet(growth='logistic',
+                                        yearly_seasonality=True,
+                                        changepoint_prior_scale=0.05).fit(self.prophet_df)
             else:
-                prophet_model = Prophet(changepoint_prior_scale=0.1).fit(self.prophet_df)
-            future = prophet_model.make_future_dataframe(periods=len(self.prophet_df)+16, freq='M')
+                prophet_model = Prophet(growth='logistic',
+                                        changepoint_prior_scale=0.1,).fit(self.prophet_df)
+            future = prophet_model.make_future_dataframe(
+                periods=len(self.prophet_df)+16, freq='M')
+            future['cap'] = max_y
+            future ['floor']= min_y
             forecast_df = prophet_model.predict(future)[-15:]
-            self.forecast = forecast_df['yhat']
-            self.lower_pi = forecast_df['yhat_lower']
-            self.upper_pi = forecast_df['yhat_upper']
+            print(future)
+            self.forecast = forecast_df['yhat'] * 0.8
+            self.lower_pi = forecast_df['yhat_lower'] * 0.8
+            self.upper_pi = forecast_df['yhat_upper'] * 0.8
+
     def redistribute_smoothing(self):
         # Copy the column to avoid modifying the original data
         data = np.array(self.forecast.copy())
@@ -243,16 +308,17 @@ class SalesForecast:
         adjustments = np.zeros(n)
         smoothed = np.zeros(n)
         # smoothed[0] = data[0]
-        for i in range(n+1):
+        for i in range(1, n+1):
             if i % 3 == 0:
                 # Calculate quarter's mean
-                q_mean = data[(i-3) : i].mean()
-                # Calculate difference from quarter mean and add halve of it to smooth the data
+                q_mean = data[(i-3): i].mean()
+                # Calculate difference from quarter mean and add halve of it
+                # to smooth the data
                 for j in range(i - 3, i):
-                    adjustments[j] = (data[j] - q_mean) * 0.7  
+                    adjustments[j] = (data[j] - q_mean) * 0.7
                     smoothed[j] = data[j] - adjustments[j]
-                q_adjustments = adjustments[(i-3) : i].sum()
-                smoothed[(i-3) : i] += q_adjustments
+                q_adjustments = adjustments[(i-3): i].sum()
+                smoothed[(i-3): i] += q_adjustments
             
             # if i > 0 and i < len(data) - 1:
             #     if data[i] > data[i-1] and data[i] > data[i+1]:  # Peak
@@ -264,9 +330,9 @@ class SalesForecast:
             # else:
             #     window = base_window
             # # Apply smoothing
-            # window_data = data[max(i-window//2, 0):min(i+window//2+1, len(data))]
+            # window_data = data[max(i-window//2, 0):min(i+window//2+1,
+            # len(data))]
             # smoothed[i] = window_data.mean()
-        
         # # Ensure total adjustment is zero
         # adjustments = smoothed - data
         # total_adjustment = adjustments.sum()
@@ -288,12 +354,15 @@ class SalesForecast:
         """
         # Converting back to Jalali YearMonth format
         forecast_steps = 15
-        self.forecast_index = pd.date_range(start=self.sale_series.index.max()+pd.DateOffset(months=2), periods=forecast_steps, freq='M')
+        self.forecast_index = pd.date_range(
+            start=self.sale_series.index.max()+pd.DateOffset(months=2
+                                                             ),periods=forecast_steps, freq='M')
         forecast_date = []
         for i in self.forecast_index:
-            forecast_date.append(int(str(i).replace("-","")[:6])-62100)
+            forecast_date.append(int(str(i).replace("-", "")[:6])-62100)
         # Saving in a csv file
-        forecast_df = pd.DataFrame(columns=['product', 'date', 'forecast', 'model'])
+        forecast_df = pd.DataFrame(columns=[
+            'product', 'date', 'forecast', 'model'])
         forecast_df.date = forecast_date
         forecast_df['product'] = self.product
         forecast_df.forecast = self.forecast.values

@@ -1,4 +1,4 @@
-name: Forecast1
+name: Forecast
 channels:
   - conda-forge
   - defaults
