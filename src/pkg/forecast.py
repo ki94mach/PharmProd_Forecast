@@ -9,6 +9,7 @@ from prophet import Prophet
 import matplotlib.dates as mdates
 from matplotlib.ticker import AutoMinorLocator
 import numpy as np
+from gspread_formatting import *
 
 class SalesForecast:
     """
@@ -45,6 +46,7 @@ class SalesForecast:
         self.forecast = None
         self.best_model_type = None 
         self.output = output
+        self.dep = self.sale_df['dep'].unique()[0]
         logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
     def preprocess_data(self):
@@ -60,16 +62,18 @@ class SalesForecast:
         No parameters. Modifies the instance's sale_df and prophet_df
         attributes in place.
         """
-
         self.sale_df.loc[:, 'date'] = pd.to_datetime(self.sale_df['date'], 
                                                      format='%Y%m')
-        self.sale_df.loc[:, 'sales'] = self.sale_df.sales.fillna(value=0)
         self.sale_df.loc[:, 'sales'] = pd.to_numeric(self.sale_df['sales'], 
                                                      errors='coerce')
+        self.sale_df.loc[:, 'sales'] = self.sale_df['sales'].fillna(value=0)
         first_sale = self.sale_df[self.sale_df['sales'] > 5].index.min()
-        self.sale_df = self.sale_df.loc[first_sale:].reset_index()
+        if first_sale is not None:
+            self.sale_df = self.sale_df.loc[first_sale:].reset_index(drop=True)
         self.sale_df.set_index('date', inplace=True)
         self.sale_df = self.sale_df.asfreq('MS').fillna(value=0)
+        self.sale_df['product'] = self.sale_df['product'].replace(0, self.product)
+        self.sale_df['dep'] = self.sale_df['dep'].replace(0, self.dep)
         self.sale_series = self.sale_df['sales'][:-1]
         self.sale_df.reset_index(inplace=True)
         self.prophet_df = self.sale_df[['date', 'sales']][:-1].rename(
@@ -106,11 +110,19 @@ class SalesForecast:
                 # Fit the specified model
                 if model_type == 'ARIMA':
                     if len(train) > 24:
-                        model = pm.auto_arima(train, seasonal=True, m=12,
-                                            max_order=None, max_p=6, max_q=6, max_d=2,
-                                            max_P=4, max_Q=4, max_D=2,
-                                            stepwise=True, suppress_warnings=True, error_action="ignore",
-                                            )
+                        try:
+                            model = pm.auto_arima(train, seasonal=True, m=12,
+                                                max_order=None, max_p=6, max_q=6, max_d=2,
+                                                max_P=4, max_Q=4, max_D=1,
+                                                stepwise=True, suppress_warnings=True, error_action="ignore",
+                                                )
+                        except ValueError:
+                            model = pm.auto_arima(train, seasonal=True, m=12,
+                                                max_order=None, max_p=6, max_q=6, max_d=2,
+                                                max_P=4, max_Q=4, max_D=1,
+                                                stepwise=True, suppress_warnings=True, error_action="ignore",
+                                                seasonal_test='ch',
+                                                )
                     else:
                         model = pm.auto_arima(train, 
                                             max_order=None, max_p=6, max_q=6, max_d=2,
@@ -239,10 +251,17 @@ class SalesForecast:
         """
         if self.best_model_type == 'ARIMA':
             if len(self.sale_series) > 24:
-                final_model = pm.auto_arima(
-                    self.sale_series, seasonal=True, m=12, stepwise=True,
-                    max_order=None, max_p=6, max_q=6, max_d=2,
-                    max_P=4, max_Q=4, max_D=2, error_action="ignore")
+                try:
+                    final_model = pm.auto_arima(
+                        self.sale_series, seasonal=True, m=12, stepwise=True,
+                        max_order=None, max_p=6, max_q=6, max_d=2,
+                        max_P=4, max_Q=4, max_D=2, error_action="ignore")
+                except ValueError:
+                    final_model = pm.auto_arima(
+                        self.sale_series, seasonal=True, m=12, stepwise=True,
+                        max_order=None, max_p=6, max_q=6, max_d=2,
+                        max_P=4, max_Q=4, max_D=2, error_action="ignore",
+                        seasonal_test='ch')
             else:
                 final_model = pm.auto_arima(
                     self.sale_series, stepwise=True,
@@ -346,7 +365,7 @@ class SalesForecast:
         # Apply adjustments
         self.forecast = smoothed
 
-    def save(self):
+    def save_csv(self):
         """
         Converts back date to Jalali and saves the forecast mean in a csv file
 
@@ -360,14 +379,17 @@ class SalesForecast:
         for i in self.forecast_index:
             forecast_date.append(int(str(i).replace("-", "")[:6])-62100)
         # Saving in a csv file
-        forecast_df = pd.DataFrame(columns=[
+        self.forecast_df = pd.DataFrame(columns=[
             'product', 'date', 'forecast', 'model'])
-        forecast_df.date = forecast_date
-        forecast_df['product'] = self.product
-        forecast_df.forecast = self.forecast.values
-        forecast_df['model'] = self.best_model_type
-        forecast_df.to_csv(self.output, index=False, mode="a", header=False)
+        self.forecast_df.date = forecast_date
+        self.forecast_df['product'] = self.product
+        self.forecast_df.forecast = self.forecast
+        self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
+        self.forecast_df['model'] = self.best_model_type
+        self.forecast_df['dep'] = self.dep
+        self.forecast_df.to_csv(self.output, index=False, mode="a", header=False, encoding='utf-8-sig')
         print(f"{self.product} forecasting is done!")
+        # return self.forecast_df
 
     def plot(self):
         """
