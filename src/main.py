@@ -8,10 +8,14 @@ from pkg.excelmanager import ExcelManager
 
 logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 if __name__ == "__main__":
+    # Define the current quarter like: 1403Q1
+    curr_qrt = '1403Q1'
+
     # The monthly sales csv should contain
     # "product", "date", "dep", "sale" column
-    sale = 'data/sales/1403Q2/monthly_sales.csv'
-    forecasts = 'data/results/1403Q2/1403Q2_total_forecast.csv'
+    # Name format: 1403Q1_monthly_sales.csv
+    sale = f'data/sales/{curr_qrt}/{curr_qrt}_monthly_sales.csv'
+    forecasts = f'data/results/{curr_qrt}/{curr_qrt}_total_forecast.csv'
     headers=['product', 'date', 'forecast', 'model','dep']
     if not os.path.exists(forecasts):
         with open(forecasts, "w", newline='') as file:
@@ -36,35 +40,44 @@ if __name__ == "__main__":
             continue
     forecast_total_df = pd.read_csv(forecasts)
     dep_dict = {
-        "انکولوژی بیولوژیک": '1403Q2 Bio Onco',
-        'انکولوژی شیمیایی': '1403Q2 Chem Onco',
-        'رسپیراتوری': '1403Q2 Resp',
-        'کانتراست مدیا': '1403Q2 Contrast',
-        'زیبایی': '1403Q2 Beaut',
-        'نورولوژی بیولوژیک': '1403Q2 Bio Neuro',
-        'انکولوژی اطفال': '1403Q2 Ped Onco',
-        'نفرولوژی': '1403Q2 Nephro',
-        'نورولوژی شیمیایی': '1403Q2 Chem Neuro',
-        'کاردیو متابولیک': '1403Q2 Cardio-Metab',
-        'غدد': '1403Q2 Endo',
-        'مکمل': '1403Q2 Suppl',
-        'خود ایمنی و پوکی استخوان': '1403Q2 Autoimm & Osteo',
-        'ناباروری': '1403Q2 Infert',
-        'بیماری های عفونی و واکسن': '1403Q2 ID & Vacc',
-        'چشم': '1403Q2 Ophth',
-        'درمو کازمتیک': '1403Q2 Dermo',
+        "انکولوژی بیولوژیک": 'Bio Onco',
+        'انکولوژی شیمیایی': 'Chem Onco',
+        'رسپیراتوری': 'Resp',
+        'کانتراست مدیا': 'Contrast',
+        'زیبایی': 'Beaut',
+        'نورولوژی بیولوژیک': 'Bio Neuro',
+        'انکولوژی اطفال': 'Ped Onco',
+        'نفرولوژی': 'Nephro',
+        'نورولوژی شیمیایی': 'Chem Neuro',
+        'کاردیو متابولیک': 'Cardio-Metab',
+        'غدد': 'Endo',
+        'مکمل': 'Suppl',
+        'خود ایمنی و پوکی استخوان': 'Autoimm & Osteo',
+        'ناباروری': 'Infert',
+        'بیماری های عفونی و واکسن': 'ID & Vacc',
+        'چشم': 'Ophth',
+        'درمو کازمتیک': 'Dermo',
     }
+    # Add the qaurter information for each department name for later references
+    updated_dep_dict = {key: curr_qrt + '_' + value for key, value in dep_dict.items()}
+
     forecast_total_df_mod = pd.DataFrame(columns=headers)
     for product in products:
         sale_df = sale_df_total[sale_df_total['product'] == product]
         sale_mean = sale_df['sales'][-12:].mean()
         forecast = forecast_total_df[forecast_total_df['product']==product]
-        forecast = forecast.replace(forecast['forecast']<=0, sale_mean)
+        forecast.loc[forecast['forecast'] <= 0, 'forecast'] = sale_mean
         forecast_total_df_mod = pd.concat([forecast_total_df_mod,forecast])
 
-    pivot =forecast_total_df_mod[forecast_total_df_mod['date']>=140304].pivot_table(index=['product', 'dep'], columns='date', values='forecast').reset_index()
-    pivot['file_name'] = pivot.dep.map(dep_dict)
-    excel_manager = ExcelManager(directory="data/results/1403Q2")
+    pivot =forecast_total_df_mod[
+        forecast_total_df_mod['date'] >= 140304].pivot_table(
+            index=['product', 'dep'],
+            columns='date',
+            values='forecast',
+            ).reset_index()
+    
+    pivot['file_name'] = pivot.dep.map(updated_dep_dict)
+    excel_manager = ExcelManager(directory="data/results/1403Q1")
     # Call the function to append rows to Excel
     excel_manager.append_rows_to_excel(pivot)
     # Apply table formatting and adjust column widths to all files in the directory
