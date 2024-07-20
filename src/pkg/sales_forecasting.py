@@ -1,0 +1,82 @@
+import logging
+import pandas as pd
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
+from pkg.forecast import SalesForecast
+from pkg.utils import define_path, setup_forecast_file, update_department_info, replace_negative_sales, pivot_and_format_data, manage_excel
+
+class SalesForecasting:
+    def __init__(self, curr_qrt):
+        self.server = 'op-db1-srv'
+        self.database = 'DWOrchid'
+        self.curr_qrt = curr_qrt
+        self.forecasts = define_path(curr_qrt)
+        self.headers = ['product', 'product_fa', 'date', 'provider', 'model', 'dep', 'forecast']
+        logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
+        setup_forecast_file(self.forecasts, self.headers)
+
+    def load_sales_data(self):
+        query ="""
+            SELECT [ProductTitle] AS product_fa,
+            [ProductTitleEN] AS product,
+            [ShamsiYearMonth] AS date,
+            [Provider] AS provider,
+            [GenericField] AS dep,
+            sum([DQTY]) as sales
+            FROM [DWOrchid].[dbo].[Flat_Fact_Sale]
+            Group by [ProductTitle],
+            [ProductTitleEN],
+            [ShamsiYearMonth],
+            [Provider],
+            [GenericField]
+            """
+        connection_url = URL.create(
+            "mssql+pyodbc",
+            query={
+                "odbc_connect": f"DRIVER={{SQL Server}};SERVER={self.server};DATABASE={self.database};Trusted_Connection=yes;"
+            }
+        )
+        engine = create_engine(connection_url)
+        with engine.connect() as connection:
+            sale_df_total = pd.read_sql(query, connection)
+        return sale_df_total
+
+    def load_forecast_data(self):
+        return pd.read_csv(self.forecasts)
+
+    def process_sales_data(self, sale_df_total, forecast_df):
+        sale_df_total['date'] = sale_df_total['date'].astype(int)
+        products_fr = pd.unique(forecast_df['product'])
+        products = pd.unique(sale_df_total['product'])
+        sale_df_total.date += 62100
+
+        for product in products:
+            if product not in products_fr:
+                print(f'{product} is in progress!')
+                sale_df = sale_df_total[sale_df_total['product'] == product]
+                prod_fr = SalesForecast(product, sale_df, self.forecasts)
+                prod_fr.preprocess_data()
+                prod_fr.model_selection()
+                prod_fr.predict()
+                prod_fr.redistribute_smoothing()
+                prod_fr.save_csv()
+
+        forecast_total_df = pd.read_csv(self.forecasts)
+        return forecast_total_df
+
+    def run(self):
+        sale_df_total = self.load_sales_data()
+        forecast_df = self.load_forecast_data()
+
+        forecast_total_df = self.process_sales_data(sale_df_total, forecast_df)
+        updated_dep_dict = update_department_info(forecast_total_df, self.curr_qrt)
+
+        forecast_total_df['sales'] = forecast_total_df['forecast']
+        forecast_total_df['type'] = 'forecast'
+        sale_df_total['type'] = 'actual'
+
+        temp = pd.concat([sale_df_total, forecast_total_df])
+        forecast_total_df_mod = replace_negative_sales(temp)
+
+        pivot = pivot_and_format_data(forecast_total_df_mod, updated_dep_dict)
+        manage_excel(pivot, directory=f"data/results/{self.curr_qrt}")

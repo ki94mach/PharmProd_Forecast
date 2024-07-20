@@ -47,6 +47,8 @@ class SalesForecast:
         self.best_model_type = None 
         self.output = output
         self.dep = self.sale_df['dep'].unique()[0]
+        self.product_fa = self.sale_df['product_fa'].unique()[0]
+        self.provider = self.sale_df['provider'].unique()[0]
         logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
     def preprocess_data(self):
@@ -67,6 +69,7 @@ class SalesForecast:
         self.sale_df.loc[:, 'sales'] = pd.to_numeric(self.sale_df['sales'], 
                                                      errors='coerce')
         self.sale_df.loc[:, 'sales'] = self.sale_df['sales'].fillna(value=0)
+        self.sale_df = self.sale_df.drop_duplicates(subset='date')
         first_sale = self.sale_df[self.sale_df['sales'] > 5].index.min()
         if first_sale is not None:
             self.sale_df = self.sale_df.loc[first_sale:].reset_index(drop=True)
@@ -104,6 +107,7 @@ class SalesForecast:
                 prophet_train, prophet_test = self.prophet_df.iloc[:t].copy(), self.prophet_df.iloc[t:t+h].copy()
                 max_y = prophet_train['y'].max() * 1.2
                 min_y = prophet_train['y'].min() * 0.8
+                prophet_train = prophet_train.reset_index(drop=True)
                 prophet_train['cap'] = max_y
                 prophet_train['floor'] = min_y
 
@@ -380,9 +384,13 @@ class SalesForecast:
             forecast_date.append(int(str(i).replace("-", "")[:6])-62100)
         # Saving in a csv file
         self.forecast_df = pd.DataFrame(columns=[
-            'product', 'date', 'forecast', 'model'])
+            'product', 'product_fa', 'date',
+            'provider', 'model', 'dep', 'forecast'
+            ])
         self.forecast_df.date = forecast_date
         self.forecast_df['product'] = self.product
+        self.forecast_df['product_fa'] = self.product_fa
+        self.forecast_df['provider'] = self.provider
         self.forecast_df.forecast = self.forecast
         self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
         self.forecast_df['model'] = self.best_model_type
