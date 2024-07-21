@@ -150,8 +150,7 @@ class SalesForecast:
                                     changepoint_prior_scale=0.05,
                                     ).fit(prophet_train)
                     else:
-                        model = Prophet(growth='logistic',
-                                    changepoint_prior_scale=0.05).fit(prophet_train)
+                        model = Prophet(changepoint_prior_scale=0.05).fit(prophet_train)
                     future = model.make_future_dataframe(
                         periods=h, freq='M')
                     future['cap'] = max_y
@@ -186,8 +185,7 @@ class SalesForecast:
                 prediction = model.forecast(steps=len(test))
             
             elif model_type == 'Prophet':
-                model = Prophet(growth='logistic',
-                                changepoint_prior_scale=0.1,).fit(prophet_train)
+                model = Prophet(changepoint_prior_scale=0.1,).fit(prophet_train)
                 future = model.make_future_dataframe(
                     periods=len(test), freq='M')
                 future['cap'] = max_y
@@ -369,6 +367,18 @@ class SalesForecast:
         # Apply adjustments
         self.forecast = smoothed
 
+    def replace_negative_sales(self, series):
+        series.sort_index(inplace=True)
+        for i in range(len(series)):
+            if series.iloc[i] < 0:
+                # Get the past 12 months
+                past_12_months = series.iloc[max(0, i-12):i]
+                if len(past_12_months) > 0:
+                    avg_sales = past_12_months[past_12_months >= 0].mean()
+                    if not np.isnan(avg_sales):
+                        series.iloc[i] = int(avg_sales)
+        return series[-15:].values
+    
     def save_csv(self):
         """
         Converts back date to Jalali and saves the forecast mean in a csv file
@@ -382,7 +392,9 @@ class SalesForecast:
         forecast_date = []
         for i in self.forecast_index:
             forecast_date.append(int(str(i).replace("-", "")[:6])-62100)
-        # Saving in a csv file
+        
+        forecast_series = pd.Series(self.forecast, index=self.forecast_index)
+        
         self.forecast_df = pd.DataFrame(columns=[
             'product', 'product_fa', 'date',
             'provider', 'model', 'dep', 'forecast'
@@ -391,10 +403,11 @@ class SalesForecast:
         self.forecast_df['product'] = self.product
         self.forecast_df['product_fa'] = self.product_fa
         self.forecast_df['provider'] = self.provider
-        self.forecast_df.forecast = self.forecast
+        self.forecast_df.forecast = self.replace_negative_sales(pd.concat([forecast_series, self.sale_series]))
         self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
         self.forecast_df['model'] = self.best_model_type
         self.forecast_df['dep'] = self.dep
+
         self.forecast_df.to_csv(self.output, index=False, mode="a", header=False, encoding='utf-8-sig')
         print(f"{self.product} forecasting is done!")
         # return self.forecast_df

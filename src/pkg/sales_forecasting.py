@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
+from tqdm import tqdm
 from pkg.forecast import SalesForecast
 from pkg.utils import define_path, setup_forecast_file, update_department_info, replace_negative_sales, pivot_and_format_data, manage_excel
 
@@ -22,13 +23,15 @@ class SalesForecasting:
             [ShamsiYearMonth] AS date,
             [Provider] AS provider,
             [GenericField] AS dep,
-            sum([DQTY]) as sales
+            SUM([DQTY]) as sales
             FROM [DWOrchid].[dbo].[Flat_Fact_Sale]
-            Group by [ProductTitle],
+            WHERE ProductTitleEN IS NOT NULL
+            GROUP BY [ProductTitle],
             [ProductTitleEN],
             [ShamsiYearMonth],
             [Provider],
             [GenericField]
+            ORDER BY [ProductTitleEn], [ShamsiYearMonth]
             """
         connection_url = URL.create(
             "mssql+pyodbc",
@@ -50,12 +53,14 @@ class SalesForecasting:
         products = pd.unique(sale_df_total['product'])
         sale_df_total.date += 62100
 
-        for product in products:
+        for product in tqdm(products, desc="Processing products", unit="product"):
             if product not in products_fr:
                 print(f'{product} is in progress!')
                 sale_df = sale_df_total[sale_df_total['product'] == product]
                 prod_fr = SalesForecast(product, sale_df, self.forecasts)
                 prod_fr.preprocess_data()
+                if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all():
+                    continue
                 prod_fr.model_selection()
                 prod_fr.predict()
                 prod_fr.redistribute_smoothing()
@@ -75,8 +80,8 @@ class SalesForecasting:
         forecast_total_df['type'] = 'forecast'
         sale_df_total['type'] = 'actual'
 
-        temp = pd.concat([sale_df_total, forecast_total_df])
-        forecast_total_df_mod = replace_negative_sales(temp)
+        # temp = pd.concat([sale_df_total, forecast_total_df])
+        # forecast_total_df_mod = replace_negative_sales(temp)
 
-        pivot = pivot_and_format_data(forecast_total_df_mod, updated_dep_dict)
+        pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict)
         manage_excel(pivot, directory=f"data/results/{self.curr_qrt}")
