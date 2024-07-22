@@ -61,7 +61,7 @@ def replace_negative_sales(df):
 def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_start_date):
     pivot = forecast_total_df_mod[
         forecast_total_df_mod['date'] >= forecast_start_date].pivot_table(
-            index=['product', 'dep', 'provider', 'status'],
+            index=['product_fa', 'dep', 'provider', 'status'],
             columns='date',
             values='sales',
         ).reset_index()

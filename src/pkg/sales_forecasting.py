@@ -57,23 +57,29 @@ class SalesForecasting:
         sale_df_total.date += 62100
 
         for product in tqdm(products, desc="Processing products", unit="product"):
-            if product not in products_fr:
-                print(f'\n{product} is in progress!')
-                sale_df = sale_df_total[sale_df_total['product'] == product]
-                prod_fr = SalesForecast(product, sale_df, self.forecasts)
-                prod_fr.preprocess_data()
-                if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all() | (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01')):
+                if product not in products_fr:
+                    print(f'\n{product} is in progress!')
+                    sale_df = sale_df_total[sale_df_total['product'] == product]
+                    prod_fr = SalesForecast(product, sale_df, self.forecasts)
+
+                    prod_fr.preprocess_data()
+                    if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all() | (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01')):
+                        continue
+                    if (len(prod_fr.sale_series) < 4):
+                        prod_fr.forecast = np.zeros(15)
+                        prod_fr.save_csv()
+                        continue
+                    prod_fr.model_selection()
+                    try:
+                        prod_fr.predict()
+                        prod_fr.redistribute_smoothing()
+                        prod_fr.save_csv()
+                    except ValueError:
+                        prod_fr.forecast = np.zeros(15)
+                        prod_fr.save_csv()
+                        continue    
+                else:
                     continue
-                if (len(prod_fr.sale_series) < 4):
-                    prod_fr.forecast = np.zeros(15)
-                    prod_fr.save_csv()
-                    continue
-                prod_fr.model_selection()
-                prod_fr.predict()
-                prod_fr.redistribute_smoothing()
-                prod_fr.save_csv()
-            else:
-                continue
 
         forecast_total_df = pd.read_csv(self.forecasts)
         return forecast_total_df
@@ -83,7 +89,7 @@ class SalesForecasting:
         forecast_df = self.load_forecast_data()
 
         forecast_total_df = self.process_sales_data(sale_df_total, forecast_df)
-        updated_dep_dict = update_department_info(forecast_total_df, self.curr_qrt)
+        updated_dep_dict = update_department_info( self.curr_qrt)
 
         forecast_total_df['sales'] = forecast_total_df['forecast']
         forecast_total_df['type'] = 'forecast'
