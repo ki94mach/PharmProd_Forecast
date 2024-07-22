@@ -1,10 +1,11 @@
 import logging
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from tqdm import tqdm
 from pkg.forecast import SalesForecast
-from pkg.utils import define_path, setup_forecast_file, update_department_info, replace_negative_sales, pivot_and_format_data, manage_excel
+from pkg.utils import define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
 
 class SalesForecasting:
     def __init__(self, curr_qrt):
@@ -12,7 +13,7 @@ class SalesForecasting:
         self.database = 'DWOrchid'
         self.curr_qrt = curr_qrt
         self.forecasts = define_path(curr_qrt)
-        self.headers = ['product', 'product_fa', 'date', 'provider', 'model', 'dep', 'forecast']
+        self.headers = ['product', 'product_fa', 'date', 'provider', 'model', 'dep', 'status', 'forecast']
         logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
         setup_forecast_file(self.forecasts, self.headers)
 
@@ -23,15 +24,17 @@ class SalesForecasting:
             [ShamsiYearMonth] AS date,
             [Provider] AS provider,
             [GenericField] AS dep,
+            [mappedBoxQuantity] AS boxq,
             SUM([DQTY]) as sales
             FROM [DWOrchid].[dbo].[Flat_Fact_Sale]
-            WHERE ProductTitleEN IS NOT NULL
+            WHERE ProductTitleEN IS NOT NULL AND [GenericField] != '-'
             GROUP BY [ProductTitle],
             [ProductTitleEN],
             [ShamsiYearMonth],
             [Provider],
-            [GenericField]
-            ORDER BY [ProductTitleEn], [ShamsiYearMonth]
+            [GenericField],
+            [mappedBoxQuantity]
+            ORDER BY [ProductTitleEn], [ShamsiYearMonth], sales Desc
             """
         connection_url = URL.create(
             "mssql+pyodbc",
@@ -55,21 +58,27 @@ class SalesForecasting:
 
         for product in tqdm(products, desc="Processing products", unit="product"):
             if product not in products_fr:
-                print(f'{product} is in progress!')
+                print(f'\n{product} is in progress!')
                 sale_df = sale_df_total[sale_df_total['product'] == product]
                 prod_fr = SalesForecast(product, sale_df, self.forecasts)
                 prod_fr.preprocess_data()
-                if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all():
+                if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all() | (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01')):
+                    continue
+                if (len(prod_fr.sale_series) < 4):
+                    prod_fr.forecast = np.zeros(15)
+                    prod_fr.save_csv()
                     continue
                 prod_fr.model_selection()
                 prod_fr.predict()
                 prod_fr.redistribute_smoothing()
                 prod_fr.save_csv()
+            else:
+                continue
 
         forecast_total_df = pd.read_csv(self.forecasts)
         return forecast_total_df
 
-    def run(self):
+    def run(self, forecast_start_date):
         sale_df_total = self.load_sales_data()
         forecast_df = self.load_forecast_data()
 
@@ -83,5 +92,5 @@ class SalesForecasting:
         # temp = pd.concat([sale_df_total, forecast_total_df])
         # forecast_total_df_mod = replace_negative_sales(temp)
 
-        pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict)
+        pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
         manage_excel(pivot, directory=f"data/results/{self.curr_qrt}")

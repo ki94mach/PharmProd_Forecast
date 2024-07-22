@@ -46,9 +46,15 @@ class SalesForecast:
         self.forecast = None
         self.best_model_type = None 
         self.output = output
-        self.dep = self.sale_df['dep'].unique()[0]
-        self.product_fa = self.sale_df['product_fa'].unique()[0]
-        self.provider = self.sale_df['provider'].unique()[0]
+        self.dep = self.sale_df['dep'].unique()[-1]
+        self.product_fa = self.sale_df['product_fa'].unique()[-1]
+        self.provider = self.sale_df['provider'].unique()[-1]
+        boxq_ser = pd.Series(self.sale_df['boxq'])
+        boxq_ser.dropna(inplace=True)
+        if boxq_ser.iat[-1] == 1:
+            self.status = "بسته"
+        else:
+            self.status = "عدد"
         logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
     def preprocess_data(self):
@@ -105,6 +111,8 @@ class SalesForecast:
             for t in range(size, len(self.sale_series) - h + 1):
                 train, test = self.sale_series[:t].copy(), self.sale_series[t:t+h].copy()
                 prophet_train, prophet_test = self.prophet_df.iloc[:t].copy(), self.prophet_df.iloc[t:t+h].copy()
+                if prophet_train.empty or prophet_test.empty or train.empty:
+                    continue
                 max_y = prophet_train['y'].max() * 1.2
                 min_y = prophet_train['y'].min() * 0.8
                 prophet_train = prophet_train.reset_index(drop=True)
@@ -170,6 +178,7 @@ class SalesForecast:
             prophet_train, prophet_test = self.prophet_df.iloc[:size].copy(), self.prophet_df.iloc[size:].copy()
             max_y = prophet_train['y'].max() * 1.2
             min_y = prophet_train['y'].min() * 0.8
+
             prophet_train.loc[:, 'cap'] = max_y
             prophet_train.loc[:, 'floor'] = min_y 
             if model_type == 'ARIMA':
@@ -397,17 +406,17 @@ class SalesForecast:
         
         self.forecast_df = pd.DataFrame(columns=[
             'product', 'product_fa', 'date',
-            'provider', 'model', 'dep', 'forecast'
+            'provider', 'model', 'dep', 'status', 'forecast'
             ])
         self.forecast_df.date = forecast_date
         self.forecast_df['product'] = self.product
         self.forecast_df['product_fa'] = self.product_fa
         self.forecast_df['provider'] = self.provider
-        self.forecast_df.forecast = self.replace_negative_sales(pd.concat([forecast_series, self.sale_series]))
-        self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
         self.forecast_df['model'] = self.best_model_type
         self.forecast_df['dep'] = self.dep
-
+        self.forecast_df['status'] = self.status
+        self.forecast_df.forecast = self.replace_negative_sales(pd.concat([forecast_series, self.sale_series]))
+        self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
         self.forecast_df.to_csv(self.output, index=False, mode="a", header=False, encoding='utf-8-sig')
         print(f"{self.product} forecasting is done!")
         # return self.forecast_df

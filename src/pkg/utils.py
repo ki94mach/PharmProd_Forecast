@@ -58,9 +58,9 @@ def replace_negative_sales(df):
     df['date'] = df['date'].apply(lambda x: int(str(x).replace('-', '')[:6]) - 62100)
     return df[df['type'] == 'forecast']
 
-def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict):
+def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_start_date):
     pivot = forecast_total_df_mod[
-        forecast_total_df_mod['date'] >= 140305].pivot_table(
+        forecast_total_df_mod['date'] >= forecast_start_date].pivot_table(
             index=['product', 'dep', 'provider', 'status'],
             columns='date',
             values='sales',
