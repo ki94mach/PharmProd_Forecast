@@ -50,11 +50,8 @@ class SalesForecast:
         self.product_fa = self.sale_df['product_fa'].unique()[-1]
         self.provider = self.sale_df['provider'].unique()[-1]
         boxq_ser = pd.Series(self.sale_df['boxq'])
-        boxq_ser.dropna(inplace=True)
-        if boxq_ser.iat[-1] == 1:
-            self.status = "بسته"
-        else:
-            self.status = "عدد"
+        boxq_ser.dropna(inplace=True) 
+        self.status = "بسته" if boxq_ser.iat[-1] == 1 else "عدد"
         logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
     def preprocess_data(self):
