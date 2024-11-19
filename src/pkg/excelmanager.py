@@ -12,7 +12,7 @@ class ExcelManager:
             # Create a new workbook and setup headers
             workbook = Workbook()
             sheet = workbook.active
-            sheet.title = "Sheet1"
+            sheet.title = "Sales"
             # Write headers
             for i, col in enumerate(df_columns, start=1):
                 sheet.cell(row=1, column=i, value=str(col))
@@ -29,6 +29,7 @@ class ExcelManager:
             for file in files:
                 if file.endswith(".xlsx"):
                     file_path = os.path.join(root, file)
+                    self.duplicate_sheet_with_zeros(file_path)
                     self.apply_table_formatting_and_adjust_columns(file_path)
 
     def column_number_to_letter(self, n):
@@ -41,41 +42,45 @@ class ExcelManager:
 
     def apply_table_formatting_and_adjust_columns(self, file_name):
         book = load_workbook(file_name)
-        sheet = book['Sheet1']
-        
-        # Determine the range for the table
-        end_row = sheet.max_row
-        end_column = sheet.max_column
-        end_column_letter = self.column_number_to_letter(end_column)
-        table_range = f"A1:{end_column_letter}{end_row}"
-        
-        # Create a table
-        try:
-            table = Table(displayName="Table1", ref=table_range)
-            # Add a default style with striped rows
-            style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                                   showLastColumn=False, showRowStripes=True, showColumnStripes=True)
-            table.tableStyleInfo = style
-            # Add the table to the sheet
-            sheet.add_table(table)
-        except ValueError as e:
-            print(f"Error creating table for range {table_range}: {e}")
-            return
-        
-        # Adjust column widths
-        for col in sheet.columns:
-            max_length = 0
-            column = col[0].column_letter  # Get the column name
-            for cell in col:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            sheet.column_dimensions[column].width = adjusted_width
+        sheets = {'Sales': 'Table1',
+                  'Sample': 'Table2',
+                  'Demo': 'Table3'}
+        for sheet, table_name in sheets.items():
+            sheet = book[sheet]
+            
+            # Determine the range for the table
+            end_row = sheet.max_row
+            end_column = sheet.max_column
+            end_column_letter = self.column_number_to_letter(end_column)
+            table_range = f"A1:{end_column_letter}{end_row}"
+            
+            # Create a table
+            try:
+                table = Table(displayName=table_name, ref=table_range)
+                # Add a default style with striped rows
+                style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
+                                    showLastColumn=False, showRowStripes=True, showColumnStripes=True)
+                table.tableStyleInfo = style
+                # Add the table to the sheet
+                sheet.add_table(table)
+            except ValueError as e:
+                print(f"Error creating table for range {table_range}: {e}")
+                return
+            
+            # Adjust column widths
+            for col in sheet.columns:
+                max_length = 0
+                column = col[0].column_letter  # Get the column name
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                sheet.column_dimensions[column].width = adjusted_width
 
-        book.save(file_name)
+            book.save(file_name)
 
 
     def append_rows_to_excel(self, pivot):
@@ -91,13 +96,33 @@ class ExcelManager:
                 row_df = pd.DataFrame([row[:-1]])
                 try:
                     book = load_workbook(file_path)
-                    sheet = book['Sheet1']
+                    sheet = book['Sales']
                     start_row = sheet.max_row
                 except Exception:
                     start_row = 2
                     book = writer.book
                     sheet = book.active
-                row_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
+                row_df.to_excel(writer, index=False, header=False,
+                                startrow=start_row, sheet_name='Sales')
                 # Save the workbook
                 book.save(file_path)
+
+    def duplicate_sheet_with_zeros(self, file_name):
+        # Load the workbook and the sheet to be duplicated
+        workbook = load_workbook(file_name)
+        original_sheet = workbook['Sales']
+
+        # Duplicate the sheet twice
+        for sheet_name in ['Sample', 'Demo']:
+            new_sheet = workbook.copy_worksheet(original_sheet)
+            new_sheet.title = f"{sheet_name}"
+
+            # Set all cell values to zero
+            for row in new_sheet.iter_rows(min_row=2, max_row=new_sheet.max_row,
+                                           min_col=5, max_col=new_sheet.max_column):
+                for cell in row:
+                    cell.value = 0
+
+        # Save the workbook
+        workbook.save(file_name)
                     

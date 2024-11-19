@@ -50,7 +50,7 @@ class SalesForecasting:
     def load_forecast_data(self):
         return pd.read_csv(self.forecasts)
 
-    def process_sales_data(self, sale_df_total, forecast_df):
+    def process_sales_data(self, sale_df_total, forecast_df, forecast_start_date):
         sale_df_total['date'] = sale_df_total['date'].astype(int)
         products_fr = pd.unique(forecast_df['product'])
         products = pd.unique(sale_df_total['product'])
@@ -62,13 +62,26 @@ class SalesForecasting:
                     sale_df = sale_df_total[sale_df_total['product'] == product]
                     prod_fr = SalesForecast(product, sale_df, self.forecasts)
 
-                    prod_fr.preprocess_data()
-                    if (prod_fr.sale_series == 0).all() | (prod_fr.prophet_df['y'] == 0).all() | (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01')):
+                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz"]):
+                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
+                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
+                        prod_fr.forecast = np.zeros(15)
+                        prod_fr.save_csv()
                         continue
+
+                    prod_fr.preprocess_data()
+
+                    if (
+                        (prod_fr.sale_series == 0).all() | 
+                        (prod_fr.prophet_df['y'] == 0).all() | 
+                        (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01'))):
+                        continue
+
                     if (len(prod_fr.sale_series) < 4):
                         prod_fr.forecast = np.zeros(15)
                         prod_fr.save_csv()
                         continue
+
                     prod_fr.model_selection()
                     try:
                         prod_fr.predict()
@@ -88,7 +101,7 @@ class SalesForecasting:
         sale_df_total = self.load_sales_data()
         forecast_df = self.load_forecast_data()
 
-        forecast_total_df = self.process_sales_data(sale_df_total, forecast_df)
+        forecast_total_df = self.process_sales_data(sale_df_total, forecast_df, forecast_start_date)
         updated_dep_dict = update_department_info( self.curr_qrt)
 
         forecast_total_df['sales'] = forecast_total_df['forecast']
