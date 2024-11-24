@@ -22,7 +22,7 @@ class SalesForecasting:
             SELECT [ProductTitle] AS product_fa,
             [ProductTitleEN] AS product,
             [ShamsiYearMonth] AS date,
-            [Provider] AS provider,
+            [GenericProvider] AS provider,
             [GenericField] AS dep,
             [mappedBoxQuantity] AS boxq,
             SUM([DQTY]) as sales
@@ -31,7 +31,7 @@ class SalesForecasting:
             GROUP BY [ProductTitle],
             [ProductTitleEN],
             [ShamsiYearMonth],
-            [Provider],
+            [GenericProvider],
             [GenericField],
             [mappedBoxQuantity]
             ORDER BY [ProductTitleEn], [ShamsiYearMonth], sales Desc

@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.styles import Protection, NamedStyle
 
 class ExcelManager:
     def __init__(self, directory):
@@ -31,6 +32,8 @@ class ExcelManager:
                     file_path = os.path.join(root, file)
                     self.duplicate_sheet_with_zeros(file_path)
                     self.apply_table_formatting_and_adjust_columns(file_path)
+                    self.apply_number_format(file_path)
+                    self.lock_columns(file_path, "007006")
 
     def column_number_to_letter(self, n):
         """Convert a column number (e.g., 1) to a column letter (e.g., 'A')."""
@@ -124,5 +127,40 @@ class ExcelManager:
                     cell.value = 0
 
         # Save the workbook
+        workbook.save(file_name)
+
+    def lock_columns(self, file_name, password):
+        """Lock the first four columns of all sheets with a password."""
+        workbook = load_workbook(file_name)
+
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+            for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
+                for cell in row:
+                    cell.protection = Protection(locked=False)
+            # Lock the first four columns
+            for col in range(1, 5):  # Columns A, B, C, D
+                for row in sheet.iter_rows(min_col=col, max_col=col, min_row=1, max_row=sheet.max_row):
+                    for cell in row:
+                        cell.protection = Protection(locked=True)
+            sheet.protection.set_password(password)
+        workbook.save(file_name)
+
+    def apply_number_format(self, file_name):
+        """Apply a number format with a separator from column E to S."""
+        workbook = load_workbook(file_name)
+
+        # Create a custom number format style
+        number_style = NamedStyle(name="number_style", number_format="#,##0")
+
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+
+            # Apply number format to columns D to S
+            for col in range(5, 20):  # Columns D (4) to S (19)
+                for row in sheet.iter_rows(min_col=col, max_col=col, min_row=2, max_row=sheet.max_row):
+                    for cell in row:
+                        if isinstance(cell.value, (int, float)):
+                            cell.style = number_style
         workbook.save(file_name)
                     
