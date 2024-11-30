@@ -1,3 +1,5 @@
 src/data
 src/test.ipynb
 src/pkg/sales_forecasting.py
+src/__pycache__
+.\src\__pycache__\*
