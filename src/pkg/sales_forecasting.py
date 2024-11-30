@@ -140,4 +140,4 @@ class SalesForecasting:
 
         pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
         updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
-        manage_excel(updated_pivot, directory=f"data/results/{self.curr_qrt}")
+        manage_excel(updated_pivot, f"data/results/{self.curr_qrt}", self.curr_qrt)

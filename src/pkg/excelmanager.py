@@ -163,4 +163,10 @@ class ExcelManager:
                         if isinstance(cell.value, (int, float)):
                             cell.style = number_style
         workbook.save(file_name)
-                    
+    
+    def summary_export(self, pivot, curr_qrt):
+        check_columns = ['product_fa', 'dep', 'provider', 'status']
+        summary_data = pivot[check_columns]
+        file_path = os.path.join(self.directory, f'{curr_qrt}_total_summary.xlsx')
+        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+            summary_data.to_excel(writer, index=False, sheet_name='summary')
