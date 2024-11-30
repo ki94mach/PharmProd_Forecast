@@ -58,8 +58,11 @@ class SalesForecast:
         self.product_fa = self.sale_df['product_fa'].unique()[-1]
         self.provider = self.sale_df['provider'].unique()[-1]
         boxq_ser = pd.Series(self.sale_df['boxq'])
-        boxq_ser.dropna(inplace=True) 
-        self.status = "بسته" if boxq_ser.iat[-1] == 1 else "عدد"
+        boxq_ser.dropna(inplace=True)
+        if product == 'Zytux 100':
+            self.status = 'بسته'
+        else:
+            self.status = "بسته" if boxq_ser.eq(1).all() else "عدد"
         self.scaler_minmax = MinMaxScaler(feature_range=(0, 1))
         self.transformer_yeo = PowerTransformer(method='yeo-johnson')
         self.trans_flag = 0
@@ -532,7 +535,7 @@ class SalesForecast:
         self.forecast_df['model'] = self.best_model_type
         self.forecast_df['dep'] = self.dep
         self.forecast_df['status'] = self.status
-        if self.product not in ['Solariba', 'Suliba 100', 'Tabinoz']:
+        if self.product not in ['Solariba', 'Suliba 100', 'Tabinoz', 'Dasamed 140', 'Neofolia', 'Parzino 100']:
             self.forecast_df.forecast = self.replace_negative_sales(
                 pd.concat(
                     [forecast_series, 

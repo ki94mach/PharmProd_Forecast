@@ -62,7 +62,7 @@ class SalesForecasting:
                     sale_df = sale_df_total[sale_df_total['product'] == product]
                     prod_fr = SalesForecast(product, sale_df, self.forecasts)
 
-                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz"]):
+                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz", 'Dasamed 140', 'Neofolia', 'Parzino 100']):
                         strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
                         prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
                         prod_fr.forecast = np.zeros(15)
@@ -97,6 +97,33 @@ class SalesForecasting:
         forecast_total_df = pd.read_csv(self.forecasts)
         return forecast_total_df
 
+    def append_pipeline(self, pivot, updated_dep_dict):
+
+        file_path = f'data/pipeline/{self.curr_qrt}/{self.curr_qrt}_pipeline.xlsx'
+        pipeline_df = pd.read_excel(file_path)
+        required_columns = {'product_fa', 'provider', 'dep'}
+        if not required_columns.issubset(pipeline_df.columns):
+            raise ValueError(f'Excel file must contain the following columns: \n{required_columns}')
+        
+        pipeline_df['file_name'] = pipeline_df.dep.map(updated_dep_dict)
+        if pipeline_df['file_name'].isnull().any():
+            raise ValueError('Some departments in the pipeline file are not found in department dictionary.')
+        pipeline_records = []
+        for _, row in pipeline_df.iterrows():
+            record = {
+                'product_fa': row['product_fa'],
+                'dep': row['dep'],
+                'provider': row['provider'],
+                'status': 'عدد',
+                'file_name': row['file_name'],
+            }
+            pipeline_records.append(record)
+        
+        pipeline_pivot = pd.DataFrame(pipeline_records)
+        aligned_pipe_piv = pipeline_pivot.reindex(columns=pivot.columns, fill_value=0)
+        updated_pivot = pd.concat([pivot, aligned_pipe_piv], ignore_index=True)
+        return updated_pivot
+
     def run(self, forecast_start_date):
         sale_df_total = self.load_sales_data()
         forecast_df = self.load_forecast_data()
@@ -112,4 +139,5 @@ class SalesForecasting:
         # forecast_total_df_mod = replace_negative_sales(temp)
 
         pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
-        manage_excel(pivot, directory=f"data/results/{self.curr_qrt}")
+        updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
+        manage_excel(updated_pivot, f"data/results/{self.curr_qrt}", self.curr_qrt)
