@@ -26,7 +26,7 @@ class SalesForecasting:
             [GenericField] AS dep,
             [mappedBoxQuantity] AS boxq,
             SUM([DQTY]) as sales
-            FROM [DWOrchid].[dbo].[Flat_Fact_Sale]
+            FROM [DWOrchid].[dbo].[Flat_Fact_Sale] WITH (NOLOCK)
             WHERE ProductTitleEN IS NOT NULL AND [GenericField] != '-'
             GROUP BY [ProductTitle],
             [ProductTitleEN],
@@ -61,6 +61,17 @@ class SalesForecasting:
                     print(f'\n{product} is in progress!')
                     sale_df = sale_df_total[sale_df_total['product'] == product]
                     prod_fr = SalesForecast(product, sale_df, self.forecasts)
+
+                    #To create a template with zero value for all forecasts
+                    # strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
+                    # prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
+                    # prod_fr.forecast = np.zeros(15)
+                    # if len(prod_fr.sale_df) > 1:
+                    #     prod_fr.sale_series = np.zeros(len(prod_fr.sale_df) - 1)
+                    # else:
+                    #     prod_fr.sale_series = np.array([])
+                    # prod_fr.save_csv()
+
 
                     if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz", 'Dasamed 140', 'Neofolia', 'Parzino 100']):
                         strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
@@ -139,5 +150,5 @@ class SalesForecasting:
         # forecast_total_df_mod = replace_negative_sales(temp)
 
         pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
-        updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
-        manage_excel(updated_pivot, f"data/results/{self.curr_qrt}", self.curr_qrt)
+        # updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
+        manage_excel(pivot, f"data/results/{self.curr_qrt}", self.curr_qrt)

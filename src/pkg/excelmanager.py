@@ -46,8 +46,10 @@ class ExcelManager:
     def apply_table_formatting_and_adjust_columns(self, file_name):
         book = load_workbook(file_name)
         sheets = {'Sales': 'Table1',
-                  'Sample': 'Table2',
-                  'Demo': 'Table3'}
+                  'Pipeline': 'Table2',
+                #   'Sample': 'Table2',
+                #   'Demo': 'Table3'
+                }
         for sheet, table_name in sheets.items():
             sheet = book[sheet]
             
@@ -113,18 +115,29 @@ class ExcelManager:
     def duplicate_sheet_with_zeros(self, file_name):
         # Load the workbook and the sheet to be duplicated
         workbook = load_workbook(file_name)
+        if 'Pipeline' in workbook.sheetnames:
+            del workbook['Pipeline']
         original_sheet = workbook['Sales']
 
         # Duplicate the sheet twice
-        for sheet_name in ['Sample', 'Demo']:
+        for sheet_name in [
+            'Pipeline',
+            # 'Sample', 'Demo'
+            ]:
             new_sheet = workbook.copy_worksheet(original_sheet)
             new_sheet.title = f"{sheet_name}"
-
+            if sheet_name == "Pipeline":
+                # Delete all rows from row 2 downwards
+                new_sheet.delete_rows(2, new_sheet.max_row)
+                # Insert a single blank row at row 2
+                new_sheet.insert_rows(2)
+                new_sheet.cell(row=2, column=1, value="a")
+            else:
             # Set all cell values to zero
-            for row in new_sheet.iter_rows(min_row=2, max_row=new_sheet.max_row,
-                                           min_col=5, max_col=new_sheet.max_column):
-                for cell in row:
-                    cell.value = 0
+                for row in new_sheet.iter_rows(min_row=2, max_row=new_sheet.max_row,
+                                            min_col=5, max_col=new_sheet.max_column):
+                    for cell in row:
+                        cell.value = 0
 
         # Save the workbook
         workbook.save(file_name)
@@ -134,6 +147,8 @@ class ExcelManager:
         workbook = load_workbook(file_name)
 
         for sheet_name in workbook.sheetnames:
+            if sheet_name == 'Pipeline':
+                continue
             sheet = workbook[sheet_name]
             for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
                 for cell in row:
