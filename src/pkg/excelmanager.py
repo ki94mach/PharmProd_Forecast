@@ -3,6 +3,7 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.styles import Protection, NamedStyle
+from openpyxl.worksheet.protection import SheetProtection
 
 class ExcelManager:
     def __init__(self, directory):
@@ -143,22 +144,40 @@ class ExcelManager:
         workbook.save(file_name)
 
     def lock_columns(self, file_name, password):
-        """Lock the first four columns of all sheets with a password."""
+        """Lock the first four columns of all sheets (except 'Pipeline') with a password,
+           but preserve any existing Excel Tables & their AutoFilter arrows."""
         workbook = load_workbook(file_name)
 
         for sheet_name in workbook.sheetnames:
             if sheet_name == 'Pipeline':
                 continue
             sheet = workbook[sheet_name]
-            for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
+
+            # Unlock every cell
+            for row in sheet.iter_rows(min_row=1,
+                                       max_row=sheet.max_row,
+                                       min_col=1,
+                                       max_col=sheet.max_column):
                 for cell in row:
                     cell.protection = Protection(locked=False)
-            # Lock the first four columns
-            for col in range(1, 5):  # Columns A, B, C, D
-                for row in sheet.iter_rows(min_col=col, max_col=col, min_row=1, max_row=sheet.max_row):
-                    for cell in row:
-                        cell.protection = Protection(locked=True)
-            sheet.protection.set_password(password)
+
+            # Lock only cols A–D
+            for col_idx in range(1, 5):
+                for cell in sheet.iter_cols(min_col=col_idx,
+                                            max_col=col_idx,
+                                            min_row=1,
+                                            max_row=sheet.max_row,
+                                            values_only=False):
+                    for c in cell:
+                        c.protection = Protection(locked=True)
+            # Protect the sheet—but *only* lock the locked cells.
+            sheet.protection = SheetProtection(
+                password=password,
+                sheet=True,
+                sort=False,
+                autoFilter=False,
+            )
+
         workbook.save(file_name)
 
     def apply_number_format(self, file_name):
