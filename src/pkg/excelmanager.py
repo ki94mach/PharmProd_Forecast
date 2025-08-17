@@ -7,8 +7,9 @@ from openpyxl.worksheet.protection import SheetProtection
 from openpyxl.workbook.protection import WorkbookProtection  
 
 class ExcelManager:
-    def __init__(self, directory):
+    def __init__(self, directory, pipeline_file_path=None):
         self.directory = directory
+        self.pipeline_file_path = pipeline_file_path
 
     def setup_excel_writer(self, file_name, df_columns):
         if not os.path.exists(file_name):
@@ -27,6 +28,14 @@ class ExcelManager:
         return writer
 
     def apply_formatting_to_all_files(self):
+        # First, load the pipeline data if available
+        pipeline_data = None
+        if self.pipeline_file_path and os.path.exists(self.pipeline_file_path):
+            try:
+                pipeline_data = pd.read_excel(self.pipeline_file_path)
+            except Exception as e:
+                print(f"Error reading pipeline file: {e}")
+
         # Iterate over all files in the directory
         for root, dirs, files in os.walk(self.directory):
             for file in files:
@@ -34,6 +43,8 @@ class ExcelManager:
                     file_path = os.path.join(root, file)
                     self.add_empty_columns(file_path)
                     self.duplicate_sheet_with_zeros(file_path)
+                    if pipeline_data is not None:
+                        self.add_pipeline_data_to_file(file_path, pipeline_data)
                     self.apply_table_formatting_and_adjust_columns(file_path)
                     self.apply_number_format(file_path)
                     self.lock_columns(file_path, "007006")
@@ -244,3 +255,90 @@ class ExcelManager:
         file_path = os.path.join(self.directory, f'{curr_qrt}_total_summary.xlsx')
         with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
             summary_data.to_excel(writer, index=False, sheet_name='summary')
+
+    def add_pipeline_data_to_file(self, file_path, pipeline_data):
+        """Add pipeline data to the Pipeline sheet based on department matching."""
+        try:
+            workbook = load_workbook(file_path)
+            
+            # Get the department from the Sales sheet
+            if 'Sales' not in workbook.sheetnames:
+                print(f"No Sales sheet found in {file_path}")
+                return
+            
+            sales_sheet = workbook['Sales']
+            
+            # Find the department column
+            dep_col_index = None
+            for idx, cell in enumerate(sales_sheet[1], start=1):
+                if cell.value and str(cell.value).lower() == 'dep':
+                    dep_col_index = idx
+                    break
+            
+            if dep_col_index is None:
+                print(f"No 'dep' column found in {file_path}")
+                return
+            
+            # Get the department value (assuming it's consistent across all rows)
+            department = None
+            for row in sales_sheet.iter_rows(min_row=2, max_row=sales_sheet.max_row, 
+                                            min_col=dep_col_index, max_col=dep_col_index):
+                if row[0].value:
+                    department = str(row[0].value).strip()
+                    break
+            
+            if department is None:
+                print(f"No department value found in {file_path}")
+                return
+            
+            # Filter pipeline data for this department
+            if 'dep' in pipeline_data.columns:
+                dept_pipeline_data = pipeline_data[pipeline_data['dep'].astype(str).str.strip() == department].copy()
+            else:
+                print(f"No 'dep' column found in pipeline data")
+                return
+            
+            if dept_pipeline_data.empty:
+                print(f"No pipeline data found for file: {file_path}")
+                return
+            
+            # Write to Pipeline sheet
+            if 'Pipeline' in workbook.sheetnames:
+                pipeline_sheet = workbook['Pipeline']
+                
+                # Get headers from Sales sheet to maintain column order
+                sales_headers = []
+                for cell in sales_sheet[1]:
+                    if cell.value:
+                        sales_headers.append(str(cell.value))
+                
+                # Clear existing data (except headers)
+                pipeline_sheet.delete_rows(2, pipeline_sheet.max_row)
+                
+                # Write headers if not present
+                for idx, header in enumerate(sales_headers, start=1):
+                    pipeline_sheet.cell(row=1, column=idx, value=header)
+                
+                # Reorder pipeline data columns to match sales headers
+                available_columns = [col for col in sales_headers if col in dept_pipeline_data.columns]
+                dept_pipeline_data_ordered = dept_pipeline_data[available_columns]
+                
+                # Write data starting from row 2
+                for row_idx, (_, row) in enumerate(dept_pipeline_data_ordered.iterrows(), start=2):
+                    for col_idx, header in enumerate(sales_headers, start=1):
+                        if header in dept_pipeline_data_ordered.columns:
+                            value = row[header]
+                            # Handle NaN values
+                            if pd.isna(value):
+                                value = ""
+                            pipeline_sheet.cell(row=row_idx, column=col_idx, value=value)
+                        else:
+                            # For columns not in pipeline data, leave empty
+                            pipeline_sheet.cell(row=row_idx, column=col_idx, value="")
+                
+                print(f"Added {len(dept_pipeline_data)} pipeline records to {file_path}")
+            
+            workbook.save(file_path)
+            
+        except Exception as e:
+            print(f"Error adding pipeline data to {file_path}: {e}")

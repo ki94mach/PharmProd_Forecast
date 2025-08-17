@@ -70,7 +70,10 @@ def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_star
     return pivot
 
 def manage_excel(pivot, directory, curr_qrt):
-    excel_manager = ExcelManager(directory=directory)
+    excel_manager = ExcelManager(
+        directory=directory,
+        pipeline_file_path=f'data/pipeline/{curr_qrt}/{curr_qrt}_pipeline.xlsx',
+    )
     excel_manager.append_rows_to_excel(pivot)
     excel_manager.apply_formatting_to_all_files()
     excel_manager.summary_export(pivot, curr_qrt)
