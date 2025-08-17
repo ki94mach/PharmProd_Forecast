@@ -73,7 +73,7 @@ class SalesForecasting:
                     # prod_fr.save_csv()
 
 
-                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz", 'Dasamed 140', 'Neofolia', 'Parzino 100']):
+                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz", 'Dasamed 140', 'Neofolia']):
                         strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
                         prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
                         prod_fr.forecast = np.zeros(15)
@@ -86,6 +86,8 @@ class SalesForecasting:
                         (prod_fr.sale_series == 0).all() | 
                         (prod_fr.prophet_df['y'] == 0).all() | 
                         (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01'))):
+                        prod_fr.forecast = np.zeros(15)
+                        prod_fr.save_csv()
                         continue
 
                     if (len(prod_fr.sale_series) < 4):

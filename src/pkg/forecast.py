@@ -537,7 +537,7 @@ class SalesForecast:
         self.forecast_df['status'] = self.status
         if not hasattr(self, 'sale_series') or self.sale_series is None or len(self.sale_series) == 0:
             self.forecast_df['forecast'] = forecast_series
-        if self.product not in ['Solariba', 'Suliba 100', 'Tabinoz', 'Dasamed 140', 'Neofolia', 'Parzino 100']:
+        if self.product not in ['Solariba', 'Suliba 100', 'Tabinoz', 'Dasamed 140', 'Neofolia']:
             self.forecast_df.forecast = self.replace_negative_sales(
                 pd.concat(
                     [forecast_series, 

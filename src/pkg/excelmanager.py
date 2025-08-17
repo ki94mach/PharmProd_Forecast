@@ -4,6 +4,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.styles import Protection, NamedStyle
 from openpyxl.worksheet.protection import SheetProtection
+from openpyxl.workbook.protection import WorkbookProtection  
 
 class ExcelManager:
     def __init__(self, directory):
@@ -31,11 +32,13 @@ class ExcelManager:
             for file in files:
                 if file.endswith(".xlsx"):
                     file_path = os.path.join(root, file)
+                    self.add_empty_columns(file_path)
                     self.duplicate_sheet_with_zeros(file_path)
                     self.apply_table_formatting_and_adjust_columns(file_path)
                     self.apply_number_format(file_path)
                     self.lock_columns(file_path, "007006")
-
+                    self.lock_workbook_structure(file_path, "007006")
+    
     def column_number_to_letter(self, n):
         """Convert a column number (e.g., 1) to a column letter (e.g., 'A')."""
         string = ""
@@ -43,6 +46,31 @@ class ExcelManager:
             n, remainder = divmod(n - 1, 26)
             string = chr(65 + remainder) + string
         return string
+    
+    def add_empty_columns(self, file_name):
+        """Add 'offer' and 'description' columns if they don't exist."""
+        workbook = load_workbook(file_name)
+        
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+            
+            # Get existing headers
+            headers = []
+            for cell in sheet[1]:
+                if cell.value:
+                    headers.append(str(cell.value).lower())
+            
+            # Check if 'offer' and 'description' columns exist
+            max_col = sheet.max_column
+            
+            if 'offer' not in headers:
+                sheet.cell(row=1, column=max_col + 1, value='offer')
+                max_col += 1
+            
+            if 'description' not in headers:
+                sheet.cell(row=1, column=max_col + 1, value='description')
+        
+        workbook.save(file_name)
 
     def apply_table_formatting_and_adjust_columns(self, file_name):
         book = load_workbook(file_name)
@@ -83,9 +111,8 @@ class ExcelManager:
                             max_length = len(str(cell.value))
                     except:
                         pass
-                adjusted_width = (max_length + 2)
+                adjusted_width = max(max_length + 2, 10)
                 sheet.column_dimensions[column].width = adjusted_width
-
             book.save(file_name)
 
 
@@ -178,6 +205,19 @@ class ExcelManager:
                 autoFilter=False,
             )
 
+        workbook.save(file_name)
+
+    def lock_workbook_structure(self, file_name, password):
+        """Lock the workbook structure to prevent users from creating/deleting sheets."""
+        workbook = load_workbook(file_name)
+        
+        # Lock the workbook structure
+        workbook.security = WorkbookProtection(
+            workbookPassword=password,
+            lockStructure=True,
+            lockWindows=False
+        )
+        
         workbook.save(file_name)
 
     def apply_number_format(self, file_name):
