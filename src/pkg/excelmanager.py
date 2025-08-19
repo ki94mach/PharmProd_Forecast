@@ -4,7 +4,9 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.styles import Protection, NamedStyle
 from openpyxl.worksheet.protection import SheetProtection
-from openpyxl.workbook.protection import WorkbookProtection  
+from openpyxl.workbook.protection import WorkbookProtection
+from openpyxl.worksheet.datavalidation import DataValidation
+
 
 class ExcelManager:
     def __init__(self, directory, pipeline_file_path=None):
@@ -45,11 +47,44 @@ class ExcelManager:
                     self.duplicate_sheet_with_zeros(file_path)
                     if pipeline_data is not None:
                         self.add_pipeline_data_to_file(file_path, pipeline_data)
+                    self.setup_pipeline_headers_and_validation(file_path)
                     self.apply_table_formatting_and_adjust_columns(file_path)
                     self.apply_number_format(file_path)
                     self.lock_columns(file_path, "007006")
                     self.lock_workbook_structure(file_path, "007006")
     
+    def setup_pipeline_headers_and_validation(self, file_name):
+        """Set up Pipeline sheet headers and data validation."""
+        workbook = load_workbook(file_name)
+        
+        if 'Pipeline' in workbook.sheetnames:
+            pipeline_sheet = workbook['Pipeline']
+            
+            # Set headers for columns E through P (1-12)
+            for i in range(5, 17):  # Columns E (5) to P (16)
+                pipeline_sheet.cell(row=1, column=i, value=str(i - 4))
+            
+            # Set headers for columns Q and R
+            pipeline_sheet.cell(row=1, column=17, value='offer')  # Column Q
+            pipeline_sheet.cell(row=1, column=18, value='description')  # Column R
+            
+            # Add data validation to column D (status)
+            dv = DataValidation(
+                type="list",
+                formula1='"عدد,بسته"',
+                # allow_blank=True,
+                # showDropDown=True,
+                showErrorMessage=True,
+                # errorTitle='Invalid Entry',
+                error='Please select from the dropdown list.'
+            )
+            
+            # Apply validation to column D from row 2 to max possible rows
+            dv.add(f'D2:D{pipeline_sheet.max_row}')
+            pipeline_sheet.add_data_validation(dv)
+            pipeline_sheet.delete_cols(19, 5)
+        workbook.save(file_name)
+
     def column_number_to_letter(self, n):
         """Convert a column number (e.g., 1) to a column letter (e.g., 'A')."""
         string = ""
