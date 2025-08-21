@@ -6,6 +6,7 @@ from openpyxl.styles import Protection, NamedStyle
 from openpyxl.worksheet.protection import SheetProtection
 from openpyxl.workbook.protection import WorkbookProtection
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.styles import Alignment
 
 
 class ExcelManager:
@@ -48,6 +49,7 @@ class ExcelManager:
                     if pipeline_data is not None:
                         self.add_pipeline_data_to_file(file_path, pipeline_data)
                     self.setup_pipeline_headers_and_validation(file_path)
+                    self.adding_instruction_box(file_path)
                     self.apply_table_formatting_and_adjust_columns(file_path)
                     self.apply_number_format(file_path)
                     self.lock_columns(file_path, "007006")
@@ -78,11 +80,42 @@ class ExcelManager:
                 # errorTitle='Invalid Entry',
                 error='Please select from the dropdown list.'
             )
-            
-            # Apply validation to column D from row 2 to max possible rows
-            dv.add(f'D2:D{pipeline_sheet.max_row}')
+
+            # Apply validation to column D from row 10 (2+8) to max possible rows
+            # After adding_instruction_box the validation will be in range of table
+            dv.add(f'D10:D{pipeline_sheet.max_row+8}')
             pipeline_sheet.add_data_validation(dv)
             pipeline_sheet.delete_cols(19, 5)
+        workbook.save(file_name)
+
+    def adding_instruction_box(self, file_name):
+        """Add an instruction box to the specified Excel file."""
+        workbook = load_workbook(file_name)
+
+        # if 'Pipeline' in workbook.sheetnames:
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+            sheet.insert_rows(idx=1, amount=8)
+            sheet.merge_cells('A1:H8')
+            if sheet_name == 'Pipeline':
+                sheet['A1'] = '''
+                فورکست تولید محصولات پایپ لاین را به صورت 12 ماهه از زمان ورود به بازار در این شیت تکمیل نمایید.
+                را حتما انتخاب نمایید و خالی نباشد Status ستون
+                در صورتی که فورکستی برای ارائه ندارید در ستون توضیحات با ذکر دلیل عنوان نمایید و همچنین سلول های متناظر را صفر بنویسید و خالی نگذارید
+                '''
+            elif sheet_name == 'Sales':
+                sheet['A1'] = '''در صورتی که محصول آفر ندارد سلول مربوطه را صفر بنویسید.
+                ستون استتوس بر مبنای بسته بندی ارکیدفارمد می باشد در نتیجه در دیتای ارسالی مطابق با این بسته بندی دقت فرمایید.
+                در صورتی که فورکستی برای ارائه ندارید در ستون توضیحات با ذکر دلیل عنوان نمایید و همچنین سلول های متناظر را صفر بنویسید و خالی نگذارید.
+                در صورتی که تغییرات فورکست تولید از ابتدای بازه ارسالی تا پایان سال جاری به صورت تجمیعی نسبت به فورکست قبلی، بیشتر یا کمتر از 10% می باشد حتما دلیل این تغییر در ستون توضیحات اعلام گردد.
+                '''
+            sheet['A1'].alignment = Alignment(
+                horizontal='right',
+                vertical='center',
+                wrap_text=True,
+                readingOrder=1,
+                )
+
         workbook.save(file_name)
 
     def column_number_to_letter(self, n):
@@ -132,7 +165,7 @@ class ExcelManager:
             end_row = sheet.max_row
             end_column = sheet.max_column
             end_column_letter = self.column_number_to_letter(end_column)
-            table_range = f"A1:{end_column_letter}{end_row}"
+            table_range = f"A9:{end_column_letter}{end_row}"
             
             # Create a table
             try:
@@ -150,14 +183,14 @@ class ExcelManager:
             # Adjust column widths
             for col in sheet.columns:
                 max_length = 0
-                column = col[0].column_letter  # Get the column name
-                for cell in col:
+                column = col[9].column_letter  # Get the column name
+                for cell in col[9:]:
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
                     except:
                         pass
-                adjusted_width = max(max_length + 2, 10)
+                adjusted_width = max(max_length + 4, 14)
                 sheet.column_dimensions[column].width = adjusted_width
             book.save(file_name)
 
@@ -275,13 +308,15 @@ class ExcelManager:
 
         for sheet_name in workbook.sheetnames:
             sheet = workbook[sheet_name]
-
+            if sheet_name == 'Pipeline':
+                end_col = 16
+            elif sheet_name == 'Sales':
+                end_col = 19
             # Apply number format to columns D to S
-            for col in range(5, 20):  # Columns D (4) to S (19)
-                for row in sheet.iter_rows(min_col=col, max_col=col, min_row=2, max_row=sheet.max_row):
+            for col in range(5, end_col+1):  # Columns E (5) to S (19)
+                for row in sheet.iter_rows(min_col=col, max_col=col, min_row=10, max_row=sheet.max_row):
                     for cell in row:
-                        if isinstance(cell.value, (int, float)):
-                            cell.style = number_style
+                        cell.style = number_style
         workbook.save(file_name)
     
     def summary_export(self, pivot, curr_qrt):
