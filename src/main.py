@@ -1,10 +1,13 @@
 import logging
 from pkg.sales_forecasting import SalesForecasting
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+FORECAST_START_DATE = int(os.getenv('FORECAST_START_DATE'))
+CURR_QRT = os.getenv('CURR_QRT')
 logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
+
 if __name__ == "__main__":
-    # Define the current quarter like: 1403Q1
-    curr_qrt = '1404Q2'
-    # Define the starting forecast YearMonth
-    forecast_start_date = 140404
-    sales_forecasting = SalesForecasting(curr_qrt)
-    sales_forecasting.run(forecast_start_date)
+    sales_forecasting = SalesForecasting(CURR_QRT)
+    sales_forecasting.run(FORECAST_START_DATE)

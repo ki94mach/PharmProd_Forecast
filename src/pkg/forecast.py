@@ -16,8 +16,12 @@ from gspread_formatting import *
 from sklearn.preprocessing import MinMaxScaler, PowerTransformer
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
+from dotenv import load_dotenv
+import os
 
 from statsmodels.tsa.stattools import adfuller
+
+load_dotenv()
 
 class SalesForecast:
     """
@@ -537,7 +541,8 @@ class SalesForecast:
         self.forecast_df['status'] = self.status
         if not hasattr(self, 'sale_series') or self.sale_series is None or len(self.sale_series) == 0:
             self.forecast_df['forecast'] = forecast_series
-        if self.product not in ['Solariba', 'Suliba 100', 'Tabinoz', 'Dasamed 140', 'Neofolia']:
+        ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
+        if self.product not in ZERO_FORECAST_PRODUCTS:
             self.forecast_df.forecast = self.replace_negative_sales(
                 pd.concat(
                     [forecast_series, 

@@ -6,6 +6,10 @@ from sqlalchemy.engine import URL
 from tqdm import tqdm
 from pkg.forecast import SalesForecast
 from pkg.utils import define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class SalesForecasting:
     def __init__(self, curr_qrt):
@@ -72,8 +76,8 @@ class SalesForecasting:
                     #     prod_fr.sale_series = np.array([])
                     # prod_fr.save_csv()
 
-
-                    if (prod_fr.product in ["Solariba", "Suliba 100" ,"Tabinoz", 'Dasamed 140', 'Neofolia']):
+                    ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
+                    if (prod_fr.product in ZERO_FORECAST_PRODUCTS):
                         strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
                         prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
                         prod_fr.forecast = np.zeros(15)
@@ -85,12 +89,17 @@ class SalesForecasting:
                     if (
                         (prod_fr.sale_series == 0).all() | 
                         (prod_fr.prophet_df['y'] == 0).all() | 
-                        (prod_fr.prophet_df.ds.max() < np.datetime64('2021-01-01'))):
+                        (prod_fr.prophet_df.ds.max() < np.datetime64('2025-01-01'))
+                        ):
+                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
+                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
                         prod_fr.forecast = np.zeros(15)
                         prod_fr.save_csv()
                         continue
 
                     if (len(prod_fr.sale_series) < 4):
+                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
+                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')                        
                         prod_fr.forecast = np.zeros(15)
                         prod_fr.save_csv()
                         continue
@@ -101,6 +110,8 @@ class SalesForecasting:
                         prod_fr.redistribute_smoothing()
                         prod_fr.save_csv()
                     except ValueError:
+                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
+                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
                         prod_fr.forecast = np.zeros(15)
                         prod_fr.save_csv()
                         continue    

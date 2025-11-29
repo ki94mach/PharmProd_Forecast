@@ -1,6 +1,9 @@
 src/data
 src/test.ipynb
-src/pkg/sales_forecasting.py
 src/__pycache__
 __pycache__/*
 src/pkg/__pycache__
+.env
+.env*
+venv
+venv/* 

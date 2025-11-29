@@ -20,7 +20,7 @@ def update_department_info(curr_qrt):
         'انکولوژی شیمیایی': 'Chem Onco',
         'رسپیراتوری': 'Resp',
         'کانتراست مدیا': 'Contrast',
-        'زیبایی': 'Beaut',
+        'زیبایی': 'Aesth',
         'نورولوژی بیولوژیک': 'Bio Neuro',
         'انکولوژی اطفال': 'Ped Onco',
         'نفرولوژی': 'Nephro',
@@ -61,7 +61,7 @@ def replace_negative_sales(df):
 
 def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_start_date):
     pivot = forecast_total_df_mod[
-        forecast_total_df_mod['date'] >= forecast_start_date].pivot_table(
+        forecast_total_df_mod['date'] >= forecast_start_date].pivot(
             index=['product_fa', 'dep', 'provider', 'status'],
             columns='date',
             values='sales',
