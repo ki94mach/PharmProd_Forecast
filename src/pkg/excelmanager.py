@@ -282,6 +282,7 @@ class ExcelManager:
                 sheet=True,
                 sort=False,
                 autoFilter=False,
+                selectLockedCells=True,
             )
 
         workbook.save(file_name)
