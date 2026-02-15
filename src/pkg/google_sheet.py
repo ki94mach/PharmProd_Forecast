@@ -1,7 +1,10 @@
+import os
 import pandas as pd
 import gspread
 from gspread_formatting import *
 import string
+
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class GoogleSheet:
     """
@@ -15,8 +18,10 @@ class GoogleSheet:
         Upload the forcasting data in Google Sheets
         """
 
-         # Authenticate with the JSON file
-        client = gspread.service_account(filename="data/credentials.json")
+        # Authenticate with the JSON file
+        client = gspread.service_account(
+            filename=os.path.join(_SRC_DIR, "data", "credentials.json")
+        )
 
         # Open the workbook and select the worksheet
         wb_1 = client.open("Target 1")

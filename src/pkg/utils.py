@@ -4,13 +4,20 @@ import pandas as pd
 from pkg.excelmanager import ExcelManager
 import numpy as np
 
+# Data paths relative to src directory (so results go under src/data regardless of cwd)
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(_SRC_DIR, 'data')
+
 def define_path(curr_qrt):
-    forecasts = f'data/results/{curr_qrt}/{curr_qrt}_total_forecast.csv'
+    forecasts = os.path.join(DATA_DIR, 'results', curr_qrt, f'{curr_qrt}_total_forecast.csv')
     return forecasts
 
 def setup_forecast_file(forecasts, headers):
+    forecast_dir = os.path.dirname(forecasts)
+    if forecast_dir:
+        os.makedirs(forecast_dir, exist_ok=True)
     if not os.path.exists(forecasts):
-        with open(forecasts, "w", newline='') as file:
+        with open(forecasts, "w", newline='', encoding='utf-8-sig') as file:
             writer = csv.writer(file)
             writer.writerow(headers)
 
@@ -72,7 +79,7 @@ def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_star
 def manage_excel(pivot, directory, curr_qrt):
     excel_manager = ExcelManager(
         directory=directory,
-        pipeline_file_path=f'data/pipeline/{curr_qrt}/{curr_qrt}_pipeline.xlsx',
+        pipeline_file_path=os.path.join(DATA_DIR, 'pipeline', curr_qrt, f'{curr_qrt}_pipeline.xlsx'),
     )
     excel_manager.append_rows_to_excel(pivot)
     excel_manager.apply_formatting_to_all_files()

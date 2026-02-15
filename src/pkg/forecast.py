@@ -539,14 +539,24 @@ class SalesForecast:
         self.forecast_df['model'] = self.best_model_type
         self.forecast_df['dep'] = self.dep
         self.forecast_df['status'] = self.status
-        if not hasattr(self, 'sale_series') or self.sale_series is None or len(self.sale_series) == 0:
+        has_sale_series = (
+            hasattr(self, 'sale_series')
+            and self.sale_series is not None
+            and len(self.sale_series) > 0
+        )
+        if has_sale_series:
+            ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
+            if ZERO_FORECAST_PRODUCTS and self.product not in ZERO_FORECAST_PRODUCTS:
+                self.forecast_df['forecast'] = self.replace_negative_sales(
+                    pd.concat([
+                        forecast_series,
+                        (pd.Series(self.sale_series.flat, index=self.sale_df.date[:-1]) if type(self.sale_series) == np.ndarray else self.sale_series),
+                    ])
+                )
+            else:
+                self.forecast_df['forecast'] = forecast_series
+        else:
             self.forecast_df['forecast'] = forecast_series
-        ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
-        if self.product not in ZERO_FORECAST_PRODUCTS:
-            self.forecast_df.forecast = self.replace_negative_sales(
-                pd.concat(
-                    [forecast_series, 
-                    (pd.Series(self.sale_series.flat, index=self.sale_df.date[:-1]) if type(self.sale_series)==np.ndarray else self.sale_series)]))
         self.forecast_df['forecast'] = self.forecast_df['forecast'].round()
         self.forecast_df.to_csv(self.output, index=False, mode="a", header=False, encoding='utf-8-sig')
         print(f"{self.product} forecasting is done!")

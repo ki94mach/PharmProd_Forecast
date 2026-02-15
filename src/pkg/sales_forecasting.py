@@ -1,3 +1,4 @@
+import csv
 import logging
 import pandas as pd
 import numpy as np
@@ -5,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from tqdm import tqdm
 from pkg.forecast import SalesForecast
-from pkg.utils import define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
+from pkg.utils import DATA_DIR, define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
 from dotenv import load_dotenv
 import os
 
@@ -54,27 +55,26 @@ class SalesForecasting:
     def load_forecast_data(self):
         return pd.read_csv(self.forecasts)
 
-    def process_sales_data(self, sale_df_total, forecast_df, forecast_start_date):
+    def process_sales_data(self, sale_df_total, forecast_df, forecast_start_date, skip_forecast=False):
         sale_df_total['date'] = sale_df_total['date'].astype(int)
-        products_fr = pd.unique(forecast_df['product'])
+        products_fr = pd.unique(forecast_df['product']) if forecast_df.shape[0] > 0 else np.array([], dtype=object)
         products = pd.unique(sale_df_total['product'])
         sale_df_total.date += 62100
 
         for product in tqdm(products, desc="Processing products", unit="product"):
                 if product not in products_fr:
-                    print(f'\n{product} is in progress!')
+                    if not skip_forecast:
+                        print(f'\n{product} is in progress!')
                     sale_df = sale_df_total[sale_df_total['product'] == product]
                     prod_fr = SalesForecast(product, sale_df, self.forecasts)
 
-                    #To create a template with zero value for all forecasts
-                    # strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
-                    # prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
-                    # prod_fr.forecast = np.zeros(15)
-                    # if len(prod_fr.sale_df) > 1:
-                    #     prod_fr.sale_series = np.zeros(len(prod_fr.sale_df) - 1)
-                    # else:
-                    #     prod_fr.sale_series = np.array([])
-                    # prod_fr.save_csv()
+                    # Output-only mode: write zero forecast for every product, no model run
+                    if skip_forecast:
+                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m')
+                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
+                        prod_fr.forecast = np.zeros(15)
+                        prod_fr.save_csv()
+                        continue
 
                     ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
                     if (prod_fr.product in ZERO_FORECAST_PRODUCTS):
@@ -123,7 +123,7 @@ class SalesForecasting:
 
     def append_pipeline(self, pivot, updated_dep_dict):
 
-        file_path = f'data/pipeline/{self.curr_qrt}/{self.curr_qrt}_pipeline.xlsx'
+        file_path = os.path.join(DATA_DIR, 'pipeline', self.curr_qrt, f'{self.curr_qrt}_pipeline.xlsx')
         pipeline_df = pd.read_excel(file_path)
         required_columns = {'product_fa', 'provider', 'dep'}
         if not required_columns.issubset(pipeline_df.columns):
@@ -148,11 +148,21 @@ class SalesForecasting:
         updated_pivot = pd.concat([pivot, aligned_pipe_piv], ignore_index=True)
         return updated_pivot
 
-    def run(self, forecast_start_date):
+    def run(self, forecast_start_date, generate_forecasts=True):
         sale_df_total = self.load_sales_data()
-        forecast_df = self.load_forecast_data()
+        if not generate_forecasts:
+            # Reset forecast file to headers only so we build output with zeros only
+            os.makedirs(os.path.dirname(self.forecasts), exist_ok=True)
+            with open(self.forecasts, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(self.headers)
+            forecast_df = pd.DataFrame(columns=self.headers)
+        else:
+            forecast_df = self.load_forecast_data()
 
-        forecast_total_df = self.process_sales_data(sale_df_total, forecast_df, forecast_start_date)
+        forecast_total_df = self.process_sales_data(
+            sale_df_total, forecast_df, forecast_start_date, skip_forecast=not generate_forecasts
+        )
         updated_dep_dict = update_department_info( self.curr_qrt)
 
         forecast_total_df['sales'] = forecast_total_df['forecast']
@@ -164,4 +174,4 @@ class SalesForecasting:
 
         pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
         # updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
-        manage_excel(pivot, f"data/results/{self.curr_qrt}", self.curr_qrt)
+        manage_excel(pivot, os.path.join(DATA_DIR, 'results', self.curr_qrt), self.curr_qrt)
