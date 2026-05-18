@@ -4,6 +4,7 @@ src/__pycache__
 __pycache__/*
 src/pkg/__pycache__
 .env
-.env*
+.env.*
+!.env.example
 venv
 venv/* 

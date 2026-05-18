@@ -195,4 +195,3 @@ dependencies:
       - scikit-learn==1.4.0
       - threadpoolctl==3.2.0
       - urllib3==2.2.0
-prefix: C:\Users\Mohajeri.K\AppData\Local\anaconda3\envs\Forecast

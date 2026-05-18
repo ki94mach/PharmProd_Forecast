@@ -1,14 +1,37 @@
-Cython==3.0.8
-fonttools==4.25.0
-joblib==1.3.2
-mkl-service==2.4.0
-munkres==1.1.4
-patsy==0.5.3
-ply==3.11
-pmdarima==2.0.4
-PyQt5==5.15.10
-pywin32==305.1
-scikit-learn==1.4.0
+# Pip packages for the Forecast environment.
+# Recommended: create the conda env first (see README), then: pip install -r requirements.txt
+
+# Core data & forecasting (versions aligned with environment.yml where applicable)
+numpy==1.26.3
+pandas==2.1.4
 scipy==1.11.4
+statsmodels==0.14.0
+matplotlib==3.8.0
+prophet==1.1.4
+pmdarima==2.0.4
+scikit-learn==1.4.0
+tqdm==4.65.0
+
+# Database & Excel
+pyodbc==5.0.1
+SQLAlchemy>=2.0,<3
+openpyxl>=3.1,<4
+
+# Config
+python-dotenv>=1.0,<2
+
+# Deep learning (LSTM in forecast.py)
+tensorflow>=2.15,<3
+
+# Google Sheets (optional; used by pkg/google_sheet.py)
+gspread>=5.12,<7
+gspread-formatting>=1.1,<2
+
+# Windows-only (skip on Linux/macOS)
+pywin32==305.1; sys_platform == "win32"
+
+# Legacy pip extras from original requirements.txt
+Cython==3.0.8
+joblib==1.3.2
 threadpoolctl==3.2.0
 urllib3==2.2.0
