@@ -8,41 +8,33 @@ Pharmaceutical sales time-series forecasting: loads historical sales from SQL Se
 |-------------|--------|
 | **Windows** | SQL Server uses Windows integrated auth; `pywin32` is used on Windows. |
 | **Python 3.10** | Matches `environment.yml`. |
-| **Conda** (recommended) or **pip** | Conda installs Prophet/CmdStan and scientific stack reliably. |
+| **Conda** | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack. |
 | **ODBC** | `{SQL Server}` driver (name used in code). |
 | **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`. |
 | **Domain login** | `Trusted_Connection=yes` — run as a user with DB permissions. |
 
 ## Setup
 
-### Option A — Conda (recommended)
+### Conda (required)
 
-```powershell
-cd path\to\Forecast
+Uses Python **3.10** from conda-forge (not system Python). Scientific packages come from conda; TensorFlow / Google Sheets extras from pip.
+
+```bash
+cd path/to/Forecast
 conda env create -f environment.yml
 conda activate Forecast
-pip install -r requirements.txt
+python -m pip install -r requirements.txt   # use the env's pip, not system pip
 ```
 
-If `conda env create` fails because the env already exists:
+If the env already exists:
 
-```powershell
+```bash
 conda env update -f environment.yml --prune
 conda activate Forecast
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-### Option B — Pip only
-
-Use Python 3.10 on Windows, then:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-Prophet may require [CmdStan](https://mc-stan.org/cmdstanpy/) separately when not using Conda.
+`conda env create` already installs the `pip:` block in `environment.yml`; re-running `requirements.txt` is safe and keeps extras explicit.
 
 ### Environment variables
 
@@ -98,13 +90,14 @@ Outputs go to `src/data/results/<quarter>/`.
 
 ```
 Forecast/
-  environment.yml      # Conda environment (Python 3.10 + Prophet, pyodbc, …)
-  requirements.txt     # Pip packages (install after conda env)
+  environment.yml      # Conda env (Python 3.10 + scientific stack, Prophet, …)
+  requirements.txt     # Pip extras only (TensorFlow, gspread)
   .env.example
   src/
     main.py              # CLI entry point
     pkg/
-      sales_forecasting.py   # DB load, orchestration, Excel export
+      db/                    # SQL client + queries
+      sales_forecasting.py   # Orchestration, Excel export
       forecast.py              # Per-product models
       excelmanager.py          # Excel formatting & protection
       utils.py                 # Paths, pivot, department mapping
