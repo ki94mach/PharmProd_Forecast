@@ -4,6 +4,7 @@
 #   conda env create -f environment.yml
 #   conda activate forecast
 #   python -m pip install -r requirements.txt
+#   python -m pip install -e .
 #
 # Do not use system Python (e.g. Fedora 3.14) — this project needs Python 3.10.
 

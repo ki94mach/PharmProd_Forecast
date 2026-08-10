@@ -23,7 +23,8 @@ Uses Python **3.10** from conda-forge (not system Python). Scientific packages c
 cd path/to/Forecast
 conda env create -f environment.yml
 conda activate forecast
-python -m pip install -r requirements.txt   # use the env's pip, not system pip
+python -m pip install -r requirements.txt   # TensorFlow / gspread extras
+python -m pip install -e .                  # install pkg for imports (CLI + notebooks)
 ```
 
 If the env already exists:
@@ -32,9 +33,10 @@ If the env already exists:
 conda env update -f environment.yml --prune
 conda activate forecast
 python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-`conda env create` already installs the `pip:` block in `environment.yml`; re-running `requirements.txt` is safe and keeps extras explicit.
+`conda env create` already installs the `pip:` block in `environment.yml`; re-running `requirements.txt` is safe and keeps extras explicit. `pip install -e .` makes `import pkg...` work from anywhere (including `notebooks/`).
 
 ### Environment variables
 
@@ -92,6 +94,7 @@ Outputs go to `src/data/results/<quarter>/`.
 Forecast/
   environment.yml      # Conda env (Python 3.10 + scientific stack, Prophet, …)
   requirements.txt     # Pip extras only (TensorFlow, gspread)
+  pyproject.toml         # Editable install of pkg (pip install -e .)
   .env.example
   src/
     main.py              # CLI entry point

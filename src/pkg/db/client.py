@@ -1,12 +1,23 @@
 """Shared SQL Server connection helpers."""
 import os
+import sys
 from typing import Literal
 
 import pandas as pd
+from dotenv import find_dotenv, load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, URL
 
 AuthMode = Literal["windows", "sql"]
+
+# Walk up from cwd so notebooks/ and src/ both find the repo .env
+load_dotenv(find_dotenv(usecwd=True))
+
+
+def _default_driver() -> str:
+    if sys.platform == "win32":
+        return "SQL Server"
+    return "ODBC Driver 18 for SQL Server"
 
 
 def _resolve_auth(auth: str | None) -> AuthMode:
@@ -14,6 +25,22 @@ def _resolve_auth(auth: str | None) -> AuthMode:
     if mode not in ("windows", "sql"):
         raise ValueError("SQL_AUTH must be 'windows' or 'sql'")
     return mode  # type: ignore[return-value]
+
+
+def _truthy(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _server_address(server: str | None = None, port: str | None = None) -> str:
+    """Build ODBC SERVER= value; accepts hostname or IP, optional port."""
+    server = (server or os.getenv("SQL_SERVER", "op-db1-srv")).strip()
+    port = (port if port is not None else os.getenv("SQL_PORT", "")).strip()
+    # Don't double-append if caller already used host,port or host\instance
+    if port and "," not in server and "\\" not in server:
+        return f"{server},{port}"
+    return server
 
 
 def _odbc_connect_string(
@@ -40,6 +67,12 @@ def _odbc_connect_string(
                 "(or username/password arguments)"
             )
         parts.extend([f"UID={user}", f"PWD={pwd}", "Trusted_Connection=no"])
+
+    # Driver 17/18 on Linux often need this for corporate SQL Server TLS
+    default_trust = sys.platform != "win32"
+    if _truthy(os.getenv("SQL_TRUST_SERVER_CERTIFICATE"), default=default_trust):
+        parts.append("TrustServerCertificate=yes")
+
     return ";".join(parts) + ";"
 
 
@@ -50,10 +83,12 @@ def get_engine(
     auth: str | None = None,
     username: str | None = None,
     password: str | None = None,
+    port: str | None = None,
 ) -> Engine:
-    server = server or os.getenv("SQL_SERVER", "op-db1-srv")
+    load_dotenv(find_dotenv(usecwd=True))
+    server = _server_address(server, port)
     database = database or os.getenv("SQL_DATABASE", "DWOrchid")
-    driver = driver or os.getenv("SQL_DRIVER", "SQL Server")
+    driver = driver or os.getenv("SQL_DRIVER", _default_driver())
     auth_mode = _resolve_auth(auth)
     connection_url = URL.create(
         "mssql+pyodbc",

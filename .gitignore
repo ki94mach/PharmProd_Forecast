@@ -14,3 +14,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
+
+# Packaging / editable install
+*.egg-info/
+dist/
+build/
