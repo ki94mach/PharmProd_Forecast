@@ -1,4 +1,4 @@
-name: Forecast
+name: forecast
 channels:
   - conda-forge
 dependencies:

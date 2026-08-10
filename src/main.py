@@ -4,9 +4,11 @@ import logging
 import sys
 
 from dotenv import load_dotenv
-from pkg.sales_forecasting import SalesForecasting
 
 load_dotenv()
+
+from pkg.sales_forecasting import SalesForecasting
+
 logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 
 

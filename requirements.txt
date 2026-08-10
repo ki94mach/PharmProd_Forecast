@@ -1,8 +1,8 @@
-# Pip extras for the Forecast conda env.
+# Pip extras for the forecast conda env.
 # Create the env first, then install these with that env's pip:
 #
 #   conda env create -f environment.yml
-#   conda activate Forecast
+#   conda activate forecast
 #   python -m pip install -r requirements.txt
 #
 # Do not use system Python (e.g. Fedora 3.14) — this project needs Python 3.10.

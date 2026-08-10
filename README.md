@@ -6,12 +6,12 @@ Pharmaceutical sales time-series forecasting: loads historical sales from SQL Se
 
 | Requirement | Notes |
 |-------------|--------|
-| **Windows** | SQL Server uses Windows integrated auth; `pywin32` is used on Windows. |
+| **Windows** | Windows auth (`SQL_AUTH=windows`) uses integrated security; SQL login also supported. |
 | **Python 3.10** | Matches `environment.yml`. |
 | **Conda** | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack. |
-| **ODBC** | `{SQL Server}` driver (name used in code). |
+| **ODBC** | `{SQL Server}` on Windows, or e.g. `ODBC Driver 18 for SQL Server` on Linux (`SQL_DRIVER`). |
 | **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`. |
-| **Domain login** | `Trusted_Connection=yes` — run as a user with DB permissions. |
+| **DB credentials** | Windows: domain user with DB access. SQL login: set `SQL_AUTH=sql`, `SQL_USER`, `SQL_PASSWORD`. |
 
 ## Setup
 
@@ -22,7 +22,7 @@ Uses Python **3.10** from conda-forge (not system Python). Scientific packages c
 ```bash
 cd path/to/Forecast
 conda env create -f environment.yml
-conda activate Forecast
+conda activate forecast
 python -m pip install -r requirements.txt   # use the env's pip, not system pip
 ```
 
@@ -30,7 +30,7 @@ If the env already exists:
 
 ```bash
 conda env update -f environment.yml --prune
-conda activate Forecast
+conda activate forecast
 python -m pip install -r requirements.txt
 ```
 
@@ -68,7 +68,7 @@ Share sample quarter folders and templates with your colleague outside the repo.
 From the `src` directory:
 
 ```powershell
-conda activate Forecast
+conda activate forecast
 cd src
 
 # Full forecast
