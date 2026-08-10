@@ -2,7 +2,11 @@
 from pkg.db.client import read_sql
 from pkg.db.query.constants import GENERIC_EN_IN
 
-EVENT_COUNT_BY_PRODUCT = f"""
+
+def _event_count_by_product_sql(start_ym: int, end_ym: int) -> str:
+    start = int(start_ym)
+    end = int(end_ym)
+    return f"""
     WITH event_products AS (
         -- Events with an assigned product (Generic_ID)
         SELECT
@@ -15,6 +19,8 @@ EVENT_COUNT_BY_PRODUCT = f"""
         WHERE a.[Event_Statecode] = 'Active'
             AND a.[Generic_ID] IS NOT NULL
             AND b.[GenericEN] IN ({GENERIC_EN_IN})
+            AND LEFT(LTRIM(RTRIM(CAST(a.[ShamsiDate] AS varchar(20)))), 6)
+                BETWEEN '{start}' AND '{end}'
 
         UNION
 
@@ -31,6 +37,8 @@ EVENT_COUNT_BY_PRODUCT = f"""
         WHERE a.[Event_Statecode] = 'Active'
             AND a.[Generic_ID] IS NULL
             AND p.[GenericEN] IN ({GENERIC_EN_IN})
+            AND LEFT(LTRIM(RTRIM(CAST(a.[ShamsiDate] AS varchar(20)))), 6)
+                BETWEEN '{start}' AND '{end}'
     )
     SELECT
         [ProductTitleEN] AS product,
@@ -46,11 +54,15 @@ EVENT_COUNT_BY_PRODUCT = f"""
 """
 
 
-def load_event_count_by_product(**engine_kwargs):
-    """Load unique active event counts per product from VW_Eventprofile_Product.
+def load_event_count_by_product(start_ym, end_ym, **engine_kwargs):
+    """Load unique active event counts per product in a Shamsi YYYYMM window.
 
     Events with Generic_ID are counted for that product. Events with null
     Generic_ID are counted for every product whose Field matches the event's
     department.
+
+    Args:
+        start_ym: Inclusive Shamsi year-month start (e.g. 140407).
+        end_ym: Inclusive Shamsi year-month end (e.g. 140412).
     """
-    return read_sql(EVENT_COUNT_BY_PRODUCT, **engine_kwargs)
+    return read_sql(_event_count_by_product_sql(start_ym, end_ym), **engine_kwargs)
