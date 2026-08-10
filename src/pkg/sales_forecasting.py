@@ -2,9 +2,8 @@ import csv
 import logging
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
-from sqlalchemy.engine import URL
 from tqdm import tqdm
+from pkg.db.query.sales import load_sales_data as fetch_sales_data
 from pkg.forecast import SalesForecast
 from pkg.utils import DATA_DIR, define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
 from dotenv import load_dotenv
@@ -14,8 +13,6 @@ load_dotenv()
 
 class SalesForecasting:
     def __init__(self, curr_qrt):
-        self.server = 'op-db1-srv'
-        self.database = 'DWOrchid'
         self.curr_qrt = curr_qrt
         self.forecasts = define_path(curr_qrt)
         self.headers = ['product', 'product_fa', 'date', 'provider', 'model', 'dep', 'status', 'forecast']
@@ -23,34 +20,7 @@ class SalesForecasting:
         setup_forecast_file(self.forecasts, self.headers)
 
     def load_sales_data(self):
-        query ="""
-            SELECT [ProductTitle] AS product_fa,
-            [ProductTitleEN] AS product,
-            [ShamsiYearMonth] AS date,
-            [GenericProvider] AS provider,
-            [GenericField] AS dep,
-            [mappedBoxQuantity] AS boxq,
-            SUM([DQTY]) as sales
-            FROM [DWOrchid].[dbo].[Flat_Fact_Sale] WITH (NOLOCK)
-            WHERE ProductTitleEN IS NOT NULL AND [GenericField] != '-'
-            GROUP BY [ProductTitle],
-            [ProductTitleEN],
-            [ShamsiYearMonth],
-            [GenericProvider],
-            [GenericField],
-            [mappedBoxQuantity]
-            ORDER BY [ProductTitleEn], [ShamsiYearMonth], sales Desc
-            """
-        connection_url = URL.create(
-            "mssql+pyodbc",
-            query={
-                "odbc_connect": f"DRIVER={{SQL Server}};SERVER={self.server};DATABASE={self.database};Trusted_Connection=yes;"
-            }
-        )
-        engine = create_engine(connection_url)
-        with engine.connect() as connection:
-            sale_df_total = pd.read_sql(query, connection)
-        return sale_df_total
+        return fetch_sales_data()
 
     def load_forecast_data(self):
         return pd.read_csv(self.forecasts)
