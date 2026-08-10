@@ -10,14 +10,14 @@ from sqlalchemy.engine import Engine, URL
 
 AuthMode = Literal["windows", "sql"]
 
-# Walk up from cwd so notebooks/ and src/ both find the repo .env
-load_dotenv(find_dotenv(usecwd=True))
+
+def _load_env() -> None:
+    """Find repo .env from cwd or parents (works from notebooks/)."""
+    load_dotenv(find_dotenv(usecwd=True))
 
 
 def _default_driver() -> str:
-    if sys.platform == "win32":
-        return "SQL Server"
-    return "ODBC Driver 18 for SQL Server"
+    return "SQL Server" if sys.platform == "win32" else "FreeTDS"
 
 
 def _resolve_auth(auth: str | None) -> AuthMode:
@@ -33,30 +33,55 @@ def _truthy(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _server_address(server: str | None = None, port: str | None = None) -> str:
-    """Build ODBC SERVER= value; accepts hostname or IP, optional port."""
+def _is_freetds(driver: str) -> bool:
+    return "freetds" in driver.lower()
+
+
+def _is_ms_odbc(driver: str) -> bool:
+    name = driver.lower()
+    return "odbc driver" in name and "sql server" in name
+
+
+def _host_and_port(
+    server: str | None = None,
+    port: str | None = None,
+) -> tuple[str, str]:
     server = (server or os.getenv("SQL_SERVER", "op-db1-srv")).strip()
     port = (port if port is not None else os.getenv("SQL_PORT", "")).strip()
-    # Don't double-append if caller already used host,port or host\instance
-    if port and "," not in server and "\\" not in server:
-        return f"{server},{port}"
-    return server
+    if "," in server and not port:
+        host, _, maybe_port = server.partition(",")
+        return host.strip(), maybe_port.strip()
+    return server, port
 
 
 def _odbc_connect_string(
-    server: str,
+    host: str,
+    port: str,
     database: str,
     driver: str,
     auth: AuthMode,
     username: str | None,
     password: str | None,
 ) -> str:
-    parts = [
-        f"DRIVER={{{driver}}}",
-        f"SERVER={server}",
-        f"DATABASE={database}",
-    ]
+    parts = [f"DRIVER={{{driver}}}"]
+
+    if _is_freetds(driver):
+        parts += [
+            f"SERVER={host}",
+            f"PORT={port or '1433'}",
+            f"TDS_Version={os.getenv('SQL_TDS_VERSION', '7.4').strip()}",
+        ]
+    else:
+        parts.append(f"SERVER={host},{port}" if port else f"SERVER={host}")
+
+    parts.append(f"DATABASE={database}")
+
     if auth == "windows":
+        if _is_freetds(driver):
+            raise ValueError(
+                "Windows auth is not supported with FreeTDS; "
+                "use SQL_AUTH=sql or a Microsoft ODBC driver on Windows"
+            )
         parts.append("Trusted_Connection=yes")
     else:
         user = username if username is not None else os.getenv("SQL_USER", "")
@@ -66,11 +91,14 @@ def _odbc_connect_string(
                 "SQL login requires SQL_USER and SQL_PASSWORD "
                 "(or username/password arguments)"
             )
-        parts.extend([f"UID={user}", f"PWD={pwd}", "Trusted_Connection=no"])
+        parts += [f"UID={user}", f"PWD={pwd}"]
+        if _is_ms_odbc(driver):
+            parts += ["Trusted_Connection=no", "Authentication=SqlPassword"]
 
-    # Driver 17/18 on Linux often need this for corporate SQL Server TLS
-    default_trust = sys.platform != "win32"
-    if _truthy(os.getenv("SQL_TRUST_SERVER_CERTIFICATE"), default=default_trust):
+    if _is_ms_odbc(driver) and _truthy(
+        os.getenv("SQL_TRUST_SERVER_CERTIFICATE"),
+        default=sys.platform != "win32",
+    ):
         parts.append("TrustServerCertificate=yes")
 
     return ";".join(parts) + ";"
@@ -85,16 +113,21 @@ def get_engine(
     password: str | None = None,
     port: str | None = None,
 ) -> Engine:
-    load_dotenv(find_dotenv(usecwd=True))
-    server = _server_address(server, port)
+    _load_env()
+    host, resolved_port = _host_and_port(server, port)
     database = database or os.getenv("SQL_DATABASE", "DWOrchid")
-    driver = driver or os.getenv("SQL_DRIVER", _default_driver())
-    auth_mode = _resolve_auth(auth)
+    driver = driver or os.getenv("SQL_DRIVER") or _default_driver()
     connection_url = URL.create(
         "mssql+pyodbc",
         query={
             "odbc_connect": _odbc_connect_string(
-                server, database, driver, auth_mode, username, password
+                host,
+                resolved_port,
+                database,
+                driver,
+                _resolve_auth(auth),
+                username,
+                password,
             )
         },
     )

@@ -9,7 +9,7 @@ Pharmaceutical sales time-series forecasting: loads historical sales from SQL Se
 | **Windows** | Windows auth (`SQL_AUTH=windows`) uses integrated security; SQL login also supported. |
 | **Python 3.10** | Matches `environment.yml`. |
 | **Conda** | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack. |
-| **ODBC** | `{SQL Server}` on Windows, or e.g. `ODBC Driver 18 for SQL Server` on Linux (`SQL_DRIVER`). |
+| **ODBC** | Windows: `{SQL Server}`. Linux: **FreeTDS** (`sudo dnf install freetds-libs`) or `ODBC Driver 18 for SQL Server`. |
 | **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`. |
 | **DB credentials** | Windows: domain user with DB access. SQL login: set `SQL_AUTH=sql`, `SQL_USER`, `SQL_PASSWORD`. |
 
