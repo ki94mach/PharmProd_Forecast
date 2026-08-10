@@ -8,6 +8,9 @@
 #
 # Do not use system Python (e.g. Fedora 3.14) — this project needs Python 3.10.
 
+# Residual correction MVP (notebooks/residual_prediction.ipynb)
+xgboost>=2.0,<3
+
 # Deep learning (LSTM in forecast.py)
 tensorflow>=2.15,<3
 
