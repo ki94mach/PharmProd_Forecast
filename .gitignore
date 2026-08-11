@@ -19,5 +19,5 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-notebook/*
+notebooks/*
 docs/*
