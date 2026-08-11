@@ -56,10 +56,14 @@ class SalesForecasting:
 
                     prod_fr.preprocess_data()
 
+                    # Stale vs requested origin (not a fixed calendar date): zero if last
+                    # sale is more than 3 months before forecast_start_date.
+                    origin_greg = pd.to_datetime(forecast_start_date + 62100, format='%Y%m')
+                    stale_before = origin_greg - pd.DateOffset(months=3)
                     if (
-                        (prod_fr.sale_series == 0).all() | 
-                        (prod_fr.prophet_df['y'] == 0).all() | 
-                        (prod_fr.prophet_df.ds.max() < np.datetime64('2025-01-01'))
+                        (prod_fr.sale_series == 0).all() |
+                        (prod_fr.prophet_df['y'] == 0).all() |
+                        (prod_fr.prophet_df.ds.max() < stale_before)
                         ):
                         strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
                         prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
