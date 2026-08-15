@@ -4,14 +4,14 @@ Pharmaceutical sales time-series forecasting: loads historical sales from SQL Se
 
 ## Prerequisites
 
-| Requirement | Notes |
-|-------------|--------|
-| **Windows** | Windows auth (`SQL_AUTH=windows`) uses integrated security; SQL login also supported. |
-| **Python 3.10** | Matches `environment.yml`. |
-| **Conda** | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack. |
-| **ODBC** | Windows: `{SQL Server}`. Linux: **FreeTDS** (`sudo dnf install freetds-libs`) or `ODBC Driver 18 for SQL Server`. |
-| **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`. |
-| **DB credentials** | Windows: domain user with DB access. SQL login: set `SQL_AUTH=sql`, `SQL_USER`, `SQL_PASSWORD`. |
+| Requirement             | Notes                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Windows**             | Windows auth (`SQL_AUTH=windows`) uses integrated security; SQL login also supported.                             |
+| **Python 3.10**         | Matches `environment.yml`.                                                                                        |
+| **Conda**               | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack.                                       |
+| **ODBC**                | Windows: `{SQL Server}`. Linux: **FreeTDS** (`sudo dnf install freetds-libs`) or `ODBC Driver 18 for SQL Server`. |
+| **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`.                                               |
+| **DB credentials**      | Windows: domain user with DB access. SQL login: set `SQL_AUTH=sql`, `SQL_USER`, `SQL_PASSWORD`.                   |
 
 ## Setup
 
@@ -81,11 +81,11 @@ python main.py --qrt 1405Q1 --start-date 140501
 python main.py --qrt 1405Q1 --start-date 140501 --template
 ```
 
-| Argument | Description |
-|----------|-------------|
-| `--qrt` | Quarter label (e.g. `1405Q1`); used in paths and file names. |
-| `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`). |
-| `--template` | Skip forecasting; write outputs with zeros only. |
+| Argument       | Description                                                  |
+| -------------- | ------------------------------------------------------------ |
+| `--qrt`        | Quarter label (e.g. `1405Q1`); used in paths and file names. |
+| `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`).                 |
+| `--template`   | Skip forecasting; write outputs with zeros only.             |
 
 Outputs go to `src/data/results/<quarter>/`.
 
@@ -98,13 +98,13 @@ warehouse or vintage CSVs change.
 **Locked Analysis B PRIMARY** (identical matched rows, n=1877, origins
 `140404, 140407, 140410, 140501, 140504`):
 
-| Model | Role | WMAPE |
-|-------|------|------:|
-| TS | Quantitative baseline | **43.88%** |
-| Human | Current Sales judgment | **40.04%** |
-| TS + XGB | Automated candidate | **37.23%** |
+| Model       | Role                    |      WMAPE |
+| ----------- | ----------------------- | ---------: |
+| TS          | Quantitative baseline   | **43.88%** |
+| Human       | Current Sales judgment  | **40.04%** |
+| TS + XGB    | Automated candidate     | **37.23%** |
 | Human + XGB | Human–machine candidate | **36.69%** |
-| Integrated | Experimental | 40.14% |
+| Integrated  | Experimental            |     40.14% |
 
 These supersede the older “BEFORE expanded TS vintages” numbers in
 `docs/forecasting_findings.md` (43.38 / 40.75 / 36.43, n=1657).
@@ -131,6 +131,31 @@ python -m pkg.benchmark.verify    # offline: checksums + locked WMAPEs
 
 Custom models: pass a callable `(train_df, test_df) -> forecasts` to `backtest`.
 
+### Feature research (F0–F1C)
+
+[`pkg/research`](src/pkg/research/) adds point-in-time feature experiments **on top of**
+the freeze without changing locked WMAPEs or XGB hyperparameters.
+
+| Experiment | Features |
+|------------|----------|
+| **F0** | Frozen benchmark feature set |
+| **F1A** | F0 + demand dynamics |
+| **F1B** | F0 + historical Human reliability |
+| **F1C** | F0 + demand + Human reliability |
+
+```python
+from pkg.research import compare_feature_experiments
+
+report = compare_feature_experiments()  # matched PRIMARY; TS+XGB and Human+XGB
+report["overall"]   # WMAPE, rel vs F0, origins improved, product win rate, …
+```
+
+```powershell
+python -m pkg.research.evaluate_features
+```
+
+Price / lifecycle / commercial modules exist as placeholders only.
+
 ## Project layout
 
 ```
@@ -144,6 +169,7 @@ Forecast/
     pkg/
       db/                    # SQL client + queries
       benchmark/             # Frozen v1 dataset API + backtest()
+      research/              # Feature experiments F0–F1C on frozen panels
       sales_forecasting.py   # Orchestration, Excel export
       forecast.py              # Per-product models
       excelmanager.py          # Excel formatting & protection
