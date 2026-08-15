@@ -54,6 +54,7 @@ Create or copy `src/data/`:
 src/data/
   results/<quarter>/          # Output CSV + Excel (created by the tool)
   pipeline/<quarter>/           # Optional: <quarter>_pipeline.xlsx
+  benchmarks/v1/                # Frozen research panels (python -m pkg.benchmark.freeze)
   credentials.json              # Optional: Google service account (Sheets upload)
 ```
 
@@ -88,24 +89,67 @@ python main.py --qrt 1405Q1 --start-date 140501 --template
 
 Outputs go to `src/data/results/<quarter>/`.
 
+## Benchmark v1 (research baseline)
+
+Phase 1 freezes the matched Human/TS rolling-origin evaluation from
+`notebooks/residual_prediction.ipynb` so headline WMAPEs stop moving when the
+warehouse or vintage CSVs change.
+
+**Locked Analysis B PRIMARY** (identical matched rows, n=1877, origins
+`140404, 140407, 140410, 140501, 140504`):
+
+| Model | Role | WMAPE |
+|-------|------|------:|
+| TS | Quantitative baseline | **43.88%** |
+| Human | Current Sales judgment | **40.04%** |
+| TS + XGB | Automated candidate | **37.23%** |
+| Human + XGB | Human–machine candidate | **36.69%** |
+| Integrated | Experimental | 40.14% |
+
+These supersede the older “BEFORE expanded TS vintages” numbers in
+`docs/forecasting_findings.md` (43.38 / 40.75 / 36.43, n=1657).
+
+**API** (offline after freeze; no SQL):
+
+```python
+from pkg.benchmark import backtest, scoreboard
+
+backtest("ts")       # ~43.88 WMAPE on frozen PRIMARY matched rows
+scoreboard()         # TS / Human / TS+XGB / Human+XGB / Integrated
+```
+
+**CLI:**
+
+```powershell
+python -m pkg.benchmark.freeze    # once: DB + src/data/results -> src/data/benchmarks/v1/
+python -m pkg.benchmark.verify    # offline: checksums + locked WMAPEs
+```
+
+- Panels: `src/data/benchmarks/v1/` (gitignored, under `src/data/`)
+- Contract: [`src/pkg/benchmark/v1_manifest.json`](src/pkg/benchmark/v1_manifest.json)
+  (checksums, schemas, expected WMAPEs — tracked in git)
+
+Custom models: pass a callable `(train_df, test_df) -> forecasts` to `backtest`.
+
 ## Project layout
 
 ```
 Forecast/
   environment.yml      # Conda env (Python 3.10 + scientific stack, Prophet, …)
-  requirements.txt     # Pip extras only (TensorFlow, gspread)
+  requirements.txt     # Pip extras only (TensorFlow, gspread, pyarrow)
   pyproject.toml         # Editable install of pkg (pip install -e .)
   .env.example
   src/
     main.py              # CLI entry point
     pkg/
       db/                    # SQL client + queries
+      benchmark/             # Frozen v1 dataset API + backtest()
       sales_forecasting.py   # Orchestration, Excel export
       forecast.py              # Per-product models
       excelmanager.py          # Excel formatting & protection
       utils.py                 # Paths, pivot, department mapping
       google_sheet.py          # Optional Sheets upload
-    data/                  # Gitignored — results, pipeline, credentials
+    data/                  # Gitignored — results, pipeline, benchmarks/v1, credentials
 ```
 
 ## Handoff checklist

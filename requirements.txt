@@ -11,6 +11,9 @@
 # Residual correction MVP (notebooks/residual_prediction.ipynb)
 xgboost>=2.0,<3
 
+# Benchmark freeze panels (pkg.benchmark)
+pyarrow>=14,<20
+
 # Deep learning (LSTM in forecast.py)
 tensorflow>=2.15,<3
 

@@ -1,0 +1,120 @@
+{
+  "version": "v1",
+  "description": "Frozen matched Human/TS rolling-origin benchmark from notebooks/residual_prediction.ipynb Analysis B PRIMARY.",
+  "primary_origins": [
+    140404,
+    140407,
+    140410,
+    140501,
+    140504
+  ],
+  "row_counts": {
+    "ts_universe": 11470,
+    "budget_universe": 4453,
+    "matched_universe": 3404,
+    "ts_products": 56,
+    "budget_products": 55,
+    "matched_products": 55
+  },
+  "incomplete_shamsi_months": [
+    140505
+  ],
+  "excluded_odd_coverage_products": [
+    "Alvocade 3.5",
+    "Aryoseven 2.4",
+    "Kidi Mab",
+    "Nanojade 180 Old",
+    "Nanojade 360 Old",
+    "Nanojade 90 Old",
+    "Reditux 500"
+  ],
+  "allowed_forecast_qrts": [
+    "1401Q1",
+    "1401Q3",
+    "1401Q4",
+    "1402Q1",
+    "1402Q2",
+    "1402Q3",
+    "1402Q4",
+    "1403Q1",
+    "1403Q2",
+    "1403Q3",
+    "1403Q4",
+    "1404Q1",
+    "1404Q2",
+    "1404Q3",
+    "1404Q4",
+    "1405Q1",
+    "1405Q2"
+  ],
+  "expected_analysis_b_primary_wmape": {
+    "ts": 43.883479,
+    "human": 40.042928,
+    "ts_xgb": 37.23014,
+    "human_xgb": 36.69475,
+    "integrated": 40.143204,
+    "n": 1877,
+    "n_origins": 5
+  },
+  "expected_analysis_a_primary_wmape": {
+    "human": 40.056187,
+    "bias_global": 43.219084,
+    "bias_product": 45.775277,
+    "bias_product_horizon": 46.199196,
+    "af_ratio": 42.863905,
+    "ridge": 41.209985,
+    "human_xgb": 36.707273,
+    "n": 1923,
+    "n_origins": 5
+  },
+  "checksums": {
+    "ts_universe.parquet": "9a5cda3d153f97e4f897f53221c96f3cfb7de8c684d4862cbd8aa5e10bad72d8",
+    "budget_universe.parquet": "dffc41e23c8a67fd29bd7c515e40519c2a7dfb9aae69e95381d60874b4ab46e1",
+    "matched_universe.parquet": "a3402060dd4dfa957fd5cc001514ddc75809447b0d04d32d18e4e0f771f7cad3",
+    "raw/sales.parquet": "1d146d49261357f6b35d743a4c4064b22abe82047f6f5c36bbe4496d03f1ffc7",
+    "raw/line_budget.parquet": "501a9a746fee0a8d992f7c235fbb485dd1ad78d6ac2564561881d31309673d1d",
+    "raw/product_attrs.parquet": "46c24eaa136c549a5ebe1dc15921174c375ac4113c099c03cde33ccf57ce16d5",
+    "ts_csvs/1401Q1/1401Q1_total_forecast.csv": "566b2cf29ec6d4af670259d347ea94dc62a7d47bdfbae2f9bc93bd5c1c20cdf7",
+    "ts_csvs/1401Q3/1401Q3_total_forecast.csv": "17d6a38dd347a5f6f7da9fa9ad5370f0f1ef5bcce3ad249fc80e0ea9b313f5ed",
+    "ts_csvs/1401Q4/1401Q4_total_forecast.csv": "51e83386751830ca123d843b7b34b39a42b49b1319e55b9553917011f4e5d83b",
+    "ts_csvs/1402Q1/1402Q1_total_forecast.csv": "44b1f649338e001c41f1dce778c8a38d6fc6c2e57bb28446ec8ac43103a3889a",
+    "ts_csvs/1402Q2/1402Q2_total_forecast.csv": "9075d05cabf1779505519158a73f594401db6a8456edb745e981ac6913ec5214",
+    "ts_csvs/1402Q3/1402Q3_total_forecast.csv": "856b5e26d07e12213e3a3349b0e492972ac3e626dbbf6e2b604d3345ab722b23",
+    "ts_csvs/1402Q4/1402Q4_total_forecast.csv": "70126642fd3fea85c5f692ff10bd12222576aa96fbb5091f7dfc7a1adf4d4ed1",
+    "ts_csvs/1403Q1/1403Q1_total_forecast.csv": "ca2ca9c3aac65a6871a13223bc1c95cfe09816deb1776c87b53fb5ddb28eaaab",
+    "ts_csvs/1403Q2/1403Q2_total_forecast.csv": "b5bd197473ad37182b41fdfaf5e528b496ca5ff483b620f9136aa22b64c8be99",
+    "ts_csvs/1403Q3/1403Q3_total_forecast.csv": "520c93eca604e052aa67f421af140a06325499326e5dc0703f0f1df35b0db951",
+    "ts_csvs/1403Q4/1403Q4_total_forecast.csv": "f50b6bb88252c4cb33e20a6582fc620620e49048c35a86cc17e49a8d21f3e448",
+    "ts_csvs/1404Q1/1404Q1_total_forecast.csv": "c2a34324a4a070e9d65e92bb3c8b17887cfed7ba8f16ef59b870b2801286e935",
+    "ts_csvs/1404Q2/1404Q2_total_forecast.csv": "eb40e24cc59fea1d911de866e3d8c1291a761511c2009139ee87f35cb0fead16",
+    "ts_csvs/1404Q3/1404Q3_total_forecast.csv": "22260736daa7a47e329c8875fea7a37ec45dbe1f57ad7eb3eb992eb8bdaaf2cf",
+    "ts_csvs/1404Q4/1404Q4_total_forecast.csv": "8f823609e5524f562c23c1e5b37f3af4988d81d747dda15935a52ab88b00b89b",
+    "ts_csvs/1405Q1/1405Q1_total_forecast.csv": "f32ce87ccde25c854fcc4f47899eadc4c991eb5ddc6344d390f4218dcf4a68cc",
+    "ts_csvs/1405Q2/1405Q2_total_forecast.csv": "314d30890ef2bc3ec575417ff59fd5e33838b80009b32230c63d8583622a000b"
+  },
+  "schema": {
+    "matched_universe_required": [
+      "product",
+      "qrt",
+      "date",
+      "target_date",
+      "origin",
+      "horizon",
+      "sales",
+      "ts_forecast",
+      "budget_forecast",
+      "human_adjustment",
+      "sales_lag_1",
+      "sales_lag_2",
+      "sales_lag_3",
+      "sales_lag_12",
+      "sales_roll3",
+      "month",
+      "quarter",
+      "model_enc",
+      "field_enc",
+      "form_enc",
+      "provider_enc"
+    ]
+  }
+}

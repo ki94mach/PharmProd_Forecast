@@ -32,6 +32,8 @@ dependencies:
   - pip:
       # Residual correction MVP
       - xgboost>=2.0,<3
+      # Benchmark freeze panels
+      - pyarrow>=14,<20
       # LSTM (forecast.py) — prefer pip wheels over conda
       - tensorflow>=2.15,<3
       # Google Sheets (optional)
