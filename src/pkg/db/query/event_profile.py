@@ -66,3 +66,56 @@ def load_event_count_by_product(start_ym, end_ym, **engine_kwargs):
         end_ym: Inclusive Shamsi year-month end (e.g. 140412).
     """
     return read_sql(_event_count_by_product_sql(start_ym, end_ym), **engine_kwargs)
+
+
+def _product_launch_date_sql() -> str:
+    return f"""
+    WITH launch_events AS (
+        SELECT
+            a.[Generic_ID],
+            a.[ShamsiDate]
+        FROM [Iris_DW].[Fact].[VW_Eventprofile_Product] a
+        WHERE a.[EventType] LIKE N'%لانچ دارو Drug Launch%'
+            AND a.[Generic_ID] IS NOT NULL
+            AND a.[ShamsiDate] IS NOT NULL
+    ),
+    date_counts AS (
+        SELECT
+            [Generic_ID],
+            [ShamsiDate],
+            COUNT(*) AS n_event_rows,
+            ROW_NUMBER() OVER (
+                PARTITION BY [Generic_ID]
+                ORDER BY COUNT(*) DESC, [ShamsiDate] ASC
+            ) AS rn
+        FROM launch_events
+        GROUP BY
+            [Generic_ID],
+            [ShamsiDate]
+    )
+    SELECT
+        p.[ProductTitleEN] AS product,
+        p.[GenericEN] AS generic,
+        CAST(LEFT(LTRIM(RTRIM(CAST(d.[ShamsiDate] AS varchar(20)))), 6) AS int) AS date,
+        d.[ShamsiDate] AS launch_date,
+        d.[n_event_rows]
+    FROM date_counts d
+    INNER JOIN [Iris_DW].[Dim].[Product] p
+        ON d.[Generic_ID] = p.[ID]
+    WHERE d.[rn] = 1
+        AND p.[ProductTitleEN] IS NOT NULL
+        AND p.[GenericEN] IN ({GENERIC_EN_IN})
+    ORDER BY
+        p.[GenericEN],
+        p.[ProductTitleEN]
+"""
+
+
+def load_product_launch_dates(**engine_kwargs):
+    """Load the modal Drug Launch ShamsiDate per Generic_ID as product YYYYMM.
+
+    For each Generic_ID, the ShamsiDate with the most event rows is kept
+    (earliest date on ties). Joined to Dim.Product so each ProductTitleEN
+    has a ``date`` column compatible with sales (Shamsi YYYYMM).
+    """
+    return read_sql(_product_launch_date_sql(), **engine_kwargs)
