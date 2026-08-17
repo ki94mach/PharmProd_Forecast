@@ -8,6 +8,7 @@ def main() -> int:
         "\n"
         "Experiments: F0 (frozen), F1A (+demand), F1B (+human reliability), F1C (both)\n"
         "Audit:   python -m pkg.research.audit_f1\n"
+        "F2:      python -m pkg.research.evaluate_f2\n"
         "API: from pkg.research import compare_feature_experiments\n"
     )
     return 0
