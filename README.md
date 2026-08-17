@@ -154,10 +154,11 @@ report["overall"]   # WMAPE, rel vs F0, origins improved, product win rate, …
 python -m pkg.research.evaluate_features
 python -m pkg.research.audit_f1          # F1 diagnostic audit → docs/f1_feature_audit.md
 python -m pkg.research.evaluate_f2       # F2A/F2B/F2C on frozen v1 → docs/f2_results.md
+python -m pkg.research.evaluate_feature_ablation  # CORE vs F0_DEMAND replacement vs addition → docs/feature_family_ablation.md
 ```
 
-F1 is not promoted. F2 redesigns a compact demand-state and shrunk Human-reliability set;
-see [`docs/f2_feature_design.md`](docs/f2_feature_design.md).
+F1 is not promoted. F2 is not promoted. Feature-family ablation (standalone vs addition)
+is in [`docs/feature_family_ablation.md`](docs/feature_family_ablation.md).
 
 Price / lifecycle / commercial modules exist as placeholders only.
 
