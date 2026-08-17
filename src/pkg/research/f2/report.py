@@ -8,30 +8,15 @@ from typing import Any, Optional
 import pandas as pd
 
 from pkg.research.f2.config import docs_dir, f2_output_dir
+from pkg.research.harness.report import md_table, read_csv, repo_relative
 
 
 def _md_table(df: pd.DataFrame, max_rows: int = 20) -> str:
-    if df is None or df.empty:
-        return "_No data._\n"
-    sub = df.head(max_rows)
-    cols = list(sub.columns)
-    lines = [
-        "| " + " | ".join(str(c) for c in cols) + " |",
-        "| " + " | ".join(["---"] * len(cols)) + " |",
-    ]
-    for _, row in sub.iterrows():
-        cells = [str(row[c])[:90] for c in cols]
-        lines.append("| " + " | ".join(cells) + " |")
-    if len(df) > max_rows:
-        lines.append(f"\n_({len(df) - max_rows} more rows in CSV)_")
-    return "\n".join(lines) + "\n"
+    return md_table(df, max_rows=max_rows, format_cells=False)
 
 
 def _read(out_dir: Path, name: str) -> Optional[pd.DataFrame]:
-    p = out_dir / name
-    if not p.exists():
-        return None
-    return pd.read_csv(p)
+    return read_csv(out_dir, name)
 
 
 def _answers(overall: pd.DataFrame, classifications: dict) -> list[str]:
@@ -103,9 +88,30 @@ def write_f2_results(
         "# F2 results\n",
         f"**Date:** {date.today().isoformat()}  \n",
         "**Benchmark:** frozen v1 matched PRIMARY  \n",
-        f"**CSV artifacts:** `{Path(out_dir).as_posix()}`\n",
+        f"**CSV artifacts:** `{repo_relative(Path(out_dir))}`\n",
         "\nF1 is not promoted. F2D is not implemented. "
         "This document reports negative findings as well as positive ones.\n",
+        "\n## Executive interpretation\n\n",
+        "Canonical F0 for this run is the **currently reproduced** frozen backtest: "
+        "TS+XGB **38.28** WMAPE, Human+XGB **36.56** WMAPE, n=1877, 5 origins. "
+        "Locked freeze-time contract values (37.23 / 36.69) were **not** rewritten; "
+        "n and origins match. The WMAPE gap is environment/XGBoost, not a different freeze. "
+        "Relative F2 lifts are vs the reproduced F0.\n\n",
+        "| Family | Verdict | Headline |\n",
+        "|--------|---------|----------|\n",
+        "| F2A demand-state | **PROMISING_BUT_UNSTABLE** (do not promote) | "
+        "Portfolio WMAPE worse (TS −5.2%, Human −3.1% rel). A slight majority of products "
+        "improve on TS (win rate 52.7%, median +0.7%) but **0/5 origins** improve. "
+        "Cinnatropin 10 alone is ~48% of TS deterioration. |\n",
+        "| F2B shrunk Human reliability | **REJECT** | "
+        "Human WMAPE 36.56 → **45.15** (−23.5% rel). 0/5 origins improve; win rate 22%; "
+        "bias 752 → 2592. Paglino 10 WMAPE explodes (~55 → ~451). Shrinkage did **not** "
+        "remove F1-style high-volume failure. |\n",
+        "| F2C | **not run** | F2B is REJECT; combination not forced. |\n",
+        "| F2D | **deferred** | Matched Human-adjustment still not implemented. |\n\n",
+        "**Not ready** for lifecycle/price/commercial features until Human reliability is "
+        "either dropped from the residual-XGB recipe or redesigned with a different target "
+        "(counts-only, or explicit regime variables — not sparse bias levels).\n",
         "\n## Canonical F0 used by F2\n\n",
         _md_table(canon_sum) if canon_sum is not None else "_missing f0_canonical.csv_\n",
         "\nSee [f2_feature_design.md](f2_feature_design.md) for why locked freeze-time "
