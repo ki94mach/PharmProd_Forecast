@@ -9,13 +9,12 @@ from __future__ import annotations
 import argparse
 from typing import Iterable, Optional, Sequence
 
-import numpy as np
 import pandas as pd
 
 from pkg.benchmark import backtest, load_benchmark
-from pkg.benchmark.config import EXPECTED_ANALYSIS_B_PRIMARY, HORIZON_BUCKETS
-from pkg.benchmark.dataset import BenchmarkDataset, horizon_bucket
-from pkg.benchmark.evaluate import BacktestResult, wmape
+from pkg.benchmark.config import EXPECTED_ANALYSIS_B_PRIMARY
+from pkg.benchmark.dataset import BenchmarkDataset
+from pkg.benchmark.evaluate import BacktestResult
 from pkg.research.experiments import (
     EXPERIMENTS,
     FeatureSet,
@@ -24,123 +23,14 @@ from pkg.research.experiments import (
     make_residual_model,
     train_universe_for,
 )
-
-ROW_KEYS = ("product", "qrt", "target_date", "test_origin")
-
-
-def _row_key_frame(preds: pd.DataFrame) -> pd.DataFrame:
-    missing = [c for c in ROW_KEYS if c not in preds.columns]
-    if missing:
-        raise KeyError(f"predictions missing keys {missing}")
-    return (
-        preds[list(ROW_KEYS)]
-        .assign(
-            product=lambda d: d["product"].astype(str),
-            qrt=lambda d: d["qrt"].astype(str),
-            target_date=lambda d: d["target_date"].astype(int),
-            test_origin=lambda d: d["test_origin"].astype(int),
-        )
-        .sort_values(list(ROW_KEYS))
-        .reset_index(drop=True)
-    )
-
-
-def assert_same_eval_rows(baseline: BacktestResult, candidate: BacktestResult) -> None:
-    """Candidate experiment must score exactly the same TEST identities as F0."""
-    a = _row_key_frame(baseline.predictions)
-    b = _row_key_frame(candidate.predictions)
-    if len(a) != len(b):
-        raise AssertionError(
-            f"eval row count mismatch: F0 n={len(a)} candidate n={len(b)}"
-        )
-    if not a.equals(b):
-        # Show a small diff sample
-        merged = a.merge(b, on=list(ROW_KEYS), how="outer", indicator=True)
-        bad = merged.loc[merged["_merge"] != "both"]
-        raise AssertionError(
-            f"eval row keys differ from F0 (diff_rows={len(bad)}). "
-            f"sample:\n{bad.head(10)}"
-        )
-
-
-def _rel_wmape(base: float, new: float) -> float:
-    if base == 0 or not np.isfinite(base):
-        return float("nan")
-    return float((base - new) / base * 100.0)
-
-
-def _origins_improved(base: BacktestResult, cand: BacktestResult) -> tuple[int, int]:
-    b = base.by_origin.set_index("origin")["wmape"]
-    c = cand.by_origin.set_index("origin")["wmape"]
-    common = sorted(set(b.index) & set(c.index))
-    improved = sum(1 for o in common if c.loc[o] < b.loc[o])
-    return improved, len(common)
-
-
-def _product_stats(base: BacktestResult, cand: BacktestResult) -> dict:
-    """Product win rate / median improvement of candidate vs F0 predictions."""
-    b = base.predictions[
-        ["product", "qrt", "target_date", "test_origin", "actual", "prediction"]
-    ].rename(columns={"prediction": "pred_f0"})
-    c = cand.predictions[
-        ["product", "qrt", "target_date", "test_origin", "prediction"]
-    ].rename(columns={"prediction": "pred_new"})
-    m = b.merge(c, on=["product", "qrt", "target_date", "test_origin"], how="inner")
-    rows = []
-    for product, g in m.groupby("product"):
-        if len(g) < 3:
-            continue
-        w0 = wmape(g["actual"], g["pred_f0"])
-        w1 = wmape(g["actual"], g["pred_new"])
-        rows.append(
-            {
-                "product": product,
-                "n": len(g),
-                "wmape_f0": w0,
-                "wmape_new": w1,
-                "rel_improvement_pct": _rel_wmape(w0, w1),
-            }
-        )
-    if not rows:
-        return {
-            "product_win_rate": float("nan"),
-            "median_product_improvement_pct": float("nan"),
-            "n_products": 0,
-        }
-    pdf = pd.DataFrame(rows)
-    return {
-        "product_win_rate": float((pdf["rel_improvement_pct"] > 0).mean()),
-        "median_product_improvement_pct": float(pdf["rel_improvement_pct"].median()),
-        "n_products": int(len(pdf)),
-    }
-
-
-def _horizon_bucket_table(base: BacktestResult, cand: BacktestResult) -> pd.DataFrame:
-    b = base.predictions[
-        ["product", "qrt", "target_date", "test_origin", "horizon", "actual", "prediction"]
-    ].rename(columns={"prediction": "pred_f0"})
-    c = cand.predictions[
-        ["product", "qrt", "target_date", "test_origin", "prediction"]
-    ].rename(columns={"prediction": "pred_new"})
-    m = b.merge(c, on=["product", "qrt", "target_date", "test_origin"], how="inner")
-    m["horizon_bucket"] = m["horizon"].map(horizon_bucket)
-    rows = []
-    for name, lo, hi in HORIZON_BUCKETS:
-        g = m.loc[m["horizon_bucket"] == name]
-        if g.empty:
-            continue
-        w0 = wmape(g["actual"], g["pred_f0"])
-        w1 = wmape(g["actual"], g["pred_new"])
-        rows.append(
-            {
-                "horizon_bucket": name,
-                "n": len(g),
-                "wmape_f0": w0,
-                "wmape_new": w1,
-                "rel_wmape_vs_f0_pct": _rel_wmape(w0, w1),
-            }
-        )
-    return pd.DataFrame(rows)
+from pkg.research.harness.metrics import (
+    ROW_KEYS,
+    assert_same_eval_rows,
+    horizon_bucket_table as _horizon_bucket_table,
+    origins_improved as _origins_improved,
+    product_stats as _product_stats,
+    rel_wmape as _rel_wmape,
+)
 
 
 def _run_anchor(

@@ -8,7 +8,8 @@ import pandas as pd
 
 from pkg.benchmark.evaluate import BacktestResult, wmape
 from pkg.research.f2.config import HIGH_VOLUME_WATCHLIST
-from pkg.research.f2.evaluate import _error_concentration, _merge_ae
+from pkg.research.harness.metrics import error_concentration as _error_concentration
+from pkg.research.harness.metrics import merge_ae as _merge_ae
 
 
 def decompose_vs_f0(

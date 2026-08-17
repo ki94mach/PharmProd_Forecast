@@ -31,22 +31,21 @@ from pkg.research.ablation.config import (
     get_ablation,
 )
 from pkg.research.ablation.decomposition import decompose_vs_f0
-from pkg.research.evaluate_features import (
-    ROW_KEYS,
-    _horizon_bucket_table,
-    _origins_improved,
-    _rel_wmape,
-    assert_same_eval_rows,
-)
 from pkg.research.experiments import enrich_dataset, get_experiment, make_residual_model
 from pkg.research.f2.config import F2A, F2B, F2Experiment
-from pkg.research.f2.evaluate import (
-    _product_stats_full,
+from pkg.research.f2.evaluate import enrich_f2_dataset, make_f2_residual_model
+from pkg.research.harness.gates import (
     assert_freeze_unchanged,
     confirm_canonical_f0,
-    enrich_f2_dataset,
     freeze_checksums,
-    make_f2_residual_model,
+)
+from pkg.research.harness.metrics import (
+    ROW_KEYS,
+    assert_same_eval_rows,
+    horizon_bucket_table as _horizon_bucket_table,
+    origins_improved as _origins_improved,
+    product_stats_full as _product_stats_full,
+    rel_wmape as _rel_wmape,
 )
 from pkg.research.features.demand import add_demand_features, load_frozen_sales
 from pkg.research.features.demand_f2 import add_demand_f2_features

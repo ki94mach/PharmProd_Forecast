@@ -4,6 +4,10 @@ from pkg.research.features.demand import DEMAND_FEATURE_NAMES, add_demand_featur
 from pkg.research.features.demand_f2 import DEMAND_F2_FEATURE_NAMES, add_demand_f2_features
 from pkg.research.features.human import HUMAN_FEATURE_NAMES, add_human_features
 from pkg.research.features.human_f2 import HUMAN_F2_FEATURE_NAMES, add_human_f2_features
+from pkg.research.features.lifecycle import (
+    FEATURE_NAMES as LIFECYCLE_FEATURE_NAMES,
+    add_lifecycle_features,
+)
 
 FEATURE_GROUPS = {
     "demand": DEMAND_FEATURE_NAMES,
@@ -11,7 +15,7 @@ FEATURE_GROUPS = {
     "demand_f2": DEMAND_F2_FEATURE_NAMES,
     "human_f2": HUMAN_F2_FEATURE_NAMES,
     "price": (),
-    "lifecycle": (),
+    "lifecycle": LIFECYCLE_FEATURE_NAMES,
     "commercial": (),
 }
 
@@ -21,10 +25,12 @@ __all__ = [
     "HUMAN_FEATURE_NAMES",
     "DEMAND_F2_FEATURE_NAMES",
     "HUMAN_F2_FEATURE_NAMES",
+    "LIFECYCLE_FEATURE_NAMES",
     "add_demand_features",
     "add_human_features",
     "add_demand_f2_features",
     "add_human_f2_features",
+    "add_lifecycle_features",
     "demand",
     "human",
 ]

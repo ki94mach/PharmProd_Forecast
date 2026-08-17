@@ -155,12 +155,14 @@ python -m pkg.research.evaluate_features
 python -m pkg.research.audit_f1          # F1 diagnostic audit → docs/f1_feature_audit.md
 python -m pkg.research.evaluate_f2       # F2A/F2B/F2C on frozen v1 → docs/f2_results.md
 python -m pkg.research.evaluate_feature_ablation  # CORE vs F0_DEMAND replacement vs addition → docs/feature_family_ablation.md
+python -m pkg.research.evaluate_f3a      # F3A observed product tenure → docs/f3a_lifecycle.md
 ```
 
 F1 is not promoted. F2 is not promoted. Feature-family ablation (standalone vs addition)
 is in [`docs/feature_family_ablation.md`](docs/feature_family_ablation.md).
+F3A (product lifecycle / observed commercial tenure) is in [`docs/f3a_lifecycle.md`](docs/f3a_lifecycle.md).
 
-Price / lifecycle / commercial modules exist as placeholders only.
+Price / commercial modules remain placeholders. Drug Launch event SQL is a deferred exploratory source, not an F3A scored feature.
 
 ## Project layout
 
