@@ -152,6 +152,7 @@ report["overall"]   # WMAPE, rel vs F0, origins improved, product win rate, …
 
 ```powershell
 python -m pkg.research.evaluate_features
+python -m pkg.research.audit_f1          # F1 diagnostic audit → docs/f1_feature_audit.md
 ```
 
 Price / lifecycle / commercial modules exist as placeholders only.
