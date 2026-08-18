@@ -11,6 +11,7 @@ def main() -> int:
         "F2:      python -m pkg.research.evaluate_f2\n"
         "Ablation: python -m pkg.research.evaluate_feature_ablation\n"
         "F3A:     python -m pkg.research.evaluate_f3a\n"
+        "F3B src: python -m pkg.research.prepare_f3b\n"
         "API: from pkg.research import compare_feature_experiments\n"
     )
     return 0
