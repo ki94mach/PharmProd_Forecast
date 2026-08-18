@@ -210,13 +210,58 @@ class TestJoinAndDupes(unittest.TestCase):
                 "excel_row": [14, 15, 16, 17],
             }
         )
-        history, collapsed, conflicts = collapse_duplicates(keep)
+        history, collapsed, pack_qty, conflicts = collapse_duplicates(keep)
         self.assertEqual(len(history), 1)
         self.assertEqual(history["product"].iloc[0], "P")
         self.assertEqual(len(collapsed), 1)
         self.assertEqual(int(collapsed["n_rows_collapsed"].iloc[0]), 2)
         self.assertEqual(conflicts["conflict_group"].nunique(), 1)
+        self.assertTrue(pack_qty.empty)
         self.assertNotIn("Q", set(history["product"]))
+        self.assertEqual(conflicts["conflict_kind"].iloc[0], "true_price_conflict")
+
+    def test_pack_quantity_only_is_not_a_price_conflict(self):
+        keep = pd.DataFrame(
+            {
+                "product": ["P", "P"],
+                "effective_date": [14040311, 14040311],
+                "distributor_price": [10.0, 10.0],
+                "pharmacy_price": [11.0, 11.0],
+                "consumer_price": [12.0, 12.0],
+                "pack_quantity": [1.0, 5.0],
+                "excel_row": [20, 19],
+            }
+        )
+        history, collapsed, pack_qty, conflicts = collapse_duplicates(keep)
+        self.assertEqual(len(history), 1)
+        self.assertAlmostEqual(float(history["consumer_price"].iloc[0]), 12.0)
+        self.assertEqual(float(history["pack_quantity"].iloc[0]), 5.0)
+        self.assertEqual(int(history["excel_row"].iloc[0]), 19)
+        self.assertTrue(collapsed.empty)
+        self.assertTrue(conflicts.empty)
+        self.assertEqual(len(pack_qty), 2)
+        self.assertEqual(pack_qty["conflict_group"].nunique(), 1)
+        self.assertTrue((pack_qty["conflict_kind"] == "pack_quantity_only").all())
+        self.assertEqual(set(pack_qty["pack_quantity"].astype(float)), {1.0, 5.0})
+
+    def test_true_price_conflict_excludes_group(self):
+        keep = pd.DataFrame(
+            {
+                "product": ["P", "P"],
+                "effective_date": [14040311, 14040311],
+                "distributor_price": [10.0, 10.0],
+                "pharmacy_price": [11.0, 11.0],
+                "consumer_price": [12.0, 13.0],
+                "pack_quantity": [1.0, 1.0],
+                "excel_row": [21, 22],
+            }
+        )
+        history, collapsed, pack_qty, conflicts = collapse_duplicates(keep)
+        self.assertTrue(history.empty)
+        self.assertTrue(collapsed.empty)
+        self.assertTrue(pack_qty.empty)
+        self.assertEqual(len(conflicts), 2)
+        self.assertEqual(conflicts["conflict_kind"].iloc[0], "true_price_conflict")
 
 
 class TestExtractAndPrepare(unittest.TestCase):
@@ -297,6 +342,23 @@ class TestExtractAndPrepare(unittest.TestCase):
         mapping = load_product_map(path)
         self.assertEqual(len(mapping), 2)
         self.assertIn("map_source_norm", mapping.columns)
+
+    def test_confirmed_replacements_are_not_hardcoded_in_prepare(self):
+        src = Path(__file__).resolve().parents[1] / "src" / "pkg" / "research" / "f3b" / "prepare.py"
+        text = src.read_text(encoding="utf-8")
+        self.assertNotIn("رسیژن 5 عددی", text)
+        self.assertNotIn("دالفیرا بلیستر", text)
+
+    def test_product_map_workbook_contains_confirmed_rows(self):
+        from pkg.research.f3b.config import product_map_xlsx
+
+        path = product_map_xlsx()
+        if not path.exists():
+            self.skipTest("map workbook missing")
+        mapping = load_product_map(path)
+        by = mapping.set_index("map_source_norm")["map_target_norm"]
+        self.assertEqual(by.loc[normalize_fa("رسیژن 5 عددی")], normalize_fa("رسیژن"))
+        self.assertEqual(by.loc[normalize_fa("دالفیرا بلیستر")], normalize_fa("دالفیرا"))
 
 
 class TestFreezeNotTouchedByHelpers(unittest.TestCase):

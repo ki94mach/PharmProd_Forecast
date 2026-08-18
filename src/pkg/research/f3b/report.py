@@ -50,6 +50,9 @@ def write_price_source_audit(
     collapsed = report.get("collapsed")
     if collapsed is None:
         collapsed = read_csv(out_dir, "duplicate_collapsed.csv")
+    pack_qty = report.get("pack_qty_conflicts")
+    if pack_qty is None:
+        pack_qty = read_csv(out_dir, "pack_quantity_only_conflicts.csv")
     conflicts = report.get("conflicts")
     if conflicts is None:
         conflicts = read_csv(out_dir, "conflicting_prices.csv")
@@ -75,6 +78,11 @@ def write_price_source_audit(
         "No YYYYMM integer subtraction; no Gregorian `to_datetime` on these strings.\n",
         "- Modeling history requires MATCHED Dim.Product, a valid effective date, and all three "
         "prices present and strictly positive. Missing prices are not imputed or forward-filled.\n",
+        "- Product/date groups: identical prices+pack collapse to one row; "
+        "identical prices with differing ``pack_quantity`` also collapse to one canonical row "
+        "(original rows kept in `pack_quantity_only_conflicts.csv`); "
+        "true price conflicts (any of distributor/pharmacy/consumer differ) are excluded "
+        "entirely. Pack quantity alone is not a price conflict.\n",
         "\n## Counts\n\n",
         md_table(summary) if summary is not None else "_missing source_summary.csv_\n",
         "\n## Audit answers\n\n",
@@ -90,15 +98,22 @@ def write_price_source_audit(
         f"8. **Date range of valid observations?** Shamsi day {_s(summary, 'valid_date_min')}–"
         f"{_s(summary, 'valid_date_max')} "
         f"(months {_s(summary, 'valid_month_min')}–{_s(summary, 'valid_month_max')}).\n",
-        f"9. **How many duplicate product/date observations?** "
-        f"{_s(summary, 'n_duplicate_product_date_groups_collapsed')} groups "
-        f"({_s(summary, 'n_rows_collapsed_as_duplicates')} rows collapsed; identical prices only).\n",
-        f"10. **How many conflicting product/date prices?** {_s(summary, 'n_conflicting_product_date_keys')} "
-        "(excluded entirely; no silent pick).\n",
-        f"11. **Coverage for the 55 MVP products?** {_s(summary, 'n_mvp_with_valid_price_history')} of "
+        f"9. **How many identical-price duplicate product/date groups?** "
+        f"{_s(summary, 'n_identical_price_duplicate_groups')} groups "
+        f"({_s(summary, 'n_rows_collapsed_as_duplicates')} rows collapsed; "
+        "same distributor/pharmacy/consumer and same pack quantity).\n",
+        f"10. **How many pack-quantity-only conflict groups?** "
+        f"{_s(summary, 'n_pack_quantity_only_conflict_groups')} "
+        "(prices identical; pack quantity differs; collapsed into history; "
+        "original rows preserved in `pack_quantity_only_conflicts.csv`).\n",
+        f"11. **How many true price-conflict groups?** "
+        f"{_s(summary, 'n_true_price_conflict_groups')} "
+        "(at least one of distributor/pharmacy/consumer differs; "
+        "excluded entirely from `price_history.parquet`; no silent pick).\n",
+        f"12. **Coverage for the 55 MVP products?** {_s(summary, 'n_mvp_with_valid_price_history')} of "
         f"{_s(summary, 'n_mvp_products')} "
         f"({_s(summary, 'mvp_coverage_pct')}%) have at least one valid observation.\n",
-        "12. **Per MVP product** first/last date, observation count, and whether history exists: "
+        "13. **Per MVP product** first/last date, observation count, and whether history exists: "
         "see the table below and `mvp_product_coverage.csv`.\n",
         "\n## Explicit replacement map\n\n",
         md_table(mapping, max_rows=20) if mapping is not None else "_missing_\n",
@@ -108,7 +123,13 @@ def write_price_source_audit(
         md_table(ambiguous, max_rows=40) if ambiguous is not None else "_none_\n",
         "\n## Collapsed identical duplicates\n\n",
         md_table(collapsed, max_rows=20) if collapsed is not None else "_none_\n",
-        "\n## Conflicting product/date prices\n\n",
+        "\n## Pack-quantity-only conflicts (kept in history)\n\n",
+        "Prices match; ``pack_quantity`` differs. Canonical observation is the first "
+        "Excel row in the group. Original rows are preserved here.\n\n",
+        md_table(pack_qty, max_rows=20) if pack_qty is not None else "_none_\n",
+        "\n## True price conflicts (excluded from history)\n\n",
+        "At least one of distributor, pharmacy, or consumer price differs. "
+        "Original rows are preserved here; none enter `price_history.parquet`.\n\n",
         md_table(conflicts, max_rows=20) if conflicts is not None else "_none_\n",
         "\n## MVP product coverage\n\n",
         md_table(mvp, max_rows=60) if mvp is not None else "_missing_\n",

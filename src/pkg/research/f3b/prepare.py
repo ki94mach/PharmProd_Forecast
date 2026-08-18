@@ -416,45 +416,89 @@ def reject_and_keep(parsed: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return keep, rejected
 
 
-def collapse_duplicates(keep: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Collapse identical product/date prices; isolate conflicts without choosing."""
+def _prices_identical(g: pd.DataFrame) -> bool:
+    view = g[list(PRICE_FIELD_NAMES)].astype(float)
+    return all(view[c].nunique(dropna=False) == 1 for c in PRICE_FIELD_NAMES)
+
+
+def _pack_quantity_identical(g: pd.DataFrame) -> bool:
+    if "pack_quantity" not in g.columns:
+        return True
+    return int(g["pack_quantity"].nunique(dropna=False)) == 1
+
+
+def _canonical_row(g: pd.DataFrame) -> pd.Series:
+    if "excel_row" in g.columns:
+        return g.sort_values("excel_row", kind="stable").iloc[0]
+    return g.iloc[0]
+
+
+def collapse_duplicates(
+    keep: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Collapse identical product/date prices; isolate true price conflicts.
+
+    A group is a genuine price conflict only if distributor, pharmacy, or
+    consumer price differs. ``pack_quantity`` differences alone are not a
+    price conflict: those groups collapse to one canonical observation and
+    are recorded separately. All original rows are kept in the audit frames.
+    """
+    empty = keep.iloc[0:0].copy()
     if keep.empty:
-        empty = keep.copy()
-        return empty, empty, empty
+        return empty, empty, empty, empty
     key_cols = ["product", "effective_date"]
     grouped = keep.groupby(key_cols, dropna=False)
     collapsed_rows = []
     collapsed_audit = []
+    pack_qty_rows = []
     conflict_rows = []
     for key, g in grouped:
-        price_view = g[list(PRICE_FIELD_NAMES)].astype(float)
-        packs = g["pack_quantity"]
-        prices_same = all(
-            price_view[c].nunique(dropna=False) == 1 for c in PRICE_FIELD_NAMES
-        )
-        pack_vals = packs.dropna()
-        pack_same = pack_vals.empty or pack_vals.nunique() == 1
+        label = f"{key[0]}|{key[1]}"
         if len(g) == 1:
             collapsed_rows.append(g.iloc[0])
             continue
+        prices_same = _prices_identical(g)
+        pack_same = _pack_quantity_identical(g)
         if prices_same and pack_same:
-            collapsed_rows.append(g.iloc[0])
+            collapsed_rows.append(_canonical_row(g))
             collapsed_audit.append(
                 {
                     "product": key[0],
                     "effective_date": key[1],
                     "n_rows_collapsed": int(len(g)),
-                    "excel_rows": ";".join(str(int(x)) for x in g["excel_row"].tolist()),
+                    "excel_rows": ";".join(
+                        str(int(x)) for x in g["excel_row"].tolist()
+                    )
+                    if "excel_row" in g.columns
+                    else "",
+                    "group_kind": "identical_price_duplicate",
                 }
             )
             continue
-        conflict_rows.append(g.assign(conflict_group=f"{key[0]}|{key[1]}"))
+        if prices_same and not pack_same:
+            collapsed_rows.append(_canonical_row(g))
+            pack_qty_rows.append(
+                g.assign(
+                    conflict_group=label,
+                    conflict_kind="pack_quantity_only",
+                    n_distinct_pack_quantity=int(
+                        g["pack_quantity"].nunique(dropna=False)
+                    ),
+                )
+            )
+            continue
+        conflict_rows.append(
+            g.assign(conflict_group=label, conflict_kind="true_price_conflict")
+        )
     history = pd.DataFrame(collapsed_rows)
     collapsed = pd.DataFrame(collapsed_audit)
-    conflicts = (
-        pd.concat(conflict_rows, ignore_index=True) if conflict_rows else pd.DataFrame()
+    pack_qty_conflicts = (
+        pd.concat(pack_qty_rows, ignore_index=True) if pack_qty_rows else empty.copy()
     )
-    return history, collapsed, conflicts
+    conflicts = (
+        pd.concat(conflict_rows, ignore_index=True) if conflict_rows else empty.copy()
+    )
+    return history, collapsed, pack_qty_conflicts, conflicts
 
 
 def product_mapping_audit(mapped: pd.DataFrame, lookup: pd.DataFrame) -> pd.DataFrame:
@@ -576,6 +620,7 @@ def build_source_summary(
     audit_names: pd.DataFrame,
     history: pd.DataFrame,
     collapsed: pd.DataFrame,
+    pack_qty_conflicts: pd.DataFrame,
     conflicts: pd.DataFrame,
     mvp: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -597,9 +642,14 @@ def build_source_summary(
         mmax = int(history["effective_month"].max())
     else:
         dmin = dmax = mmin = mmax = pd.NA
-    n_dup_groups = int(len(collapsed))
-    n_dup_rows = int(collapsed["n_rows_collapsed"].sum()) if n_dup_groups else 0
-    n_conflict_keys = (
+    n_identical_groups = int(len(collapsed))
+    n_dup_rows = int(collapsed["n_rows_collapsed"].sum()) if n_identical_groups else 0
+    n_pack_qty_groups = (
+        int(pack_qty_conflicts["conflict_group"].nunique())
+        if pack_qty_conflicts is not None and not pack_qty_conflicts.empty
+        else 0
+    )
+    n_true_conflict_groups = (
         int(conflicts["conflict_group"].nunique()) if not conflicts.empty else 0
     )
     n_mvp = int(len(mvp))
@@ -622,9 +672,12 @@ def build_source_summary(
                 "valid_date_max": dmax,
                 "valid_month_min": mmin,
                 "valid_month_max": mmax,
-                "n_duplicate_product_date_groups_collapsed": n_dup_groups,
+                "n_identical_price_duplicate_groups": n_identical_groups,
+                "n_duplicate_product_date_groups_collapsed": n_identical_groups,
                 "n_rows_collapsed_as_duplicates": n_dup_rows,
-                "n_conflicting_product_date_keys": n_conflict_keys,
+                "n_pack_quantity_only_conflict_groups": n_pack_qty_groups,
+                "n_true_price_conflict_groups": n_true_conflict_groups,
+                "n_conflicting_product_date_keys": n_true_conflict_groups,
                 "n_mvp_products": n_mvp,
                 "n_mvp_with_valid_price_history": n_mvp_with,
                 "mvp_coverage_pct": 100.0 * n_mvp_with / n_mvp if n_mvp else float("nan"),
@@ -659,7 +712,7 @@ def prepare_price_source(
     joined, lookup = join_dim_product(mapped, dim)
     parsed = parse_price_fields(joined)
     keep, rejected = reject_and_keep(parsed)
-    history, collapsed, conflicts = collapse_duplicates(keep)
+    history, collapsed, pack_qty_conflicts, conflicts = collapse_duplicates(keep)
     if not history.empty:
         history = history.copy()
         history = history.reindex(
@@ -682,6 +735,7 @@ def prepare_price_source(
         audit_names=audit_names,
         history=history,
         collapsed=collapsed,
+        pack_qty_conflicts=pack_qty_conflicts,
         conflicts=conflicts,
         mvp=mvp,
     )
@@ -692,6 +746,7 @@ def prepare_price_source(
     ambiguous.to_csv(out_dir / "ambiguous_products.csv", index=False)
     rejected.to_csv(out_dir / "rejected_price_rows.csv", index=False)
     collapsed.to_csv(out_dir / "duplicate_collapsed.csv", index=False)
+    pack_qty_conflicts.to_csv(out_dir / "pack_quantity_only_conflicts.csv", index=False)
     conflicts.to_csv(out_dir / "conflicting_prices.csv", index=False)
     summary.to_csv(out_dir / "source_summary.csv", index=False)
     mvp.to_csv(out_dir / "mvp_product_coverage.csv", index=False)
@@ -711,6 +766,7 @@ def prepare_price_source(
         "rejected": rejected,
         "history": history,
         "collapsed": collapsed,
+        "pack_qty_conflicts": pack_qty_conflicts,
         "conflicts": conflicts,
         "audit_names": audit_names,
         "unmatched": unmatched,
