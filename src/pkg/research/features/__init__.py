@@ -16,6 +16,10 @@ from pkg.research.features.inventory import (
     FEATURE_NAMES as INVENTORY_FEATURE_NAMES,
     add_inventory_features,
 )
+from pkg.research.features.patient_consumption import (
+    FEATURE_NAMES as PATIENT_CONSUMPTION_FEATURE_NAMES,
+    add_patient_consumption_features,
+)
 
 FEATURE_GROUPS = {
     "demand": DEMAND_FEATURE_NAMES,
@@ -25,6 +29,7 @@ FEATURE_GROUPS = {
     "price": PRICE_FEATURE_NAMES,
     "lifecycle": LIFECYCLE_FEATURE_NAMES,
     "inventory": INVENTORY_FEATURE_NAMES,
+    "patient_consumption": PATIENT_CONSUMPTION_FEATURE_NAMES,
     "commercial": (),
 }
 
@@ -36,12 +41,16 @@ __all__ = [
     "HUMAN_F2_FEATURE_NAMES",
     "LIFECYCLE_FEATURE_NAMES",
     "PRICE_FEATURE_NAMES",
+    "INVENTORY_FEATURE_NAMES",
+    "PATIENT_CONSUMPTION_FEATURE_NAMES",
     "add_demand_features",
     "add_human_features",
     "add_demand_f2_features",
     "add_human_f2_features",
     "add_lifecycle_features",
     "add_price_features",
+    "add_inventory_features",
+    "add_patient_consumption_features",
     "demand",
     "human",
 ]
