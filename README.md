@@ -198,3 +198,18 @@ Forecast/
 ## License
 
 See [LICENSE](LICENSE).
+
+## Deterministic Research Contract
+
+For controlled forecasting research runs:
+
+- XGBoost `tree_method` must be explicitly `hist`
+- XGBoost `n_jobs` must be `1`
+- Optuna `n_jobs` must be `1`
+- Model random seed must be explicit
+- Python/XGBoost/NumPy/etc versions must be recorded
+- Frozen benchmark checksums must be verified before/after runs
+
+Multithreaded XGBoost can be used for separate performance experiments, but not
+as canonical research benchmark runs unless reproducibility is re-established.
+
