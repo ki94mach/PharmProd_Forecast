@@ -41,3 +41,6 @@ dependencies:
       - gspread-formatting>=1.1,<2
       # M1 Optuna hyperparameter tuning (research only)
       - optuna>=3.6,<5
+      # M2 residual learner benchmark (research only)
+      - catboost>=1.2,<3
+      - lightgbm>=4.0,<5
