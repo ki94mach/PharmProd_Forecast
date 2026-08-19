@@ -12,6 +12,10 @@ from pkg.research.features.price import (
     FEATURE_NAMES as PRICE_FEATURE_NAMES,
     add_price_features,
 )
+from pkg.research.features.inventory import (
+    FEATURE_NAMES as INVENTORY_FEATURE_NAMES,
+    add_inventory_features,
+)
 
 FEATURE_GROUPS = {
     "demand": DEMAND_FEATURE_NAMES,
@@ -20,6 +24,7 @@ FEATURE_GROUPS = {
     "human_f2": HUMAN_F2_FEATURE_NAMES,
     "price": PRICE_FEATURE_NAMES,
     "lifecycle": LIFECYCLE_FEATURE_NAMES,
+    "inventory": INVENTORY_FEATURE_NAMES,
     "commercial": (),
 }
 

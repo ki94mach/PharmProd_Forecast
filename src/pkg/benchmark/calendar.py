@@ -1,6 +1,7 @@
 """Shamsi (Persian calendar) month arithmetic helpers."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import NamedTuple, Optional
 
 
@@ -73,3 +74,53 @@ def last_complete_6m(origin_ym: int) -> tuple[int, int]:
     end = shamsi_add_months(origin_ym, -1)
     start = shamsi_add_months(origin_ym, -6)
     return start, end
+
+
+# ---------------------------------------------------------------------------
+# Jalali ↔ Gregorian (Khayam / jalaali algorithm, no external package)
+# ---------------------------------------------------------------------------
+
+def _jalali_to_gregorian(jy: int, jm: int, jd: int) -> date:
+    """Convert a Jalali (Shamsi) date to Gregorian. Pure arithmetic, no packages."""
+    jy2 = jy + 1595
+    days = -355668 + (365 * jy2) + ((jy2 // 33) * 8 + (jy2 % 33 + 3) // 4) + jd
+    if jm < 7:
+        days += (jm - 1) * 31
+    else:
+        days += ((jm - 1) * 30) + 6
+    gy = 400 * (days // 146097)
+    days %= 146097
+    if days > 36524:
+        gy += 100 * ((days - 1) // 36524)
+        days = (days - 1) % 36524
+        if days >= 365:
+            days += 1
+    gy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        gy += (days - 1) // 365
+        days = (days - 1) % 365
+    gm = 0
+    leap = (gy % 4 == 0 and gy % 100 != 0) or gy % 400 == 0
+    g_d_m = [0, 31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    for i in range(1, 13):
+        if days < g_d_m[i]:
+            gm = i
+            break
+        days -= g_d_m[i]
+    return date(gy, gm, days + 1)
+
+
+def shamsi_month_start_gregorian(yyyymm: int) -> date:
+    """Gregorian date of Shamsi ``YYYYMM`` month-start (day 1).
+
+    Uses a pure-Python Khayam/jalaali algorithm; does not require any
+    calendar conda package.
+    """
+    ym = int(yyyymm)
+    year, month = divmod(ym, 100)
+    if year < 1300 or year > 1599:
+        raise ValueError(f"Shamsi year out of range: {yyyymm}")
+    if month < 1 or month > 12:
+        raise ValueError(f"Shamsi month out of range: {yyyymm}")
+    return _jalali_to_gregorian(year, month, 1)
