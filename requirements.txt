@@ -11,6 +11,9 @@
 # Residual correction MVP (notebooks/residual_prediction.ipynb)
 xgboost>=2.0,<3
 
+# M1 Optuna hyperparameter tuning (research only — not under benchmark/)
+optuna>=3.6,<5
+
 # Benchmark freeze panels (pkg.benchmark)
 pyarrow>=14,<20
 

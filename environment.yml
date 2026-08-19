@@ -39,3 +39,5 @@ dependencies:
       # Google Sheets (optional)
       - gspread>=5.12,<7
       - gspread-formatting>=1.1,<2
+      # M1 Optuna hyperparameter tuning (research only)
+      - optuna>=3.6,<5
