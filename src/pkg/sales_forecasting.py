@@ -3,9 +3,18 @@ import logging
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+from pkg.db.query.dim_product import load_basket_products
 from pkg.db.query.sales import load_sales_data as fetch_sales_data
 from pkg.forecast import SalesForecast
-from pkg.utils import DATA_DIR, define_path, setup_forecast_file, update_department_info, pivot_and_format_data, manage_excel
+from pkg.utils import (
+    DATA_DIR,
+    define_path,
+    drop_unmapped_departments,
+    setup_forecast_file,
+    update_department_info,
+    pivot_and_format_data,
+    manage_excel,
+)
 from dotenv import load_dotenv
 import os
 
@@ -25,33 +34,113 @@ class SalesForecasting:
     def load_forecast_data(self):
         return pd.read_csv(self.forecasts)
 
-    def process_sales_data(self, sale_df_total, forecast_df, forecast_start_date, skip_forecast=False):
-        sale_df_total['date'] = sale_df_total['date'].astype(int)
-        products_fr = pd.unique(forecast_df['product']) if forecast_df.shape[0] > 0 else np.array([], dtype=object)
-        products = pd.unique(sale_df_total['product'])
-        sale_df_total.date += 62100
+    @staticmethod
+    def _stub_sale_df(product, attrs, forecast_start_date):
+        """One-row sale frame from Dim.Product attrs for SKUs with no history."""
+        orchid = attrs.get("OrchidBoxQuantity")
+        boxq = orchid if pd.notna(orchid) else attrs.get("BoxQuantity")
+        return pd.DataFrame(
+            [
+                {
+                    "product": product,
+                    "product_fa": attrs.get("Title"),
+                    "provider": attrs.get("Provider"),
+                    "dep": attrs.get("Field"),
+                    "boxq": boxq,
+                    "date": int(forecast_start_date) + 62100,
+                    "sales": 0,
+                }
+            ]
+        )
+
+    @staticmethod
+    def _write_zero_forecast(prod_fr, forecast_start_date):
+        strat_month = pd.to_datetime(forecast_start_date + 62100, format="%Y%m")
+        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq="MS")
+        prod_fr.forecast = np.zeros(15)
+        prod_fr.save_csv()
+
+    def process_sales_data(
+        self,
+        sale_df_total,
+        forecast_df,
+        forecast_start_date,
+        skip_forecast=False,
+        basket_df=None,
+    ):
+        products_fr = (
+            set(pd.unique(forecast_df["product"].astype(str)))
+            if forecast_df is not None and forecast_df.shape[0] > 0
+            else set()
+        )
+
+        if sale_df_total is None or sale_df_total.empty:
+            sale_df_total = pd.DataFrame(
+                columns=[
+                    "product",
+                    "product_fa",
+                    "date",
+                    "provider",
+                    "dep",
+                    "boxq",
+                    "sales",
+                ]
+            )
+        else:
+            sale_df_total = sale_df_total.copy()
+            sale_df_total["product"] = sale_df_total["product"].astype(str)
+            sale_df_total["date"] = sale_df_total["date"].astype(int)
+            sale_df_total["date"] = sale_df_total["date"] + 62100
+
+        if basket_df is not None:
+            # Production path: Dim.Product ProductBasket=1 (may be empty)
+            products = (
+                basket_df["ProductTitleEN"].astype(str).tolist()
+                if not basket_df.empty
+                else []
+            )
+            attrs_by_product = (
+                basket_df.assign(ProductTitleEN=basket_df["ProductTitleEN"].astype(str))
+                .set_index("ProductTitleEN")
+                .to_dict("index")
+                if not basket_df.empty
+                else {}
+            )
+            if not products:
+                print("Warning: basket product universe is empty (ProductBasket=1).")
+        else:
+            # Legacy callers (e.g. backfill_vintage): sales-only universe
+            products = list(pd.unique(sale_df_total["product"])) if not sale_df_total.empty else []
+            attrs_by_product = {}
 
         for product in tqdm(products, desc="Processing products", unit="product"):
                 if product not in products_fr:
                     if not skip_forecast:
                         print(f'\n{product} is in progress!')
                     sale_df = sale_df_total[sale_df_total['product'] == product]
+                    if sale_df.empty:
+                        if product not in attrs_by_product:
+                            print(
+                                f"Skipping {product}: no sales and no Dim.Product attrs."
+                            )
+                            continue
+                        sale_df = self._stub_sale_df(
+                            product, attrs_by_product[product], forecast_start_date
+                        )
+                        prod_fr = SalesForecast(product, sale_df, self.forecasts)
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
+                        continue
+
                     prod_fr = SalesForecast(product, sale_df, self.forecasts)
 
                     # Output-only mode: write zero forecast for every product, no model run
                     if skip_forecast:
-                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m')
-                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
-                        prod_fr.forecast = np.zeros(15)
-                        prod_fr.save_csv()
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue
 
                     ZERO_FORECAST_PRODUCTS = os.getenv('ZERO_FORECAST_PRODUCTS')
-                    if (prod_fr.product in ZERO_FORECAST_PRODUCTS):
-                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
-                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
-                        prod_fr.forecast = np.zeros(15)
-                        prod_fr.save_csv()
+                    if ZERO_FORECAST_PRODUCTS and (prod_fr.product in ZERO_FORECAST_PRODUCTS):
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue
 
                     prod_fr.preprocess_data()
@@ -65,17 +154,11 @@ class SalesForecasting:
                         (prod_fr.prophet_df['y'] == 0).all() |
                         (prod_fr.prophet_df.ds.max() < stale_before)
                         ):
-                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
-                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
-                        prod_fr.forecast = np.zeros(15)
-                        prod_fr.save_csv()
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue
 
                     if (len(prod_fr.sale_series) < 4):
-                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
-                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')                        
-                        prod_fr.forecast = np.zeros(15)
-                        prod_fr.save_csv()
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue
 
                     prod_fr.model_selection()
@@ -84,10 +167,7 @@ class SalesForecasting:
                         prod_fr.redistribute_smoothing()
                         prod_fr.save_csv()
                     except ValueError:
-                        strat_month = pd.to_datetime(forecast_start_date + 62100, format='%Y%m') 
-                        prod_fr.forecast_index = pd.date_range(strat_month, periods=15, freq='MS')
-                        prod_fr.forecast = np.zeros(15)
-                        prod_fr.save_csv()
+                        self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue    
                 else:
                     continue
@@ -123,6 +203,7 @@ class SalesForecasting:
         return updated_pivot
 
     def run(self, forecast_start_date, generate_forecasts=True):
+        basket_df = load_basket_products()
         sale_df_total = self.load_sales_data()
         if not generate_forecasts:
             # Reset forecast file to headers only so we build output with zeros only
@@ -135,17 +216,23 @@ class SalesForecasting:
             forecast_df = self.load_forecast_data()
 
         forecast_total_df = self.process_sales_data(
-            sale_df_total, forecast_df, forecast_start_date, skip_forecast=not generate_forecasts
+            sale_df_total,
+            forecast_df,
+            forecast_start_date,
+            skip_forecast=not generate_forecasts,
+            basket_df=basket_df,
         )
         updated_dep_dict = update_department_info( self.curr_qrt)
 
         forecast_total_df['sales'] = forecast_total_df['forecast']
         forecast_total_df['type'] = 'forecast'
-        sale_df_total['type'] = 'actual'
+        if sale_df_total is not None and not sale_df_total.empty:
+            sale_df_total['type'] = 'actual'
 
         # temp = pd.concat([sale_df_total, forecast_total_df])
         # forecast_total_df_mod = replace_negative_sales(temp)
 
         pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
+        pivot = drop_unmapped_departments(pivot)
         # updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
         manage_excel(pivot, os.path.join(DATA_DIR, 'results', self.curr_qrt), self.curr_qrt)

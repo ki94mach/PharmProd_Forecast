@@ -87,6 +87,11 @@ python main.py --qrt 1405Q1 --start-date 140501 --template
 | `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`).                 |
 | `--template`   | Skip forecasting; write outputs with zeros only.             |
 
+Product universe is `Dim.Product` where `ProductBasket = 1`, `Field != '-'`,
+and `StatusCode = 'Active'`, left-joined to `Flat_Fact_Sale` on
+`ProductTitleEN`. Basket SKUs with no sales history still appear and receive a
+15-month zero forecast.
+
 Outputs go to `src/data/results/<quarter>/`.
 
 ## Benchmark v1 (research baseline)

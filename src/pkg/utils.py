@@ -40,6 +40,7 @@ def update_department_info(curr_qrt):
         'بیماری های عفونی و واکسن': 'ID & Vacc',
         'چشم': 'Ophth',
         'درمو کازمتیک': 'Dermo',
+        'ارولوژی و سلامت زنان': 'Gyno',
     }
     # Add the qaurter information for each department name for later references
     updated_dep_dict = {key: curr_qrt + '_' + value for key, value in dep_dict.items()}
@@ -74,6 +75,21 @@ def pivot_and_format_data(forecast_total_df_mod, updated_dep_dict, forecast_star
         ).reset_index()
     pivot['file_name'] = pivot.dep.map(updated_dep_dict)
     return pivot
+
+def drop_unmapped_departments(pivot):
+    """Drop Excel rows whose dep is not in the department map (avoids nan.xlsx)."""
+    if pivot is None or pivot.empty or "file_name" not in pivot.columns:
+        return pivot
+    unmapped = pivot[pivot["file_name"].isna()]
+    if unmapped.empty:
+        return pivot
+    names = sorted(unmapped["product_fa"].astype(str).unique().tolist())
+    names_safe = [n.encode("unicode_escape").decode("ascii") for n in names]
+    print(
+        f"Skipping {len(unmapped)} Excel row(s) with unmapped dep "
+        f"({len(names)} product_fa): {names_safe}"
+    )
+    return pivot[pivot["file_name"].notna()].copy()
 
 def manage_excel(pivot, directory, curr_qrt):
     excel_manager = ExcelManager(
