@@ -74,11 +74,14 @@ From the `src` directory:
 conda activate forecast
 cd src
 
-# Full forecast
+# Full forecast (live: no sales date cutoff; resume existing CSV)
 python main.py --qrt 1405Q1 --start-date 140501
 
 # Excel template only (zero forecasts, no model run)
 python main.py --qrt 1405Q1 --start-date 140501 --template
+
+# Basket vintage (as-of origin: sales date < start-date; reset CSV)
+python main.py --qrt 1404Q1 --start-date 140312 --vintage --force
 ```
 
 | Argument       | Description                                                  |
@@ -86,6 +89,12 @@ python main.py --qrt 1405Q1 --start-date 140501 --template
 | `--qrt`        | Quarter label (e.g. `1405Q1`); used in paths and file names. |
 | `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`).                 |
 | `--template`   | Skip forecasting; write outputs with zeros only.             |
+| `--vintage`    | As-of run: keep sales with `date < --start-date`, reset CSV, same basket universe. |
+| `--force`      | Required with `--vintage` if a forecast CSV already exists (backs it up). |
+
+Default `main.py` is unchanged: full warehouse sales, resume CSV, `SalesForecast` still drops the last month (`[:-1]`) as incomplete.
+
+`--vintage` uses the same basket (`ProductBasket = 1`, `Field != '-'`, `StatusCode = 'Active'`), not `TARGET_GENERIC_EN`. That is the difference from `backfill_vintage.py`. Incomplete-month handling (`[:-1]`) is unchanged, so when the last warehouse month is origin−1, training still ends at origin−2.
 
 Product universe is `Dim.Product` where `ProductBasket = 1`, `Field != '-'`,
 and `StatusCode = 'Active'`, left-joined to `Flat_Fact_Sale` on

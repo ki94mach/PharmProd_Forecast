@@ -1,5 +1,9 @@
 import csv
 import logging
+import shutil
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -33,6 +37,45 @@ class SalesForecasting:
 
     def load_forecast_data(self):
         return pd.read_csv(self.forecasts)
+
+    @staticmethod
+    def truncate_sales_before_origin(sale_df, forecast_start_date):
+        """Keep Shamsi months strictly before the forecast origin (as-of vintage).
+
+        Leaves ``[:-1]`` incomplete-month handling in SalesForecast unchanged.
+        When the warehouse last month is origin-1, live training still ends at origin-2.
+        """
+        if sale_df is None or sale_df.empty:
+            return sale_df
+        work = sale_df.copy()
+        work["date"] = work["date"].astype(int)
+        origin = int(forecast_start_date)
+        before = len(work)
+        work = work[work["date"] < origin].copy()
+        print(
+            f"vintage sales cutoff: {before} -> {len(work)} rows "
+            f"(date < {origin}, {work['product'].nunique() if not work.empty else 0} products)"
+        )
+        return work
+
+    def reset_forecast_csv(self, force=False):
+        """Backup (if needed) and rewrite the forecast CSV to headers only."""
+        path = Path(self.forecasts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > 0:
+            if not force:
+                raise SystemExit(
+                    f"Refusing to overwrite existing {path}. Re-run with --force "
+                    "(vintage must start from an empty CSV so all basket SKUs are processed)."
+                )
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = path.with_name(f"{path.stem}.bak_{stamp}{path.suffix}")
+            shutil.copy2(path, backup_path)
+            print(f"backed up existing CSV -> {backup_path}")
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(self.headers)
+        print(f"reset forecast CSV (headers only): {path}")
 
     @staticmethod
     def _stub_sale_df(product, attrs, forecast_start_date):
@@ -202,10 +245,22 @@ class SalesForecasting:
         updated_pivot = pd.concat([pivot, aligned_pipe_piv], ignore_index=True)
         return updated_pivot
 
-    def run(self, forecast_start_date, generate_forecasts=True):
+    def run(
+        self,
+        forecast_start_date,
+        generate_forecasts=True,
+        vintage=False,
+        force=False,
+    ):
         basket_df = load_basket_products()
         sale_df_total = self.load_sales_data()
-        if not generate_forecasts:
+        if vintage:
+            sale_df_total = self.truncate_sales_before_origin(
+                sale_df_total, forecast_start_date
+            )
+            self.reset_forecast_csv(force=force)
+            forecast_df = pd.DataFrame(columns=self.headers)
+        elif not generate_forecasts:
             # Reset forecast file to headers only so we build output with zeros only
             os.makedirs(os.path.dirname(self.forecasts), exist_ok=True)
             with open(self.forecasts, 'w', newline='', encoding='utf-8-sig') as f:

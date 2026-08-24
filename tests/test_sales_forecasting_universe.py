@@ -332,5 +332,31 @@ class TestDropUnmappedDepartments(unittest.TestCase):
         self.assertEqual(cleaned.iloc[0]["file_name"], "1405Q1_Endo")
 
 
+class TestTruncateSalesBeforeOrigin(unittest.TestCase):
+    def test_keeps_months_strictly_before_origin(self):
+        from pkg.sales_forecasting import SalesForecasting
+
+        sales = pd.DataFrame(
+            [
+                {"product": "A", "date": 140410, "sales": 1},
+                {"product": "A", "date": 140411, "sales": 2},
+                {"product": "A", "date": 140412, "sales": 3},
+                {"product": "A", "date": 140501, "sales": 4},
+                {"product": "B", "date": 140502, "sales": 5},
+            ]
+        )
+        out = SalesForecasting.truncate_sales_before_origin(sales, 140501)
+        self.assertEqual(sorted(out["date"].tolist()), [140410, 140411, 140412])
+        self.assertNotIn(140501, set(out["date"]))
+        self.assertNotIn("B", set(out["product"]))
+
+    def test_empty_frame_passthrough(self):
+        from pkg.sales_forecasting import SalesForecasting
+
+        empty = pd.DataFrame(columns=["product", "date", "sales"])
+        out = SalesForecasting.truncate_sales_before_origin(empty, 140501)
+        self.assertTrue(out.empty)
+
+
 if __name__ == "__main__":
     unittest.main()
