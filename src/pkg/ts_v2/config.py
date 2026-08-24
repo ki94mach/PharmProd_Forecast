@@ -28,7 +28,7 @@ class TSForecastConfig:
             ``"missing"`` leaves NaN. In both cases ``is_missing_month`` marks
             calendar gaps so zero demand and absent rows stay distinguishable.
         candidate_models: Registry names the backtest/engine will instantiate.
-            Empty until production models are registered. Tests may register a dummy.
+            Defaults to naive / seasonal_naive / drift (no ARIMA/ETS/Prophet).
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -48,7 +48,7 @@ class TSForecastConfig:
     nonnegative_forecasts: bool = True
     activity_start_min_sales: Optional[float] = 5.0
     missing_month_policy: GapPolicy = "zero"
-    candidate_models: tuple[str, ...] = ()
+    candidate_models: tuple[str, ...] = ("naive", "seasonal_naive", "drift")
 
 
 DEFAULT_CONFIG = TSForecastConfig()

@@ -40,10 +40,13 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(types, "ForecastOrigin"))
         self.assertTrue(hasattr(types, "ForecastWindow"))
 
-    def test_models_registry_empty(self):
+    def test_models_registry_baselines(self):
         from pkg.ts_v2.models import available_models
 
-        self.assertEqual(available_models(), ())
+        self.assertEqual(
+            set(available_models()),
+            {"naive", "seasonal_naive", "drift"},
+        )
 
 
 class TestTsV2Config(unittest.TestCase):
@@ -57,7 +60,10 @@ class TestTsV2Config(unittest.TestCase):
         self.assertTrue(DEFAULT_CONFIG.nonnegative_forecasts)
         self.assertEqual(DEFAULT_CONFIG.activity_start_min_sales, 5.0)
         self.assertEqual(DEFAULT_CONFIG.missing_month_policy, "zero")
-        self.assertEqual(DEFAULT_CONFIG.candidate_models, ())
+        self.assertEqual(
+            DEFAULT_CONFIG.candidate_models,
+            ("naive", "seasonal_naive", "drift"),
+        )
 
     def test_config_is_frozen(self):
         from pkg.ts_v2 import DEFAULT_CONFIG

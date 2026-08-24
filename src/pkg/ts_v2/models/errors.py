@@ -34,3 +34,24 @@ class ModelFailureError(Exception):
 
 class ModelContractError(ModelFailureError):
     """The model returned a forecast that violates the V2 date/length contract."""
+
+
+class ModelUnavailableError(ModelFailureError):
+    """The candidate cannot be used on this series (e.g. insufficient history).
+
+    Do not silently substitute another algorithm.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        model_name: str = "",
+        details: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        super().__init__(
+            reason,
+            model_name=model_name,
+            error_type="ModelUnavailable",
+            details=details,
+        )

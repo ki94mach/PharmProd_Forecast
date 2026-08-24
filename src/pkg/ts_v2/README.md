@@ -63,7 +63,7 @@ Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastC
 | `types.py` | Origins, `ForecastWindow`, series, forecasts, selection / engine result types |
 | `dates.py` | `make_forecast_window`, Shamsi helpers, `+62100` / `-62100` |
 | `data.py` | `prepare_monthly_series`: origin cut, monthly grid, gap flags |
-| `models/` | Shared `fit`/`predict` interface, `run_model`, registry (no ARIMA/ETS/Prophet yet) |
+| `models/` | Interface + naive / seasonal_naive / drift (no ARIMA/ETS/Prophet yet) |
 | `backtest.py` | Multi-origin / multi-horizon evaluation (stub) |
 | `selection.py` | Metric-based winner pick |
 | `engine.py` | Orchestration: backtest → select → full-history refit (stub) |
@@ -78,5 +78,5 @@ min_train_months = 12
 nonnegative_forecasts = True
 activity_start_min_sales = 5.0   # V1 sales > 5; None disables
 missing_month_policy = "zero"    # V1-compatible fill; gaps still flagged
-candidate_models = ()            # registry names; empty until models exist
+candidate_models = ("naive", "seasonal_naive", "drift")
 ```

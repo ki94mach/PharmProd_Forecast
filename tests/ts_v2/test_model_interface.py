@@ -142,8 +142,7 @@ class TestDummyModelInterface(unittest.TestCase):
         self.assertIn("solver exploded", outcome.reason)
 
     def test_registry_configures_candidates_centrally(self):
-        self.assertEqual(available_models(), ())
-        register_model("dummy_last_value", DummyLastValueModel)
+        register_model("dummy_last_value", DummyLastValueModel, replace=True)
         self.addCleanup(lambda: REGISTRY.unregister("dummy_last_value"))
         self.assertIn("dummy_last_value", available_models())
         cfg = TSForecastConfig(
