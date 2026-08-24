@@ -27,6 +27,8 @@ class TSForecastConfig:
             ``"zero"`` matches V1 ``asfreq(...).fillna(0)`` for model values;
             ``"missing"`` leaves NaN. In both cases ``is_missing_month`` marks
             calendar gaps so zero demand and absent rows stay distinguishable.
+        candidate_models: Registry names the backtest/engine will instantiate.
+            Empty until production models are registered. Tests may register a dummy.
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -46,6 +48,7 @@ class TSForecastConfig:
     nonnegative_forecasts: bool = True
     activity_start_min_sales: Optional[float] = 5.0
     missing_month_policy: GapPolicy = "zero"
+    candidate_models: tuple[str, ...] = ()
 
 
 DEFAULT_CONFIG = TSForecastConfig()

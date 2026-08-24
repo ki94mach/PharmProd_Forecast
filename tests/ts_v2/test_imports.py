@@ -30,7 +30,10 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(dates, "make_forecast_window"))
         self.assertTrue(hasattr(data, "prepare_monthly_series"))
         self.assertTrue(hasattr(types, "PreparedSeries"))
-        self.assertTrue(hasattr(models, "available_models"))
+        self.assertTrue(hasattr(models, "run_model"))
+        self.assertTrue(hasattr(models, "REGISTRY"))
+        self.assertTrue(hasattr(types, "ForecastResult"))
+        self.assertTrue(hasattr(types, "ModelFailure"))
         self.assertTrue(hasattr(backtest, "make_folds"))
         self.assertTrue(hasattr(selection, "select_best_model"))
         self.assertTrue(hasattr(engine, "forecast_products"))
@@ -54,6 +57,7 @@ class TestTsV2Config(unittest.TestCase):
         self.assertTrue(DEFAULT_CONFIG.nonnegative_forecasts)
         self.assertEqual(DEFAULT_CONFIG.activity_start_min_sales, 5.0)
         self.assertEqual(DEFAULT_CONFIG.missing_month_policy, "zero")
+        self.assertEqual(DEFAULT_CONFIG.candidate_models, ())
 
     def test_config_is_frozen(self):
         from pkg.ts_v2 import DEFAULT_CONFIG

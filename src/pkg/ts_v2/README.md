@@ -38,6 +38,23 @@ Use `make_forecast_window(140501)` → `ForecastWindow`:
 - contiguous monthly Shamsi index from `first_active_month` through `last_training_month` (`origin − 1`)
 - `missing_month_policy`: `"zero"` (V1 `asfreq.fillna(0)` for **values**) or `"missing"` (NaN in values). **`is_missing_month` is always set** so calendar gaps are not conceptually identical to explicit observed zeros.
 
+## Model interface
+
+Every candidate is called identically by backtest and engine:
+
+```text
+outcome = run_model(model, train_series, window)
+```
+
+`fit(train_series)` then `predict(horizon, target_dates)` must return a `ForecastResult`:
+
+- `predictions` length equals requested horizon
+- `target_dates` are copied unchanged (horizon 1 = origin; models must not skip a month)
+- no rounding, quarterly smoothing, or ad-hoc bias inside the model
+- failures become `ModelFailure` so one broken candidate does not abort the SKU
+
+Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastConfig.candidate_models`.
+
 ## Layout
 
 | Module | Role |
@@ -46,7 +63,7 @@ Use `make_forecast_window(140501)` → `ForecastWindow`:
 | `types.py` | Origins, `ForecastWindow`, series, forecasts, selection / engine result types |
 | `dates.py` | `make_forecast_window`, Shamsi helpers, `+62100` / `-62100` |
 | `data.py` | `prepare_monthly_series`: origin cut, monthly grid, gap flags |
-| `models/` | Model registry / protocol (no implementations yet) |
+| `models/` | Shared `fit`/`predict` interface, `run_model`, registry (no ARIMA/ETS/Prophet yet) |
 | `backtest.py` | Multi-origin / multi-horizon evaluation (stub) |
 | `selection.py` | Metric-based winner pick |
 | `engine.py` | Orchestration: backtest → select → full-history refit (stub) |
@@ -61,4 +78,5 @@ min_train_months = 12
 nonnegative_forecasts = True
 activity_start_min_sales = 5.0   # V1 sales > 5; None disables
 missing_month_policy = "zero"    # V1-compatible fill; gaps still flagged
+candidate_models = ()            # registry names; empty until models exist
 ```

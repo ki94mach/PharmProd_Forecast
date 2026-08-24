@@ -5,7 +5,7 @@ These are structural placeholders. Model implementations come in later steps.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, Union
 
 import pandas as pd
 
@@ -110,6 +110,41 @@ class PreparedSeries:
     def history(self) -> pd.Series:
         """Alias for model-facing raw values (date < origin only)."""
         return self.values
+
+
+@dataclass(frozen=True)
+class ForecastResult:
+    """Point forecast from one V2 model for one origin / window.
+
+    Contract (enforced by :func:`pkg.ts_v2.models.run_model`):
+
+    - ``len(predictions) == len(target_dates) == len(horizons) == horizon``
+    - ``target_dates`` is exactly the caller-supplied window (models must not
+      shift, drop, or skip the first month)
+    - values are raw-scale floats: no rounding, quarterly smoothing, or
+      arbitrary bias correction inside the model
+    """
+
+    model_name: str
+    predictions: tuple[float, ...]
+    target_dates: tuple[int, ...]
+    horizons: tuple[int, ...]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    lower: Optional[tuple[float, ...]] = None
+    upper: Optional[tuple[float, ...]] = None
+
+
+@dataclass(frozen=True)
+class ModelFailure:
+    """Typed failure for one model on one series; does not abort the SKU run."""
+
+    model_name: str
+    reason: str
+    error_type: str
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+
+ModelOutcome = Union[ForecastResult, ModelFailure]
 
 
 @dataclass(frozen=True)
