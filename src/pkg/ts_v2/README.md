@@ -13,14 +13,29 @@ Scaffold only: config, types, and module boundaries. Models and CLI wiring come 
 6. **Raw forecast output** — emit monthly point forecasts without V1 quarterly `redistribute_smoothing`. Downstream packaging may still round or clip via config.
 7. **V1 stays untouched** — do not migrate or mutate V1 modules, frozen benchmarks, or production CLI in this package’s early steps.
 
+## Date contract
+
+CLI/business origin is Shamsi `YYYYMM` (e.g. `140501`).
+
+Use `make_forecast_window(140501)` → `ForecastWindow`:
+
+| Field | Meaning |
+|-------|---------|
+| `forecast_origin` | First target month (`140501`) |
+| `training_end` | Last inclusive train month (`140412` = origin − 1) |
+| `target_dates` | Exactly `H` months: h1=`140501` … h15=`140603` |
+| `horizons` | `(1, …, H)` |
+
+**Training rule:** `date < forecast_origin` only. No `series[:-1]`. Models do not decide to skip a month. Shamsi ↔ pandas `+62100` / `-62100` lives only in `dates.py`.
+
 ## Layout
 
 | Module | Role |
 |--------|------|
 | `config.py` | `TSForecastConfig` defaults (`forecast_horizon`, `selection_metric`, …) |
-| `types.py` | Origins, series, forecasts, selection / engine result types |
-| `dates.py` | Origin parsing and Shamsi month helpers |
-| `data.py` | Series construction as-of an origin (stub) |
+| `types.py` | Origins, `ForecastWindow`, series, forecasts, selection / engine result types |
+| `dates.py` | `make_forecast_window`, Shamsi helpers, `+62100` / `-62100` |
+| `data.py` | Training filters (`date < origin`); series construction stub |
 | `models/` | Model registry / protocol (no implementations yet) |
 | `backtest.py` | Multi-origin / multi-horizon evaluation (stub) |
 | `selection.py` | Metric-based winner pick |

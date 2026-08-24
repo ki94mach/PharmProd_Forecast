@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import Iterable, Optional, Sequence
 
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
-from pkg.ts_v2.types import BacktestFold, ForecastOrigin, HorizonForecast
+from pkg.ts_v2.dates import make_forecast_window, parse_origin
+from pkg.ts_v2.types import BacktestFold, ForecastOrigin, ForecastWindow, HorizonForecast
 
 
 def make_folds(
@@ -16,17 +17,30 @@ def make_folds(
     *,
     config: Optional[TSForecastConfig] = None,
 ) -> list[BacktestFold]:
-    """Build backtest folds: train is ``date < origin``, horizons ``1..H``."""
+    """Build backtest folds from :func:`~pkg.ts_v2.dates.make_forecast_window`."""
     cfg = config or DEFAULT_CONFIG
-    horizons = tuple(range(1, cfg.forecast_horizon + 1))
-    return [
-        BacktestFold(
-            origin=origin,
-            train_end_exclusive=origin.shamsi_yyyymm,
-            horizons=horizons,
+    folds: list[BacktestFold] = []
+    for origin in origins:
+        window = make_forecast_window(origin, config=cfg)
+        folds.append(
+            BacktestFold(
+                origin=parse_origin(window.forecast_origin),
+                train_end_exclusive=window.forecast_origin,
+                horizons=window.horizons,
+                window=window,
+            )
         )
-        for origin in origins
-    ]
+    return folds
+
+
+def windows_for_origins(
+    origins: Sequence[ForecastOrigin],
+    *,
+    config: Optional[TSForecastConfig] = None,
+) -> list[ForecastWindow]:
+    """Explicit forecast windows for each evaluation origin."""
+    cfg = config or DEFAULT_CONFIG
+    return [make_forecast_window(origin, config=cfg) for origin in origins]
 
 
 def run_backtest(

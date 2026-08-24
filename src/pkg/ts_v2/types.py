@@ -22,8 +22,45 @@ class ForecastOrigin:
 
 
 @dataclass(frozen=True)
+class ForecastWindow:
+    """Explicit V2 origin / training / target-date contract for one run.
+
+    Attributes:
+        forecast_origin: First forecast month (Shamsi YYYYMM), e.g. ``140501``.
+        training_end: Last inclusive training month (``forecast_origin - 1``).
+        target_dates: Exactly ``H`` Shamsi months; index ``i`` is horizon ``i+1``.
+        horizons: ``(1, 2, ..., H)`` aligned with ``target_dates``.
+
+    Training rule: ``date < forecast_origin`` (never include the origin month).
+    """
+
+    forecast_origin: int
+    training_end: int
+    target_dates: tuple[int, ...]
+    horizons: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.target_dates) != len(self.horizons):
+            raise ValueError(
+                "target_dates and horizons must have the same length: "
+                f"{len(self.target_dates)} != {len(self.horizons)}"
+            )
+        if self.horizons and self.horizons != tuple(range(1, len(self.horizons) + 1)):
+            raise ValueError(f"horizons must be 1..H contiguous, got {self.horizons!r}")
+        if self.target_dates and self.target_dates[0] != self.forecast_origin:
+            raise ValueError(
+                "horizon 1 target must equal forecast_origin: "
+                f"{self.target_dates[0]} != {self.forecast_origin}"
+            )
+
+
+@dataclass(frozen=True)
 class ProductSeries:
-    """One SKU's monthly history available at a given origin."""
+    """One SKU's monthly history available at a given origin.
+
+    ``history`` must contain only months with ``date < origin`` (no origin row,
+    no ``series[:-1]`` trimming by models).
+    """
 
     product: str
     origin: ForecastOrigin
@@ -61,6 +98,7 @@ class BacktestFold:
     origin: ForecastOrigin
     train_end_exclusive: int  # Shamsi YYYYMM; train is date < this (== origin)
     horizons: Sequence[int]
+    window: Optional[ForecastWindow] = None
 
 
 @dataclass(frozen=True)

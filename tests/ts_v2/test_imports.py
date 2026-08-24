@@ -27,13 +27,14 @@ class TestTsV2Imports(unittest.TestCase):
         import pkg.ts_v2.types as types
 
         self.assertTrue(hasattr(config, "TSForecastConfig"))
-        self.assertTrue(hasattr(dates, "parse_origin"))
-        self.assertTrue(hasattr(data, "series_as_of"))
+        self.assertTrue(hasattr(dates, "make_forecast_window"))
+        self.assertTrue(hasattr(data, "filter_training_history"))
         self.assertTrue(hasattr(models, "available_models"))
         self.assertTrue(hasattr(backtest, "make_folds"))
         self.assertTrue(hasattr(selection, "select_best_model"))
         self.assertTrue(hasattr(engine, "forecast_products"))
         self.assertTrue(hasattr(types, "ForecastOrigin"))
+        self.assertTrue(hasattr(types, "ForecastWindow"))
 
     def test_models_registry_empty(self):
         from pkg.ts_v2.models import available_models
@@ -60,12 +61,14 @@ class TestTsV2Config(unittest.TestCase):
 
 class TestTsV2DatesAndSelection(unittest.TestCase):
     def test_parse_origin_and_target_month(self):
-        from pkg.ts_v2.dates import parse_origin, target_month
+        from pkg.ts_v2.dates import make_forecast_window, parse_origin, target_month
 
         origin = parse_origin(140501)
         self.assertEqual(origin.shamsi_yyyymm, 140501)
         self.assertEqual(target_month(origin, 1), 140501)
         self.assertEqual(target_month(origin, 15), 140603)
+        window = make_forecast_window(origin)
+        self.assertEqual(window.target_dates[-1], 140603)
 
     def test_make_folds_uses_horizon(self):
         from pkg.ts_v2.backtest import make_folds
@@ -77,6 +80,8 @@ class TestTsV2DatesAndSelection(unittest.TestCase):
         self.assertEqual(len(folds), 1)
         self.assertEqual(folds[0].train_end_exclusive, 140501)
         self.assertEqual(tuple(folds[0].horizons), (1, 2, 3))
+        self.assertIsNotNone(folds[0].window)
+        self.assertEqual(folds[0].window.target_dates, (140501, 140502, 140503))
 
     def test_select_best_model_prefers_lowest_score(self):
         from pkg.ts_v2.dates import parse_origin

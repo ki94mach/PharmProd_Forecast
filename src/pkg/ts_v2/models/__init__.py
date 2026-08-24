@@ -15,12 +15,18 @@ from pkg.ts_v2.types import ForecastOrigin
 
 
 class ForecastModel(Protocol):
-    """Minimal interface every V2 model must satisfy."""
+    """Minimal interface every V2 model must satisfy.
+
+    Implementations must not drop months themselves (no ``history[:-1]``).
+    The caller supplies history already cut with ``date < forecast_origin``
+    via :func:`~pkg.ts_v2.dates.make_forecast_window` /
+    :func:`~pkg.ts_v2.data.filter_training_history`.
+    """
 
     name: str
 
     def fit(self, history: pd.Series, config: TSForecastConfig) -> "ForecastModel":
-        """Fit on history ending strictly before the evaluation origin."""
+        """Fit on history with ``date < origin`` only (caller-enforced)."""
         ...
 
     def predict(
