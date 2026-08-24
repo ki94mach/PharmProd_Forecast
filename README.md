@@ -178,6 +178,10 @@ F3A (product lifecycle / observed commercial tenure) is in [`docs/f3a_lifecycle.
 
 Price / commercial modules remain placeholders. Drug Launch event SQL is a deferred exploratory source, not an F3A scored feature.
 
+## Architecture
+
+Production TS (ARIMA / ETS / Prophet / LSTM per SKU), CLI modes, and how CSVs become the frozen `ts` baseline are documented in [`docs/ts_forecasting_architecture.md`](docs/ts_forecasting_architecture.md).
+
 ## Project layout
 
 ```
