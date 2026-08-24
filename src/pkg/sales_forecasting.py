@@ -156,6 +156,8 @@ class SalesForecasting:
             products = list(pd.unique(sale_df_total["product"])) if not sale_df_total.empty else []
             attrs_by_product = {}
 
+        products = sorted(products, key=str.casefold)
+
         for product in tqdm(products, desc="Processing products", unit="product"):
                 if product not in products_fr:
                     if not skip_forecast:

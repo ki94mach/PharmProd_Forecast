@@ -137,6 +137,41 @@ class TestSelectBasketProducts(unittest.TestCase):
         basket = select_basket_products(dim)
         self.assertEqual(set(basket["ProductTitleEN"]), {"A", "B"})
 
+    def test_sorts_product_title_en_alphabetically(self):
+        dim = _dim_rows(
+            [
+                {
+                    "ProductTitleEN": "Zeta",
+                    "ProductBasket": 1,
+                    "Title": "ز",
+                    "Provider": "P1",
+                    "Field": "غدد",
+                    "OrchidBoxQuantity": 1,
+                    "BoxQuantity": 1,
+                },
+                {
+                    "ProductTitleEN": "alpha",
+                    "ProductBasket": 1,
+                    "Title": "آ",
+                    "Provider": "P1",
+                    "Field": "غدد",
+                    "OrchidBoxQuantity": 1,
+                    "BoxQuantity": 1,
+                },
+                {
+                    "ProductTitleEN": "Beta",
+                    "ProductBasket": 1,
+                    "Title": "ب",
+                    "Provider": "P1",
+                    "Field": "غدد",
+                    "OrchidBoxQuantity": 1,
+                    "BoxQuantity": 1,
+                },
+            ]
+        )
+        basket = select_basket_products(dim)
+        self.assertEqual(list(basket["ProductTitleEN"]), ["alpha", "Beta", "Zeta"])
+
     def test_excludes_dash_field(self):
         dim = _dim_rows(
             [

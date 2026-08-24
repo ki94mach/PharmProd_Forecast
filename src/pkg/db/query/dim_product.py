@@ -72,6 +72,9 @@ def select_basket_products(dim_df: pd.DataFrame) -> pd.DataFrame:
     status = work["StatusCode"].astype("string").str.strip()
     work = work.loc[status == "Active"].copy()
     work = work.drop_duplicates(subset=["ProductTitleEN"], keep="first")
+    work = work.sort_values(
+        "ProductTitleEN", key=lambda s: s.str.casefold(), kind="mergesort"
+    )
     missing = [c for c in BASKET_PRODUCT_COLUMNS if c not in work.columns]
     for col in missing:
         work[col] = pd.NA
