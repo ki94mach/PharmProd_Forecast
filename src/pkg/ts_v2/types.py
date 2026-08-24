@@ -59,13 +59,57 @@ class ProductSeries:
     """One SKU's monthly history available at a given origin.
 
     ``history`` must contain only months with ``date < origin`` (no origin row,
-    no ``series[:-1]`` trimming by models).
+    no ``series[:-1]`` trimming by models). Prefer :class:`PreparedSeries` for
+    full diagnostics (gaps, activity start, observation counts).
     """
 
     product: str
     origin: ForecastOrigin
     history: pd.Series  # index: Shamsi YYYYMM (int), values: sales
     meta: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PreparedSeries:
+    """Monthly training series in **raw sales units** for one product / origin.
+
+    No MinMax, Yeo–Johnson, ADF, or other global transforms. Models must use
+    ``values`` as-is (aside from optional nonnegativity at forecast emit time).
+
+    Attributes:
+        product: English product key.
+        values: Monthly sales (float); index is Shamsi YYYYMM.
+        dates: Same Shamsi YYYYMM labels as ``values.index`` (explicit monthly grid).
+        forecast_origin: Exclusive training cutoff (train is ``date < origin``).
+        last_training_month: Inclusive last month on the prepared grid
+            (``forecast_origin - 1`` when the series is non-empty).
+        first_active_month: First month kept after the activity-start policy.
+        n_observations: Length of the monthly grid (``len(values)``).
+        is_missing_month: True where the calendar month had **no** warehouse row
+            before gap filling (distinct from an explicit observed zero).
+        n_observed_months: Count of months with at least one warehouse row.
+        n_gap_months: Count of calendar gaps (``is_missing_month`` True).
+        missing_month_policy: Policy used to fill ``values`` at gaps.
+        activity_start_min_sales: Threshold used for activity trimming (or None).
+    """
+
+    product: str
+    values: pd.Series
+    dates: tuple[int, ...]
+    forecast_origin: int
+    last_training_month: Optional[int]
+    first_active_month: Optional[int]
+    n_observations: int
+    is_missing_month: pd.Series
+    n_observed_months: int
+    n_gap_months: int
+    missing_month_policy: str
+    activity_start_min_sales: Optional[float] = None
+
+    @property
+    def history(self) -> pd.Series:
+        """Alias for model-facing raw values (date < origin only)."""
+        return self.values
 
 
 @dataclass(frozen=True)
