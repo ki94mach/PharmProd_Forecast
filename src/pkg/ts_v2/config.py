@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 SelectionMetric = Literal["mae", "rmse", "mape", "wmape"]
+SelectionStrategy = Literal["best_model", "top3_mean", "top3_median", "top3_inverse_mae"]
 GapPolicy = Literal["zero", "missing"]
 ProphetGrowth = Literal["linear"]
 
@@ -48,6 +49,9 @@ class TSForecastConfig:
             for a model to enter selection for a SKU.
         selection_simplicity_order: Deterministic tie-break preference (lower index
             wins when scores are tied within ``selection_tie_tolerance``).
+        selection_strategy: Forecast strategy for production (analysis compares
+            all options; default remains ``best_model`` until empirically validated).
+        ensemble_top_k: Number of models combined in top-k ensemble strategies.
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -97,6 +101,8 @@ class TSForecastConfig:
         "tsb",
         "prophet",
     )
+    selection_strategy: SelectionStrategy = "best_model"
+    ensemble_top_k: int = 3
 
 
 DEFAULT_CONFIG = TSForecastConfig()

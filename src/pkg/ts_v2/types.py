@@ -235,6 +235,16 @@ class BacktestResult:
     failures: pd.DataFrame
 
 
+@dataclass
+class EnsembleComparisonReport:
+    """Cross-SKU comparison of ensemble forecasting strategies (analysis only)."""
+
+    strategy_predictions: Mapping[str, pd.DataFrame]
+    strategy_metrics: pd.DataFrame
+    sku_comparison: pd.DataFrame
+    summary: pd.DataFrame
+
+
 @dataclass(frozen=True)
 class EngineResult:
     """Container for a V2 run (backtest and/or final refit forecasts)."""

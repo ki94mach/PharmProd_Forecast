@@ -23,6 +23,7 @@ class TestTsV2Imports(unittest.TestCase):
         import pkg.ts_v2.dates as dates
         import pkg.ts_v2.engine as engine
         import pkg.ts_v2.models as models
+        import pkg.ts_v2.ensemble as ensemble
         import pkg.ts_v2.selection as selection
         import pkg.ts_v2.types as types
 
@@ -36,6 +37,7 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(types, "ModelFailure"))
         self.assertTrue(hasattr(backtest, "make_folds"))
         self.assertTrue(hasattr(backtest, "run_backtest"))
+        self.assertTrue(hasattr(ensemble, "compare_ensemble_strategies"))
         self.assertTrue(hasattr(selection, "select_best_model"))
         self.assertTrue(hasattr(selection, "select_product_model"))
         self.assertTrue(hasattr(selection, "select_models"))
@@ -84,6 +86,8 @@ class TestTsV2Config(unittest.TestCase):
         self.assertEqual(DEFAULT_CONFIG.min_selection_predictions, 1)
         self.assertIn("naive", DEFAULT_CONFIG.selection_simplicity_order)
         self.assertIn("prophet", DEFAULT_CONFIG.selection_simplicity_order)
+        self.assertEqual(DEFAULT_CONFIG.selection_strategy, "best_model")
+        self.assertEqual(DEFAULT_CONFIG.ensemble_top_k, 3)
         self.assertEqual(
             DEFAULT_CONFIG.candidate_models,
             (
