@@ -102,6 +102,16 @@ They do not pad horizons, apply ×0.8, or use `freq="M"`.
 Croston SBA / TSB use fixed config smoothing parameters (not tuned on future data)
 and emit a constant per-period demand rate for every horizon.
 
+## Gap / zero-month audit (no policy change yet)
+
+``Flat_Fact_Sale`` rows are **present months**; absent months are **unknown**, not
+proven zeros. Explicit ``sales == 0`` rows are observed zero shipments.
+
+Audit helpers: ``pkg.ts_v2.gap_audit`` (`run_gap_audit`, `write_gap_audit_report`).
+Write-up: [`docs/ts_v2_gap_audit.md`](../../docs/ts_v2_gap_audit.md).
+
+**Do not change ``missing_month_policy`` until audit results are reviewed.**
+
 ## Product identity (audit pending)
 
 V1 keys products on **`ProductTitleEN`**. V2 target key is **`Dim.Product.ID_INT`**
