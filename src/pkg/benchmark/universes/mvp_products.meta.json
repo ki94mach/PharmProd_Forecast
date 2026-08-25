@@ -1,0 +1,47 @@
+{
+  "universe_name": "mvp_products",
+  "universe_version": "1",
+  "created_at_utc": "2026-08-25T09:53:45Z",
+  "description": "Immutable MVP product list for historical V1/V2/V3 backfill experiments. Derived from frozen benchmark matched_universe (Analysis B matched Human/TS panel), not from today's ProductBasket.",
+  "source": {
+    "benchmark_version": "v1",
+    "panel": "matched_universe.parquet",
+    "panel_path_relative": "src/data/benchmarks/v1/matched_universe.parquet",
+    "matched_universe_sha256": "a3402060dd4dfa957fd5cc001514ddc75809447b0d04d32d18e4e0f771f7cad3",
+    "tracked_manifest_matched_universe_sha256": "a3402060dd4dfa957fd5cc001514ddc75809447b0d04d32d18e4e0f771f7cad3",
+    "tracked_manifest_matched_products": 55,
+    "product_attrs_used": true,
+    "logical_product_key": "ProductTitleEN (column product)",
+    "product_id_policy": "left blank — no inventing; Dim.Product.ID_INT not present in freeze",
+    "excluded_odd_coverage_products": [
+      "Alvocade 3.5",
+      "Aryoseven 2.4",
+      "Kidi Mab",
+      "Nanojade 180 Old",
+      "Nanojade 360 Old",
+      "Nanojade 90 Old",
+      "Reditux 500"
+    ],
+    "target_generic_en_products_in_attrs_not_in_matched": [
+      "Aryoseven 2",
+      "Aryoseven 5",
+      "Aryoseven 8",
+      "Cinnal-f 150",
+      "Cinnomer 20",
+      "Recigen AutoInjector",
+      "Reditux 100"
+    ],
+    "note": "Freeze construction already applied TARGET_GENERIC_EN filter and EXCLUDED_ODD_COVERAGE_PRODUCTS before building matched_universe. This manifest freezes the resulting matched product set. Titles present in freeze product_attrs but absent from matched_universe are listed under target_generic_en_products_in_attrs_not_in_matched (they failed the Human/TS matched intersection, not the generic filter)."
+  },
+  "n_products": 55,
+  "products_sha256": "a3dfbf7bbc73887bd4140638b341e51da1589fa0113f146d4978d47ba37a3741",
+  "csv_sha256": "8318cfcd8be7d3f1bb5adf696aba860e1381b6e3a25be1318a0445c5236123d8",
+  "target_generic_en_comparison": {
+    "n_target_generics": 31,
+    "n_mvp_products": 55,
+    "n_mvp_generics": 31,
+    "target_generics_missing_from_mvp": [],
+    "mvp_generics_not_in_target": [],
+    "note": "TARGET_GENERIC_EN is a generic (brand-group) filter used when building the freeze. MVP products are SKUs (ProductTitleEN) that survived the matched Human/TS intersection. A live Dim.Product query filtered by TARGET_GENERIC_EN can return additional titles not in this freeze."
+  }
+}
