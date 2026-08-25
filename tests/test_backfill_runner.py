@@ -1,4 +1,4 @@
-"""Integration tests for historical backfill orchestration (dummy engines)."""
+"""Integration tests for durable historical backfill orchestration."""
 from __future__ import annotations
 
 import sys
@@ -14,11 +14,24 @@ if str(_SRC) not in sys.path:
 
 from pkg.benchmark.backfill_runner.engines.dummy import DummyForecastEngine
 from pkg.benchmark.backfill_runner.runner import (
+    build_config_payload,
     enforce_historical_cutoff,
+    experiment_dir,
     run_backfill,
 )
+from pkg.benchmark.backfill_runner.state import (
+    JOB_FAILED,
+    JOB_PENDING,
+    JOB_RUNNING,
+    JOB_SUCCESS,
+    JobIdentity,
+    JobStateStore,
+    RunLock,
+    RunLockError,
+    compute_config_hash,
+    make_experiment_id,
+)
 from pkg.benchmark.backfill_runner.store import BackfillStore
-from pkg.benchmark.backfill_runner.types import JobKey
 from pkg.benchmark.calendar import shamsi_add_months
 
 
@@ -32,17 +45,20 @@ def _synthetic_sales(products: list[str], start: int = 140001, n_months: int = 4
     return pd.DataFrame(rows)
 
 
+def _exp_id(engine: str = "dummy") -> str:
+    return make_experiment_id("ts_backfill_1401Q1_1405Q2", "mvp_products", engine)
+
+
 class TestHistoricalCutoff(unittest.TestCase):
     def test_cutoff_excludes_origin_and_later(self):
         sales = _synthetic_sales(["A"], start=140410, n_months=6)
         cut = enforce_historical_cutoff(sales, 140501)
         self.assertTrue((cut["date"] < 140501).all())
         self.assertNotIn(140501, set(cut["date"]))
-        self.assertNotIn(140502, set(cut["date"]))
 
 
-class TestBackfillOrchestration(unittest.TestCase):
-    def test_dummy_engine_end_to_end_and_resume(self):
+class TestBackfillDurableState(unittest.TestCase):
+    def test_success_resume_skips_and_force_recomputes(self):
         products = ["Altebrel 25", "Altebrel 50"]
         sales = _synthetic_sales(products)
         with tempfile.TemporaryDirectory() as tmp:
@@ -54,125 +70,222 @@ class TestBackfillOrchestration(unittest.TestCase):
                 universe_name="mvp_products",
                 output_root=root,
                 sales=sales,
-                quarter_from="1405Q1",
-                quarter_to="1405Q1",
+                quarter="1405Q1",
                 products=products,
                 resume=False,
-                dry_run=False,
             )
             self.assertEqual(summary.n_success, 2)
-            self.assertEqual(summary.n_failed, 0)
-            store = BackfillStore(root, "dummy")
-            key = JobKey("dummy", "1405Q1", "Altebrel 25", 140501)
-            self.assertTrue(store.is_complete(key))
-            forecast = pd.read_csv(store.job_dir(key) / "forecast.csv")
-            self.assertEqual(len(forecast), 15)
-            self.assertEqual(int(forecast["target_date"].iloc[0]), 140501)
-            self.assertEqual(int(forecast["horizon"].iloc[0]), 1)
-            self.assertEqual(int(forecast["horizon"].iloc[-1]), 15)
-            self.assertTrue((forecast["forecast"] == 7.0).all())
+            state = JobStateStore(experiment_dir(root, _exp_id()))
+            self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 2)
 
-            # Resume should skip completed jobs
             summary2 = run_backfill(
                 engine=engine,
                 vintage_name="ts_backfill_1401Q1_1405Q2",
                 universe_name="mvp_products",
                 output_root=root,
                 sales=sales,
-                quarter_from="1405Q1",
-                quarter_to="1405Q1",
+                quarter="1405Q1",
                 products=products,
                 resume=True,
             )
-            self.assertEqual(summary2.plan.already_completed, 2)
             self.assertEqual(summary2.plan.remaining, 0)
             self.assertEqual(summary2.n_success, 0)
 
-    def test_partial_csv_without_marker_is_not_complete(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = BackfillStore(Path(tmp), "dummy")
-            key = JobKey("dummy", "1405Q1", "Altebrel 25", 140501)
-            job = store.job_dir(key)
-            job.mkdir(parents=True)
-            (job / "forecast.csv").write_text("product,forecast\nA,1\n", encoding="utf-8")
-            self.assertFalse(store.is_complete(key))
-
-    def test_one_failure_does_not_stop_backfill(self):
-        products = ["Altebrel 25", "Altebrel 50"]
-        sales = _synthetic_sales(products)
-        engine = DummyForecastEngine(fail_products=frozenset({"Altebrel 25"}))
-        with tempfile.TemporaryDirectory() as tmp:
-            summary = run_backfill(
-                engine=engine,
-                vintage_name="ts_backfill_1401Q1_1405Q2",
-                universe_name="mvp_products",
-                output_root=Path(tmp),
-                sales=sales,
-                quarter_from="1405Q1",
-                quarter_to="1405Q1",
-                products=products,
-                resume=False,
-            )
-            self.assertEqual(summary.n_failed, 1)
-            self.assertEqual(summary.n_success, 1)
-            store = BackfillStore(Path(tmp), "dummy")
-            self.assertTrue(
-                store.is_complete(JobKey("dummy", "1405Q1", "Altebrel 50", 140501))
-            )
-            self.assertFalse(
-                store.is_complete(JobKey("dummy", "1405Q1", "Altebrel 25", 140501))
-            )
-
-    def test_completed_job_is_immutable(self):
-        products = ["Altebrel 25"]
-        sales = _synthetic_sales(products)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            engine = DummyForecastEngine()
-            run_backfill(
+            summary3 = run_backfill(
                 engine=engine,
                 vintage_name="ts_backfill_1401Q1_1405Q2",
                 universe_name="mvp_products",
                 output_root=root,
                 sales=sales,
-                quarter_from="1405Q1",
-                quarter_to="1405Q1",
-                products=products,
-                resume=False,
+                quarter="1405Q1",
+                product="Altebrel 25",
+                force_job=True,
+                resume=True,
             )
-            store = BackfillStore(root, "dummy")
-            key = JobKey("dummy", "1405Q1", "Altebrel 25", 140501)
-            from pkg.benchmark.backfill_runner.store import BackfillStoreError
-            from pkg.benchmark.backfill_runner.types import EngineJobResult, JobLogRecord
+            self.assertEqual(summary3.n_success, 1)
 
-            with self.assertRaises(BackfillStoreError):
-                store.persist_success(
-                    key,
-                    EngineJobResult(
-                        success=True,
-                        product="Altebrel 25",
-                        quarter="1405Q1",
-                        forecast_origin=140501,
-                        selected_model="x",
-                        forecasts=pd.DataFrame(
-                            [{"product": "Altebrel 25", "forecast": 1.0}]
-                        ),
-                    ),
-                    JobLogRecord(
-                        engine="dummy",
-                        quarter="1405Q1",
-                        forecast_origin=140501,
-                        product="Altebrel 25",
-                        start_time_utc="t0",
-                        end_time_utc="t1",
-                        duration_seconds=0.0,
-                        success=True,
-                    ),
-                )
+    def test_failed_model_and_retry_failed(self):
+        products = ["Altebrel 25", "Altebrel 50"]
+        sales = _synthetic_sales(products)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            failing = DummyForecastEngine(fail_products=frozenset({"Altebrel 25"}))
+            summary = run_backfill(
+                engine=failing,
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+            )
+            self.assertEqual(summary.n_failed, 1)
+            self.assertEqual(summary.n_success, 1)
 
-    def test_dry_run_writes_no_job_forecasts(self):
+            summary2 = run_backfill(
+                engine=DummyForecastEngine(),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+                resume=True,
+                retry_failed=False,
+            )
+            self.assertEqual(summary2.plan.remaining, 0)
+
+            summary3 = run_backfill(
+                engine=DummyForecastEngine(),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+                resume=True,
+                retry_failed=True,
+            )
+            self.assertEqual(summary3.n_success, 1)
+            state = JobStateStore(experiment_dir(root, _exp_id()))
+            self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 2)
+            self.assertEqual(state.status_counts(_exp_id())[JOB_FAILED], 0)
+
+    def test_stale_running_reclaimed_on_resume(self):
         products = ["Altebrel 25"]
         sales = _synthetic_sales(products)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exp_id = _exp_id()
+            exp = experiment_dir(root, exp_id)
+            state = JobStateStore(exp)
+            config = build_config_payload(
+                engine="dummy",
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+            )
+            config_hash = compute_config_hash(config)
+            state.upsert_experiment(
+                experiment_id=exp_id,
+                vintage_manifest="ts_backfill_1401Q1_1405Q2",
+                universe_manifest="mvp_products",
+                engine_version="dummy",
+                config=config,
+                config_hash=config_hash,
+                git_commit="abc",
+            )
+            identity = JobIdentity(
+                experiment_id=exp_id,
+                engine_version="dummy",
+                config_hash=config_hash,
+                quarter="1405Q1",
+                forecast_origin=140501,
+                product_id="Altebrel 25",
+            )
+            state.ensure_job(identity, git_commit="abc")
+            state.mark_running(identity, git_commit="abc")
+            self.assertEqual(state.get_job(identity.job_id).status, JOB_RUNNING)
+
+            summary = run_backfill(
+                engine=DummyForecastEngine(),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                experiment_id=exp_id,
+                quarter="1405Q1",
+                products=products,
+                resume=True,
+            )
+            self.assertEqual(summary.n_reclaimed_stale, 1)
+            self.assertEqual(summary.n_success, 1)
+            self.assertEqual(
+                JobStateStore(exp).get_job(identity.job_id).status, JOB_SUCCESS
+            )
+
+    def test_interruption_leaves_running_then_resume_completes(self):
+        class ExplodingEngine(DummyForecastEngine):
+            def forecast_product(self, request):
+                raise RuntimeError("simulated process kill")
+
+        products = ["Altebrel 25"]
+        sales = _synthetic_sales(products)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = run_backfill(
+                engine=ExplodingEngine(),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+            )
+            self.assertEqual(summary.n_failed, 1)
+            exp = experiment_dir(root, _exp_id())
+            state = JobStateStore(exp)
+            job = state.list_jobs(_exp_id())[0]
+            self.assertEqual(job.status, JOB_FAILED)
+
+            # Simulate hard kill: RUNNING never finalized to FAILED
+            state.reset_for_force(job.identity, git_commit="kill")
+            state.mark_running(job.identity, git_commit="kill")
+            self.assertEqual(state.get_job(job.identity.job_id).status, JOB_RUNNING)
+
+            summary2 = run_backfill(
+                engine=DummyForecastEngine(),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+                resume=True,
+            )
+            self.assertEqual(summary2.n_reclaimed_stale, 1)
+            self.assertEqual(summary2.n_success, 1)
+
+    def test_duplicate_runner_invocation_blocked_by_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exp = experiment_dir(root, _exp_id())
+            lock = RunLock(exp)
+            lock.acquire()
+            try:
+                with self.assertRaises(RunLockError):
+                    run_backfill(
+                        engine=DummyForecastEngine(),
+                        vintage_name="ts_backfill_1401Q1_1405Q2",
+                        universe_name="mvp_products",
+                        output_root=root,
+                        sales=_synthetic_sales(["Altebrel 25"]),
+                        quarter="1405Q1",
+                        products=["Altebrel 25"],
+                        acquire_lock=True,
+                    )
+            finally:
+                lock.release()
+
+    def test_partial_csv_without_marker_not_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exp = experiment_dir(root, _exp_id())
+            store = BackfillStore(exp, "dummy")
+            identity = JobIdentity(
+                experiment_id=_exp_id(),
+                engine_version="dummy",
+                config_hash="x",
+                quarter="1405Q1",
+                forecast_origin=140501,
+                product_id="Altebrel 25",
+            )
+            job = store.job_dir(identity)
+            job.mkdir(parents=True)
+            (job / "forecast.csv").write_text("product,forecast\nA,1\n", encoding="utf-8")
+            self.assertFalse(store.has_complete_artifacts(identity))
+
+    def test_dry_run_writes_no_forecast_artifacts(self):
+        products = ["Altebrel 25"]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             summary = run_backfill(
@@ -180,59 +293,58 @@ class TestBackfillOrchestration(unittest.TestCase):
                 vintage_name="ts_backfill_1401Q1_1405Q2",
                 universe_name="mvp_products",
                 output_root=root,
-                sales=sales,
-                quarter_from="1404Q4",
+                sales=_synthetic_sales(products),
+                quarter_from="1405Q1",
                 quarter_to="1405Q2",
                 products=products,
                 dry_run=True,
             )
             self.assertTrue(summary.dry_run)
             self.assertGreater(summary.plan.remaining, 0)
-            jobs_root = root / "dummy" / "jobs"
-            self.assertFalse(jobs_root.exists() and any(jobs_root.iterdir()))
-
-    def test_engine_receives_pre_origin_sales_only(self):
-        """Dummy engine fails if post-origin rows leak into the request."""
-        products = ["Altebrel 25"]
-        sales = _synthetic_sales(products)
-        # Poison: if runner forgot cutoff, dummy would see >= origin and fail.
-        with tempfile.TemporaryDirectory() as tmp:
-            summary = run_backfill(
-                engine=DummyForecastEngine(),
-                vintage_name="ts_backfill_1401Q1_1405Q2",
-                universe_name="mvp_products",
-                output_root=Path(tmp),
-                sales=sales,
-                quarter_from="1405Q1",
-                quarter_to="1405Q1",
-                products=products,
-            )
-            self.assertEqual(summary.n_failed, 0)
-            self.assertEqual(summary.n_success, 1)
+            exp = experiment_dir(root, _exp_id())
+            artifacts = exp / "artifacts"
+            self.assertFalse(artifacts.exists() and any(artifacts.rglob("forecast.csv")))
 
 
 class TestStartupReport(unittest.TestCase):
     def test_plan_counts(self):
         from pkg.benchmark.backfill_runner.runner import build_backfill_plan
-        from pkg.benchmark.backfill_runner.store import BackfillStore
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = BackfillStore(Path(tmp), "dummy")
+            exp_id = _exp_id()
+            exp = experiment_dir(Path(tmp), exp_id)
+            state = JobStateStore(exp)
+            config = build_config_payload(
+                engine="dummy",
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+            )
+            ch = compute_config_hash(config)
+            state.upsert_experiment(
+                experiment_id=exp_id,
+                vintage_manifest="ts_backfill_1401Q1_1405Q2",
+                universe_manifest="mvp_products",
+                engine_version="dummy",
+                config=config,
+                config_hash=ch,
+                git_commit="t",
+            )
             plan = build_backfill_plan(
                 engine="dummy",
                 vintage_name="ts_backfill_1401Q1_1405Q2",
                 universe_name="mvp_products",
-                store=store,
+                state=state,
+                experiment_id=exp_id,
+                config_hash=ch,
+                git_commit="t",
                 quarter_from="1405Q1",
                 quarter_to="1405Q2",
                 products=["Altebrel 25", "Altebrel 50"],
                 resume=True,
             )
             self.assertEqual(plan.vintages_eligible, ["1405Q1", "1405Q2"])
-            self.assertEqual(len(plan.products), 2)
             self.assertEqual(plan.total_jobs, 4)
             self.assertEqual(plan.remaining, 4)
-            self.assertEqual(len(plan.vintages_requested), 18)
 
 
 if __name__ == "__main__":

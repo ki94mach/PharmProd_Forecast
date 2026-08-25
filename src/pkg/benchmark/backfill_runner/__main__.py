@@ -7,15 +7,16 @@ from pathlib import Path
 from typing import Optional
 
 from pkg.benchmark.backfill_runner.engines import available_engines, get_engine
-from pkg.benchmark.backfill_runner.runner import run_backfill
+from pkg.benchmark.backfill_runner.runner import print_status, run_backfill
+from pkg.benchmark.backfill_runner.state import RunLockError, make_experiment_id
 from pkg.benchmark.backfill_runner.store import default_backfill_root
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
-            "Historical forecast backfill orchestrator (no model logic). "
-            "Enforces sales.date < forecast_origin outside engines."
+            "Historical forecast backfill orchestrator with durable SQLite "
+            "checkpoints and an exclusive run lock."
         )
     )
     p.add_argument(
@@ -35,13 +36,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Universe manifest stem (default: mvp_products)",
     )
     p.add_argument(
+        "--experiment-id",
+        default=None,
+        help="Override experiment id (default: vintages__universe__engine)",
+    )
+    p.add_argument(
         "--output-root",
         type=Path,
         default=None,
         help=f"Output root (default: {default_backfill_root()})",
     )
+    p.add_argument("--quarter", default=None, help="Single quarter filter (e.g. 1405Q1)")
     p.add_argument("--quarter-from", default=None, help="Inclusive start quarter filter")
     p.add_argument("--quarter-to", default=None, help="Inclusive end quarter filter")
+    p.add_argument("--product", default=None, help="Single product filter")
     p.add_argument(
         "--products",
         default=None,
@@ -50,7 +58,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--resume",
         action="store_true",
-        help="Skip jobs with a valid .complete marker",
+        help="Skip SUCCESS jobs; reclaim stale RUNNING and continue PENDING",
+    )
+    p.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Re-run FAILED jobs (implies resume semantics for SUCCESS skip)",
+    )
+    p.add_argument(
+        "--force-job",
+        action="store_true",
+        help="Force recompute of matching jobs even if SUCCESS (clears artifacts)",
+    )
+    p.add_argument(
+        "--status",
+        action="store_true",
+        help="Print SQLite job status and exit (no forecasting)",
     )
     p.add_argument(
         "--dry-run",
@@ -70,6 +93,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.engine == "v3":
         print("V3 engine is not implemented yet.", file=sys.stderr)
         return 2
+
+    root = args.output_root or default_backfill_root()
+    exp_id = args.experiment_id or make_experiment_id(
+        args.vintages, args.universe, args.engine
+    )
+
+    if args.status:
+        return print_status(
+            output_root=root,
+            experiment_id=exp_id,
+            quarter=args.quarter,
+            product=args.product,
+        )
+
     try:
         engine = get_engine(args.engine)
     except Exception as exc:  # noqa: BLE001
@@ -80,18 +117,29 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.products:
         product_filter = [p.strip() for p in args.products.split(",") if p.strip()]
 
-    summary = run_backfill(
-        engine=engine,
-        vintage_name=args.vintages,
-        universe_name=args.universe,
-        output_root=args.output_root,
-        quarter_from=args.quarter_from,
-        quarter_to=args.quarter_to,
-        products=product_filter,
-        resume=bool(args.resume),
-        dry_run=bool(args.dry_run),
-        include_future=bool(args.include_future),
-    )
+    resume = bool(args.resume or args.retry_failed)
+    try:
+        summary = run_backfill(
+            engine=engine,
+            vintage_name=args.vintages,
+            universe_name=args.universe,
+            output_root=root,
+            experiment_id=exp_id,
+            quarter=args.quarter,
+            quarter_from=args.quarter_from,
+            quarter_to=args.quarter_to,
+            products=product_filter,
+            product=args.product,
+            resume=resume,
+            retry_failed=bool(args.retry_failed),
+            force_job=bool(args.force_job),
+            dry_run=bool(args.dry_run),
+            include_future=bool(args.include_future),
+        )
+    except RunLockError as exc:
+        print(f"run lock: {exc}", file=sys.stderr)
+        return 3
+
     if summary.dry_run:
         return 0
     return 0 if summary.n_failed == 0 else 1
