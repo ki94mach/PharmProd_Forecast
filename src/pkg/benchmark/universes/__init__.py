@@ -311,6 +311,28 @@ def load_mvp_product_names(
     return frame["product"].astype(str).tolist()
 
 
+def load_universe_by_name(
+    name: str,
+    *,
+    validate: bool = True,
+) -> pd.DataFrame:
+    """Load ``{name}.csv`` from the universes package directory."""
+    stem = str(name).strip()
+    if stem.endswith(".csv"):
+        stem = stem[:-4]
+    path = universes_dir() / f"{stem}.csv"
+    return load_mvp_universe(path, validate=validate)
+
+
+def load_universe_product_names(
+    name: str = UNIVERSE_NAME,
+    *,
+    validate: bool = True,
+) -> list[str]:
+    frame = load_universe_by_name(name, validate=validate)
+    return frame["product"].astype(str).tolist()
+
+
 @dataclass(frozen=True)
 class MvpUniverseValidationResult:
     ok: bool

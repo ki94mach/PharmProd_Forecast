@@ -379,6 +379,19 @@ def load_vintage_manifest(
     return specs
 
 
+def load_vintage_manifest_by_name(
+    name: str,
+    *,
+    validate: bool = True,
+) -> list[VintageSpec]:
+    """Load ``{name}.csv`` from the vintages package directory."""
+    stem = str(name).strip()
+    if stem.endswith(".csv"):
+        stem = stem[:-4]
+    path = vintages_dir() / f"{stem}.csv"
+    return load_vintage_manifest(path, validate=validate)
+
+
 @dataclass(frozen=True)
 class VintageValidationResult:
     ok: bool

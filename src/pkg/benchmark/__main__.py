@@ -11,6 +11,8 @@ def main() -> int:
         "  python -m pkg.benchmark.universes build --force  # regenerate from freeze\n"
         "  python -m pkg.benchmark.vintages validate  # TS backfill vintage map\n"
         "  python -m pkg.benchmark.vintages build --force\n"
+        "  python -m pkg.benchmark.backfill_runner --engine v2 "
+        "--vintages ts_backfill_1401Q1_1405Q2 --universe mvp_products --resume\n"
         "\n"
         "API:\n"
         "  from pkg.benchmark import backtest, scoreboard\n"
