@@ -168,13 +168,34 @@ class HorizonForecast:
 
 @dataclass(frozen=True)
 class SelectionResult:
-    """Outcome of model selection for one series at one origin."""
+    """Outcome of model selection for one series (legacy minimal view)."""
 
     product: str
-    origin: ForecastOrigin
+    origin: Optional[ForecastOrigin]
     best_model_name: str
     scores: Mapping[str, float]
     metric: str
+
+
+@dataclass(frozen=True)
+class ProductSelectionResult:
+    """Per-SKU model selection from out-of-fold backtest metrics."""
+
+    product: str
+    selected_model: str
+    selection_mae: float
+    horizon_maes: Mapping[int, float]
+    number_of_origins: int
+    evaluated_horizons: tuple[int, ...]
+    candidate_scores: Mapping[str, float]
+    unavailable: Mapping[str, str]
+    metric: str
+    tie_break_applied: bool = False
+
+    @property
+    def best_model_name(self) -> str:
+        """Alias for :attr:`selected_model` (engine compatibility)."""
+        return self.selected_model
 
 
 @dataclass(frozen=True)

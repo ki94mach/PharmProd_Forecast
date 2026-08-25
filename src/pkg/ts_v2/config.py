@@ -39,6 +39,15 @@ class TSForecastConfig:
             to ``croston_alpha`` when None.
         tsb_alpha: TSB demand-size smoothing parameter.
         tsb_beta: TSB demand-probability smoothing parameter.
+        selection_tie_tolerance: When candidate ``selection_mae`` scores are within
+            this absolute tolerance of the best score, prefer the simpler model
+            (see ``selection_simplicity_order``).
+        min_selection_origins: Minimum backtest origins required for a model to
+            enter selection for a SKU.
+        min_selection_predictions: Minimum out-of-fold prediction rows required
+            for a model to enter selection for a SKU.
+        selection_simplicity_order: Deterministic tie-break preference (lower index
+            wins when scores are tied within ``selection_tie_tolerance``).
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -75,6 +84,19 @@ class TSForecastConfig:
     croston_beta: Optional[float] = None
     tsb_alpha: float = 0.1
     tsb_beta: float = 0.1
+    selection_tie_tolerance: float = 1e-6
+    min_selection_origins: int = 1
+    min_selection_predictions: int = 1
+    selection_simplicity_order: tuple[str, ...] = (
+        "seasonal_naive",
+        "naive",
+        "drift",
+        "ets",
+        "auto_arima",
+        "croston_sba",
+        "tsb",
+        "prophet",
+    )
 
 
 DEFAULT_CONFIG = TSForecastConfig()

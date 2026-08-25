@@ -37,6 +37,8 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(backtest, "make_folds"))
         self.assertTrue(hasattr(backtest, "run_backtest"))
         self.assertTrue(hasattr(selection, "select_best_model"))
+        self.assertTrue(hasattr(selection, "select_product_model"))
+        self.assertTrue(hasattr(selection, "select_models"))
         self.assertTrue(hasattr(engine, "forecast_products"))
         self.assertTrue(hasattr(types, "ForecastOrigin"))
         self.assertTrue(hasattr(types, "ForecastWindow"))
@@ -77,6 +79,11 @@ class TestTsV2Config(unittest.TestCase):
         self.assertIsNone(DEFAULT_CONFIG.croston_beta)
         self.assertEqual(DEFAULT_CONFIG.tsb_alpha, 0.1)
         self.assertEqual(DEFAULT_CONFIG.tsb_beta, 0.1)
+        self.assertEqual(DEFAULT_CONFIG.selection_tie_tolerance, 1e-6)
+        self.assertEqual(DEFAULT_CONFIG.min_selection_origins, 1)
+        self.assertEqual(DEFAULT_CONFIG.min_selection_predictions, 1)
+        self.assertIn("naive", DEFAULT_CONFIG.selection_simplicity_order)
+        self.assertIn("prophet", DEFAULT_CONFIG.selection_simplicity_order)
         self.assertEqual(
             DEFAULT_CONFIG.candidate_models,
             (
