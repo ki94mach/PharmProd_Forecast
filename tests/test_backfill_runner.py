@@ -1,6 +1,7 @@
 """Integration tests for durable historical backfill orchestration."""
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -301,9 +302,82 @@ class TestBackfillDurableState(unittest.TestCase):
             )
             self.assertTrue(summary.dry_run)
             self.assertGreater(summary.plan.remaining, 0)
+            self.assertEqual(summary.plan.remaining, summary.plan.total_jobs)
+            self.assertEqual(summary.workers, 1)
             exp = experiment_dir(root, _exp_id())
             artifacts = exp / "artifacts"
             self.assertFalse(artifacts.exists() and any(artifacts.rglob("forecast.csv")))
+
+    def test_parallel_workers_complete_all_jobs(self):
+        products = ["Altebrel 25", "Altebrel 50"]
+        sales = _synthetic_sales(products)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = run_backfill(
+                engine=DummyForecastEngine(level=3.0),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter_from="1405Q1",
+                quarter_to="1405Q2",
+                products=products,
+                workers=2,
+            )
+            self.assertEqual(summary.n_success, 4)
+            self.assertEqual(summary.n_failed, 0)
+            self.assertEqual(summary.workers, 2)
+            self.assertIsNotNone(summary.runtime_seconds)
+            self.assertIn("requested_workers", summary.thread_config)
+            exp = experiment_dir(root, _exp_id())
+            meta_path = exp / "run_meta.json"
+            self.assertTrue(meta_path.exists())
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertEqual(meta["requested_workers"], 2)
+            self.assertEqual(meta["n_success"], 4)
+            state = JobStateStore(exp)
+            self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 4)
+
+    def test_try_claim_job_is_exclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exp = experiment_dir(Path(tmp), _exp_id())
+            state = JobStateStore(exp)
+            identity = JobIdentity(
+                experiment_id=_exp_id(),
+                engine_version="dummy",
+                config_hash="abc",
+                quarter="1405Q1",
+                forecast_origin=140501,
+                product_id="Altebrel 25",
+            )
+            state.ensure_job(identity, git_commit="t")
+            first = state.try_claim_job(identity, git_commit="t")
+            second = state.try_claim_job(identity, git_commit="t")
+            self.assertIsNotNone(first)
+            self.assertEqual(first.status, JOB_RUNNING)
+            self.assertIsNone(second)
+
+    def test_parallel_failure_isolation(self):
+        products = ["Altebrel 25", "Altebrel 50"]
+        sales = _synthetic_sales(products)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            summary = run_backfill(
+                engine=DummyForecastEngine(fail_products=frozenset({"Altebrel 25"})),
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+                output_root=root,
+                sales=sales,
+                quarter="1405Q1",
+                products=products,
+                workers=2,
+            )
+            self.assertEqual(summary.n_failed, 1)
+            self.assertEqual(summary.n_success, 1)
+            state = JobStateStore(experiment_dir(root, _exp_id()))
+            counts = state.status_counts(_exp_id())
+            self.assertEqual(counts[JOB_SUCCESS], 1)
+            self.assertEqual(counts[JOB_FAILED], 1)
 
 
 class TestStartupReport(unittest.TestCase):

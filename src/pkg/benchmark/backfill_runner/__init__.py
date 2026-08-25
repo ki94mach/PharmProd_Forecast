@@ -1,6 +1,7 @@
 """Generic historical forecast backfill runner (orchestration only).
 
 Durable SQLite checkpoints, exclusive run lock, and engine adapters (v1/v2/dummy).
+SKU-vintage jobs may run concurrently via ``--workers`` (default 1).
 
 CLI::
 
@@ -8,10 +9,12 @@ CLI::
         --engine v2 \\
         --vintages ts_backfill_1401Q1_1405Q2 \\
         --universe mvp_products \\
-        --resume
+        --resume \\
+        --workers 4
 
     python -m pkg.benchmark.backfill_runner ... --status
     python -m pkg.benchmark.backfill_runner ... --retry-failed
+    python -m pkg.benchmark.backfill_runner ... --dry-run
 """
 from __future__ import annotations
 

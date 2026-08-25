@@ -78,7 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print work plan without fitting models",
+        help="Print work plan and expected job count without fitting models",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of concurrent SKU-vintage jobs (default: 1). "
+            "Does not auto-select CPU count."
+        ),
     )
     p.add_argument(
         "--include-future",
@@ -117,6 +126,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.products:
         product_filter = [p.strip() for p in args.products.split(",") if p.strip()]
 
+    if int(args.workers) < 1:
+        print("--workers must be >= 1", file=sys.stderr)
+        return 2
+
     resume = bool(args.resume or args.retry_failed)
     try:
         summary = run_backfill(
@@ -135,6 +148,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             force_job=bool(args.force_job),
             dry_run=bool(args.dry_run),
             include_future=bool(args.include_future),
+            workers=int(args.workers),
         )
     except RunLockError as exc:
         print(f"run lock: {exc}", file=sys.stderr)

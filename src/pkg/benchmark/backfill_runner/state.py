@@ -454,6 +454,61 @@ class JobStateStore:
             ).fetchone()
             return self._row_to_record(row)
 
+    def try_claim_job(
+        self, identity: JobIdentity, *, git_commit: str
+    ) -> Optional[JobRecord]:
+        """Atomically claim a runnable job (``PENDING``/``FAILED`` → ``RUNNING``).
+
+        Returns the updated record on success, or ``None`` if another worker
+        already claimed it (or the job is SUCCESS/RUNNING). Uses
+        ``BEGIN IMMEDIATE`` so concurrent workers cannot claim the same job.
+        """
+        now = _utc_stamp()
+        claimable = (JOB_PENDING, JOB_FAILED)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?", (identity.job_id,)
+            ).fetchone()
+            if row is None or str(row["status"]) not in claimable:
+                conn.execute("ROLLBACK")
+                return None
+            prior = str(row["status"])
+            attempt = int(row["attempt_count"] or 0) + 1
+            cur = conn.execute(
+                """
+                UPDATE jobs SET
+                    status = ?,
+                    started_at = ?,
+                    finished_at = NULL,
+                    runtime_seconds = NULL,
+                    attempt_count = ?,
+                    error_type = NULL,
+                    error_message = NULL,
+                    selected_model = NULL,
+                    git_commit = ?,
+                    updated_at = ?
+                WHERE job_id = ? AND status = ?
+                """,
+                (
+                    JOB_RUNNING,
+                    now,
+                    attempt,
+                    git_commit,
+                    now,
+                    identity.job_id,
+                    prior,
+                ),
+            )
+            if int(cur.rowcount) != 1:
+                conn.execute("ROLLBACK")
+                return None
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?", (identity.job_id,)
+            ).fetchone()
+            return self._row_to_record(row)
+
     def mark_success(
         self,
         identity: JobIdentity,
