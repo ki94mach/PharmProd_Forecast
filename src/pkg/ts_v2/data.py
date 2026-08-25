@@ -19,6 +19,7 @@ import pandas as pd
 from pkg.benchmark.calendar import shamsi_add_months
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
 from pkg.ts_v2.dates import make_forecast_window, parse_origin, validate_shamsi_yyyymm
+from pkg.ts_v2.intermittency import intermittency_stats
 from pkg.ts_v2.types import ForecastOrigin, ForecastWindow, PreparedSeries, ProductSeries
 
 DateLike = Union[int, ForecastOrigin, ForecastWindow]
@@ -116,6 +117,9 @@ def _empty_prepared(
         n_gap_months=0,
         missing_month_policy=config.missing_month_policy,
         activity_start_min_sales=config.activity_start_min_sales,
+        zero_month_proportion=None,
+        average_inter_demand_interval=None,
+        n_demand_months=0,
     )
 
 
@@ -234,6 +238,7 @@ def prepare_monthly_series(
 
     n_gap = int(is_missing.sum())
     n_obs_months = int((~is_missing).sum())
+    stats = intermittency_stats(values)
     return PreparedSeries(
         product=str(product),
         values=values,
@@ -247,6 +252,9 @@ def prepare_monthly_series(
         n_gap_months=n_gap,
         missing_month_policy=cfg.missing_month_policy,
         activity_start_min_sales=cfg.activity_start_min_sales,
+        zero_month_proportion=stats.zero_month_proportion,
+        average_inter_demand_interval=stats.average_inter_demand_interval,
+        n_demand_months=stats.n_demand_months,
     )
 
 

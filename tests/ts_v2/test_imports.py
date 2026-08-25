@@ -52,6 +52,8 @@ class TestTsV2Imports(unittest.TestCase):
                 "auto_arima",
                 "ets",
                 "prophet",
+                "croston_sba",
+                "tsb",
             },
         )
 
@@ -70,6 +72,10 @@ class TestTsV2Config(unittest.TestCase):
         self.assertEqual(DEFAULT_CONFIG.missing_month_policy, "zero")
         self.assertEqual(DEFAULT_CONFIG.prophet_changepoint_prior_scale, 0.05)
         self.assertEqual(DEFAULT_CONFIG.prophet_growth, "linear")
+        self.assertEqual(DEFAULT_CONFIG.croston_alpha, 0.1)
+        self.assertIsNone(DEFAULT_CONFIG.croston_beta)
+        self.assertEqual(DEFAULT_CONFIG.tsb_alpha, 0.1)
+        self.assertEqual(DEFAULT_CONFIG.tsb_beta, 0.1)
         self.assertEqual(
             DEFAULT_CONFIG.candidate_models,
             (
@@ -79,6 +85,8 @@ class TestTsV2Config(unittest.TestCase):
                 "auto_arima",
                 "ets",
                 "prophet",
+                "croston_sba",
+                "tsb",
             ),
         )
 

@@ -91,6 +91,11 @@ class PreparedSeries:
         n_gap_months: Count of calendar gaps (``is_missing_month`` True).
         missing_month_policy: Policy used to fill ``values`` at gaps.
         activity_start_min_sales: Threshold used for activity trimming (or None).
+        zero_month_proportion: Share of months with sales ``<= 0`` (NaN ignored).
+        average_inter_demand_interval: Mean gap (in months) between consecutive
+            positive-demand months; ``None`` if fewer than two demand events.
+            Diagnostic only — does not auto-route to Croston/TSB.
+        n_demand_months: Count of months with sales ``> 0``.
     """
 
     product: str
@@ -105,12 +110,14 @@ class PreparedSeries:
     n_gap_months: int
     missing_month_policy: str
     activity_start_min_sales: Optional[float] = None
+    zero_month_proportion: Optional[float] = None
+    average_inter_demand_interval: Optional[float] = None
+    n_demand_months: int = 0
 
     @property
     def history(self) -> pd.Series:
         """Alias for model-facing raw values (date < origin only)."""
         return self.values
-
 
 @dataclass(frozen=True)
 class ForecastResult:

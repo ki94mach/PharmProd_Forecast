@@ -33,6 +33,12 @@ class TSForecastConfig:
         candidate_models: Registry names the backtest/engine will instantiate.
         prophet_changepoint_prior_scale: Fixed Prophet CPS (same for CV and refit).
         prophet_growth: Prophet growth mode (V2 baseline: linear only).
+        croston_alpha: Smoothing for Croston SBA demand size (and interval if
+            ``croston_beta`` is None). Fixed a priori — not tuned on holdout.
+        croston_beta: Smoothing for Croston SBA inter-demand interval; defaults
+            to ``croston_alpha`` when None.
+        tsb_alpha: TSB demand-size smoothing parameter.
+        tsb_beta: TSB demand-probability smoothing parameter.
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -60,9 +66,15 @@ class TSForecastConfig:
         "auto_arima",
         "ets",
         "prophet",
+        "croston_sba",
+        "tsb",
     )
     prophet_changepoint_prior_scale: float = 0.05
     prophet_growth: ProphetGrowth = "linear"
+    croston_alpha: float = 0.1
+    croston_beta: Optional[float] = None
+    tsb_alpha: float = 0.1
+    tsb_beta: float = 0.1
 
 
 DEFAULT_CONFIG = TSForecastConfig()

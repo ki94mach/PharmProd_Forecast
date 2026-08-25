@@ -1,7 +1,7 @@
 """Forecasting model registry and shared interface for V2.
 
-Baselines (naive, seasonal naive, drift) and library adapters
-(auto_arima, ets, prophet) are registered on import.
+Baselines, library adapters, and intermittent-demand candidates
+(croston_sba, tsb) are registered on import.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pkg.ts_v2.models.base import (
 from pkg.ts_v2.models.baselines import DriftModel, NaiveModel, SeasonalNaiveModel
 from pkg.ts_v2.models.errors import ModelContractError, ModelFailureError, ModelUnavailableError
 from pkg.ts_v2.models.ets import ETSModelAdapter, ets_kwargs
+from pkg.ts_v2.models.intermittent import CrostonSBAModel, TSBModel
 from pkg.ts_v2.models.prophet import ProphetModel, build_prophet_future
 from pkg.ts_v2.models.registry import (
     REGISTRY,
@@ -33,10 +34,13 @@ register_model("drift", DriftModel, replace=True)
 register_model("auto_arima", AutoARIMAModel, replace=True)
 register_model("ets", ETSModelAdapter, replace=True)
 register_model("prophet", ProphetModel, replace=True)
+register_model("croston_sba", CrostonSBAModel, replace=True)
+register_model("tsb", TSBModel, replace=True)
 
 __all__ = [
     "AutoARIMAModel",
     "BaseForecastModel",
+    "CrostonSBAModel",
     "DriftModel",
     "ETSModelAdapter",
     "ForecastModel",
@@ -50,6 +54,7 @@ __all__ = [
     "ProphetModel",
     "REGISTRY",
     "SeasonalNaiveModel",
+    "TSBModel",
     "available_models",
     "build_prophet_future",
     "ets_kwargs",

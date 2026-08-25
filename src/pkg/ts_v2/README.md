@@ -55,6 +55,9 @@ outcome = run_model(model, train_series, window)
 
 Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastConfig.candidate_models`.
 
+Intermittent candidates `croston_sba` and `tsb` compete in backtesting like other models;
+`PreparedSeries` exposes `zero_month_proportion` / `average_inter_demand_interval` as diagnostics only (no auto-routing yet).
+
 ## Layout
 
 | Module | Role |
@@ -63,7 +66,7 @@ Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastC
 | `types.py` | Origins, `ForecastWindow`, series, forecasts, selection / engine result types |
 | `dates.py` | `make_forecast_window`, Shamsi helpers, `+62100` / `-62100` |
 | `data.py` | `prepare_monthly_series`: origin cut, monthly grid, gap flags |
-| `models/` | Interface + baselines + auto_arima / ets / prophet adapters |
+| `models/` | Interface + baselines + library + croston_sba / tsb |
 | `backtest.py` | Multi-origin / multi-horizon evaluation (stub) |
 | `selection.py` | Metric-based winner pick |
 | `engine.py` | Orchestration: backtest → select → full-history refit (stub) |
@@ -81,12 +84,20 @@ activity_start_min_sales = 5.0   # V1 sales > 5; None disables
 missing_month_policy = "zero"    # V1-compatible fill; gaps still flagged
 prophet_changepoint_prior_scale = 0.05
 prophet_growth = "linear"
+croston_alpha = 0.1
+croston_beta = None   # defaults to croston_alpha
+tsb_alpha = 0.1
+tsb_beta = 0.1
 candidate_models = (
   "naive", "seasonal_naive", "drift",
   "auto_arima", "ets", "prophet",
+  "croston_sba", "tsb",
 )
 ```
 
 Library adapters train in raw units, forecast exactly the requested `target_dates`,
 and use one shared seasonal threshold / Prophet CPS for CV and final refit.
 They do not pad horizons, apply ×0.8, or use `freq="M"`.
+
+Croston SBA / TSB use fixed config smoothing parameters (not tuned on future data)
+and emit a constant per-period demand rate for every horizon.
