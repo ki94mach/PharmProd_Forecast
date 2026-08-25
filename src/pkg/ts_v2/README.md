@@ -63,7 +63,7 @@ Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastC
 | `types.py` | Origins, `ForecastWindow`, series, forecasts, selection / engine result types |
 | `dates.py` | `make_forecast_window`, Shamsi helpers, `+62100` / `-62100` |
 | `data.py` | `prepare_monthly_series`: origin cut, monthly grid, gap flags |
-| `models/` | Interface + naive / seasonal_naive / drift (no ARIMA/ETS/Prophet yet) |
+| `models/` | Interface + baselines + auto_arima / ets / prophet adapters |
 | `backtest.py` | Multi-origin / multi-horizon evaluation (stub) |
 | `selection.py` | Metric-based winner pick |
 | `engine.py` | Orchestration: backtest → select → full-history refit (stub) |
@@ -74,9 +74,19 @@ Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastC
 forecast_horizon = 15
 selection_metric = "mae"
 seasonal_period = 12
+seasonal_enable_after_months = 24   # seasonality iff n > 24 (V1 rule)
 min_train_months = 12
 nonnegative_forecasts = True
 activity_start_min_sales = 5.0   # V1 sales > 5; None disables
 missing_month_policy = "zero"    # V1-compatible fill; gaps still flagged
-candidate_models = ("naive", "seasonal_naive", "drift")
+prophet_changepoint_prior_scale = 0.05
+prophet_growth = "linear"
+candidate_models = (
+  "naive", "seasonal_naive", "drift",
+  "auto_arima", "ets", "prophet",
+)
 ```
+
+Library adapters train in raw units, forecast exactly the requested `target_dates`,
+and use one shared seasonal threshold / Prophet CPS for CV and final refit.
+They do not pad horizons, apply ×0.8, or use `freq="M"`.

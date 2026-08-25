@@ -12,47 +12,9 @@ import pandas as pd
 
 from pkg.ts_v2.config import DEFAULT_CONFIG
 from pkg.ts_v2.models.base import BaseForecastModel
-from pkg.ts_v2.models.errors import ModelContractError, ModelUnavailableError
+from pkg.ts_v2.models.common import finite_values, point_forecast
+from pkg.ts_v2.models.errors import ModelUnavailableError
 from pkg.ts_v2.types import ForecastResult
-
-
-def _finite_values(train_series: pd.Series, *, model_name: str) -> np.ndarray:
-    if train_series is None or len(train_series) == 0:
-        raise ModelUnavailableError(
-            "empty training series",
-            model_name=model_name,
-            details={"n": 0},
-        )
-    values = pd.to_numeric(train_series, errors="coerce").to_numpy(dtype=float)
-    if np.isnan(values).any():
-        raise ModelUnavailableError(
-            "training series contains missing values",
-            model_name=model_name,
-            details={"n": int(len(values)), "n_nan": int(np.isnan(values).sum())},
-        )
-    return values
-
-
-def _point_forecast(
-    model_name: str,
-    predictions: Sequence[float],
-    target_dates: Sequence[int],
-    metadata: Optional[dict] = None,
-) -> ForecastResult:
-    dates = tuple(int(d) for d in target_dates)
-    preds = tuple(float(p) for p in predictions)
-    if len(preds) != len(dates):
-        raise ModelContractError(
-            f"internal length mismatch preds={len(preds)} dates={len(dates)}",
-            model_name=model_name,
-        )
-    return ForecastResult(
-        model_name=model_name,
-        predictions=preds,
-        target_dates=dates,
-        horizons=tuple(range(1, len(dates) + 1)),
-        metadata=dict(metadata or {}),
-    )
 
 
 class NaiveModel(BaseForecastModel):
@@ -65,7 +27,7 @@ class NaiveModel(BaseForecastModel):
         self._n: int = 0
 
     def fit(self, train_series: pd.Series) -> "NaiveModel":
-        values = _finite_values(train_series, model_name=self.name)
+        values = finite_values(train_series, model_name=self.name)
         if len(values) < 1:
             raise ModelUnavailableError(
                 "naive requires at least 1 training observation",
@@ -81,7 +43,7 @@ class NaiveModel(BaseForecastModel):
             raise ModelUnavailableError("naive is not fitted", model_name=self.name)
         last = self._last
         preds = tuple(last for _ in range(horizon))
-        return _point_forecast(
+        return point_forecast(
             self.name,
             preds,
             target_dates,
@@ -108,7 +70,7 @@ class SeasonalNaiveModel(BaseForecastModel):
         self._n: int = 0
 
     def fit(self, train_series: pd.Series) -> "SeasonalNaiveModel":
-        values = _finite_values(train_series, model_name=self.name)
+        values = finite_values(train_series, model_name=self.name)
         n = int(len(values))
         if n < self.period:
             raise ModelUnavailableError(
@@ -128,7 +90,7 @@ class SeasonalNaiveModel(BaseForecastModel):
         cycle = self._cycle
         period = self.period
         preds = tuple(float(cycle[(h - 1) % period]) for h in range(1, horizon + 1))
-        return _point_forecast(
+        return point_forecast(
             self.name,
             preds,
             target_dates,
@@ -151,7 +113,7 @@ class DriftModel(BaseForecastModel):
         self._n: int = 0
 
     def fit(self, train_series: pd.Series) -> "DriftModel":
-        values = _finite_values(train_series, model_name=self.name)
+        values = finite_values(train_series, model_name=self.name)
         n = int(len(values))
         if n < 2:
             raise ModelUnavailableError(
@@ -172,7 +134,7 @@ class DriftModel(BaseForecastModel):
         last = self._last
         slope = self._slope
         preds = tuple(last + h * slope for h in range(1, horizon + 1))
-        return _point_forecast(
+        return point_forecast(
             self.name,
             preds,
             target_dates,

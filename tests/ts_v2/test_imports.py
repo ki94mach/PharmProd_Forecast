@@ -45,7 +45,14 @@ class TestTsV2Imports(unittest.TestCase):
 
         self.assertEqual(
             set(available_models()),
-            {"naive", "seasonal_naive", "drift"},
+            {
+                "naive",
+                "seasonal_naive",
+                "drift",
+                "auto_arima",
+                "ets",
+                "prophet",
+            },
         )
 
 
@@ -56,13 +63,23 @@ class TestTsV2Config(unittest.TestCase):
         self.assertEqual(DEFAULT_CONFIG.forecast_horizon, 15)
         self.assertEqual(DEFAULT_CONFIG.selection_metric, "mae")
         self.assertEqual(DEFAULT_CONFIG.seasonal_period, 12)
+        self.assertEqual(DEFAULT_CONFIG.seasonal_enable_after_months, 24)
         self.assertEqual(DEFAULT_CONFIG.min_train_months, 12)
         self.assertTrue(DEFAULT_CONFIG.nonnegative_forecasts)
         self.assertEqual(DEFAULT_CONFIG.activity_start_min_sales, 5.0)
         self.assertEqual(DEFAULT_CONFIG.missing_month_policy, "zero")
+        self.assertEqual(DEFAULT_CONFIG.prophet_changepoint_prior_scale, 0.05)
+        self.assertEqual(DEFAULT_CONFIG.prophet_growth, "linear")
         self.assertEqual(
             DEFAULT_CONFIG.candidate_models,
-            ("naive", "seasonal_naive", "drift"),
+            (
+                "naive",
+                "seasonal_naive",
+                "drift",
+                "auto_arima",
+                "ets",
+                "prophet",
+            ),
         )
 
     def test_config_is_frozen(self):

@@ -9,9 +9,15 @@ All Shamsi ↔ pandas ``YYYYMM`` offset conversion lives here.
 """
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Optional, Sequence, Union
 
-from pkg.benchmark.calendar import shamsi_add_months, shamsi_month_diff
+import pandas as pd
+
+from pkg.benchmark.calendar import (
+    shamsi_add_months,
+    shamsi_month_diff,
+    shamsi_month_start_gregorian,
+)
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
 from pkg.ts_v2.types import ForecastOrigin, ForecastWindow
 
@@ -110,11 +116,30 @@ def is_training_month(shamsi_yyyymm: int, window: ForecastWindow) -> bool:
     return ym < window.forecast_origin
 
 
+def shamsi_to_month_start_timestamp(shamsi_yyyymm: int) -> pd.Timestamp:
+    """Shamsi YYYYMM → Gregorian month-start Timestamp (Prophet ``freq='MS'``).
+
+    Uses real Jalali→Gregorian conversion, not the V1 ``+62100`` fake year.
+    """
+    d = shamsi_month_start_gregorian(validate_shamsi_yyyymm(shamsi_yyyymm))
+    return pd.Timestamp(year=d.year, month=d.month, day=1)
+
+
+def shamsi_months_to_ms_index(shamsi_yyyymms: Sequence[int]) -> pd.DatetimeIndex:
+    """Ordered DatetimeIndex of month-starts for Shamsi YYYYMM labels."""
+    return pd.DatetimeIndex(
+        [shamsi_to_month_start_timestamp(ym) for ym in shamsi_yyyymms],
+        name="ds",
+    )
+
+
 __all__ = [
     "SHAMSI_TO_PANDAS_YYYYMM_OFFSET",
     "validate_shamsi_yyyymm",
     "shamsi_to_pandas_yyyymm",
     "pandas_yyyymm_to_shamsi",
+    "shamsi_to_month_start_timestamp",
+    "shamsi_months_to_ms_index",
     "parse_origin",
     "target_month",
     "months_between",
