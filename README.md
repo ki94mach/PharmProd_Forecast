@@ -182,6 +182,8 @@ Price / commercial modules remain placeholders. Drug Launch event SQL is a defer
 
 Production TS (ARIMA / ETS / Prophet / LSTM per SKU), CLI modes, and how CSVs become the frozen `ts` baseline are documented in [`docs/ts_forecasting_architecture.md`](docs/ts_forecasting_architecture.md).
 
+Historical V1/V2 SKU×vintage backfills (checkpoints, `--resume`, systemd/tmux) are documented in [`docs/ts_backfill_server.md`](docs/ts_backfill_server.md). Entry points: `python -m pkg.benchmark.backfill_runner`, `scripts/run_ts_backfill.sh`, and `deploy/systemd/forecast-ts-backfill.service.example`.
+
 ## Project layout
 
 ```
@@ -190,11 +192,15 @@ Forecast/
   requirements.txt     # Pip extras only (TensorFlow, gspread, pyarrow)
   pyproject.toml         # Editable install of pkg (pip install -e .)
   .env.example
+  scripts/
+    run_ts_backfill.sh   # Server wrapper (conda + thread caps + logs + --resume)
+  deploy/systemd/
+    forecast-ts-backfill.service.example
   src/
     main.py              # CLI entry point
     pkg/
       db/                    # SQL client + queries
-      benchmark/             # Frozen v1 dataset API + backtest()
+      benchmark/             # Frozen v1 dataset API + backfill_runner
       research/              # Feature experiments F0–F1C on frozen panels
       sales_forecasting.py   # Orchestration, Excel export
       forecast.py              # Per-product models

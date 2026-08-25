@@ -6,6 +6,22 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+
+def _load_project_dotenv() -> None:
+    """Load ``.env`` via python-dotenv (repo root and/or ``src/``)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    # __file__ = src/pkg/benchmark/backfill_runner/__main__.py
+    repo_root = Path(__file__).resolve().parents[4]
+    load_dotenv(repo_root / ".env")
+    load_dotenv(repo_root / "src" / ".env")
+    load_dotenv()  # cwd fallback
+
+
+_load_project_dotenv()
+
 from pkg.benchmark.backfill_runner.engines import available_engines, get_engine
 from pkg.benchmark.backfill_runner.manifest import (
     ExperimentManifestError,
