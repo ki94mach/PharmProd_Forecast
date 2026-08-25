@@ -1,15 +1,15 @@
 # TS historical backfill systemd unit
 #
-# Install:
+# Install (adjust paths for this host):
 #   sudo cp forecast-ts-backfill.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now forecast-ts-backfill.service
 #
-# Secrets remain in /opt/Forecast/src/.env.
+# Secrets remain in src/.env (e.g. /opt/app/Forecast/src/.env).
 
 [Unit]
 Description=Forecast TS MVP historical backfill (SKU x vintage)
-Documentation=file:/opt/Forecast/docs/ts_backfill_server.md
+Documentation=file:/opt/app/Forecast/docs/ts_backfill_server.md
 After=network-online.target
 Wants=network-online.target
 
@@ -20,9 +20,10 @@ StartLimitBurst=3
 [Service]
 Type=simple
 
-User=forecast
-Group=forecast
-WorkingDirectory=/opt/Forecast
+# This host uses root (no dedicated forecast OS user).
+User=root
+Group=root
+WorkingDirectory=/opt/app/Forecast
 
 # Prevent numerical libraries from spawning additional CPU threads.
 Environment="OMP_NUM_THREADS=1"
@@ -39,10 +40,12 @@ Environment="BACKFILL_WORKERS=1"
 # SQL connection profile. Credentials stay in src/.env.
 Environment="SQL_PROFILE=server"
 
-# Prefer an explicit Python executable if possible.
-# Environment="FORECAST_PYTHON=/opt/miniconda3/envs/forecast/bin/python"
+# Pip-only servers: point at the venv python (required if not using conda).
+Environment="FORECAST_PYTHON=/opt/app/Forecast/.venv/bin/python"
+# Make src/ importable even if editable install is broken/stale.
+Environment="PYTHONPATH=/opt/app/Forecast/src"
 
-ExecStart=/opt/Forecast/scripts/run_ts_backfill.sh
+ExecStart=/opt/app/Forecast/scripts/run_ts_backfill.sh
 
 # Lower priority than production application processes.
 Nice=10

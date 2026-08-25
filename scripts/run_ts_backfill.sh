@@ -14,8 +14,8 @@
 #
 # Environment overrides (optional):
 #   FORECAST_ROOT          repo root (default: parent of scripts/)
-#   FORECAST_CONDA_ENV     conda env name (default: forecast)
-#   FORECAST_PYTHON        absolute path to python (skips conda activate)
+#   FORECAST_PYTHON        absolute path to python (pip venv or conda) — preferred
+#   FORECAST_CONDA_ENV     conda env name (default: forecast); used only if conda exists
 #   BACKFILL_ENGINE        default: v2
 #   BACKFILL_VINTAGES      default: ts_backfill_1401Q1_1405Q2
 #   BACKFILL_UNIVERSE      default: mvp_products
@@ -41,27 +41,62 @@ export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-1}"
 export VECLIB_MAXIMUM_THREADS="${VECLIB_MAXIMUM_THREADS:-1}"
 export BLIS_NUM_THREADS="${BLIS_NUM_THREADS:-1}"
 
-activate_conda_env() {
-  local env_name="${FORECAST_CONDA_ENV:-forecast}"
+resolve_python() {
+  # 1) Explicit override (recommended on pip-only servers).
   if [[ -n "${FORECAST_PYTHON:-}" ]]; then
+    if [[ ! -x "$FORECAST_PYTHON" ]]; then
+      echo "error: FORECAST_PYTHON is not executable: $FORECAST_PYTHON" >&2
+      exit 2
+    fi
+    echo "$FORECAST_PYTHON"
     return 0
   fi
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "error: conda not found on PATH; set FORECAST_PYTHON to the env python" >&2
-    exit 2
+
+  # 2) Common pip venv locations under the repo.
+  local candidate
+  for candidate in \
+    "$FORECAST_ROOT/.venv/bin/python" \
+    "$FORECAST_ROOT/venv/bin/python" \
+    "$FORECAST_ROOT/.venv/bin/python3" \
+    "$FORECAST_ROOT/venv/bin/python3"
+  do
+    if [[ -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  # 3) Optional conda (laptop / hosts that have it).
+  if command -v conda >/dev/null 2>&1; then
+    local env_name="${FORECAST_CONDA_ENV:-forecast}"
+    # shellcheck disable=SC1091
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate "$env_name"
+    command -v python
+    return 0
   fi
-  # shellcheck disable=SC1091
-  source "$(conda info --base)/etc/profile.d/conda.sh"
-  conda activate "$env_name"
+
+  # 4) Last resort: python3/python on PATH.
+  if command -v python3 >/dev/null 2>&1; then
+    echo "warning: using PATH python3; prefer FORECAST_PYTHON or a repo .venv" >&2
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    echo "warning: using PATH python; prefer FORECAST_PYTHON or a repo .venv" >&2
+    command -v python
+    return 0
+  fi
+
+  echo "error: no Python found. Create a venv or set FORECAST_PYTHON=/path/to/python" >&2
+  exit 2
 }
 
-activate_conda_env
+PYTHON_BIN="$(resolve_python)"
 
-if [[ -n "${FORECAST_PYTHON:-}" ]]; then
-  PYTHON_BIN="$FORECAST_PYTHON"
-else
-  PYTHON_BIN="$(command -v python)"
-fi
+# Ensure the repo's src/ layout is importable (pip-only / broken editable installs).
+# Prefer installed package when present; src is prepended so __main__.py is found.
+export PYTHONPATH="${FORECAST_ROOT}/src${PYTHONPATH:+:$PYTHONPATH}"
 
 ENGINE="${BACKFILL_ENGINE:-v2}"
 VINTAGES="${BACKFILL_VINTAGES:-ts_backfill_1401Q1_1405Q2}"
