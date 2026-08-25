@@ -19,7 +19,9 @@ JOB_FAILED = "FAILED"
 JOB_STATUSES = frozenset({JOB_PENDING, JOB_RUNNING, JOB_SUCCESS, JOB_FAILED})
 
 LOCK_FILENAME = "run.lock"
-DB_FILENAME = "backfill.sqlite"
+DB_FILENAME = "state.sqlite"
+# Legacy filename from early runner revisions (read-only migration hint).
+LEGACY_DB_FILENAME = "backfill.sqlite"
 
 
 class BackfillStateError(Exception):
@@ -60,9 +62,22 @@ def compute_config_hash(config: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def make_experiment_id(vintage_name: str, universe_name: str, engine: str) -> str:
-    """Default experiment id: vintage__universe__engine."""
-    return f"{vintage_name}__{universe_name}__{engine}"
+def make_experiment_id(
+    vintage_name: str,
+    universe_name: str = "mvp_products",
+    engine: Optional[str] = None,
+) -> str:
+    """Default experiment id (engine is a subdirectory, not part of the id).
+
+    ``engine`` is accepted for backward compatibility and ignored.
+    """
+    del engine  # layout: data/backfills/{experiment_id}/{engine}/
+    # Local import avoids an import cycle with manifest.py.
+    from pkg.benchmark.backfill_runner.manifest import (
+        make_experiment_id as _make_experiment_id,
+    )
+
+    return _make_experiment_id(vintage_name, universe_name)
 
 
 @dataclass(frozen=True)
@@ -200,6 +215,10 @@ class JobStateStore:
         self.experiment_dir = Path(experiment_dir)
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.experiment_dir / DB_FILENAME
+        legacy = self.experiment_dir / LEGACY_DB_FILENAME
+        # Prefer new name; if only legacy exists, continue using it in-place.
+        if not self.db_path.exists() and legacy.exists():
+            self.db_path = legacy
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:

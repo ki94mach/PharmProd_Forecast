@@ -7,8 +7,12 @@ from pathlib import Path
 from typing import Optional
 
 from pkg.benchmark.backfill_runner.engines import available_engines, get_engine
+from pkg.benchmark.backfill_runner.manifest import (
+    ExperimentManifestError,
+    make_experiment_id,
+)
 from pkg.benchmark.backfill_runner.runner import print_status, run_backfill
-from pkg.benchmark.backfill_runner.state import RunLockError, make_experiment_id
+from pkg.benchmark.backfill_runner.state import RunLockError
 from pkg.benchmark.backfill_runner.store import default_backfill_root
 
 
@@ -16,7 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
             "Historical forecast backfill orchestrator with durable SQLite "
-            "checkpoints and an exclusive run lock."
+            "checkpoints, immutable experiment manifests, and an exclusive run lock. "
+            "Writes under data/backfills/{experiment_id}/{engine}/ — not production CSVs."
         )
     )
     p.add_argument(
@@ -38,7 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--experiment-id",
         default=None,
-        help="Override experiment id (default: vintages__universe__engine)",
+        help=(
+            "Override experiment id (default: ts_mvp_backfill_{start}_{end}). "
+            "Engine is always a subdirectory under the experiment id."
+        ),
     )
     p.add_argument(
         "--output-root",
@@ -104,14 +112,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     root = args.output_root or default_backfill_root()
-    exp_id = args.experiment_id or make_experiment_id(
-        args.vintages, args.universe, args.engine
-    )
+    exp_id = args.experiment_id or make_experiment_id(args.vintages, args.universe)
 
     if args.status:
         return print_status(
             output_root=root,
             experiment_id=exp_id,
+            engine=args.engine,
             quarter=args.quarter,
             product=args.product,
         )
@@ -153,6 +160,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     except RunLockError as exc:
         print(f"run lock: {exc}", file=sys.stderr)
         return 3
+    except ExperimentManifestError as exc:
+        print(f"experiment manifest: {exc}", file=sys.stderr)
+        return 4
 
     if summary.dry_run:
         return 0

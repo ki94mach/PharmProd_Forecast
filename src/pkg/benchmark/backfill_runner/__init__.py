@@ -3,6 +3,15 @@
 Durable SQLite checkpoints, exclusive run lock, and engine adapters (v1/v2/dummy).
 SKU-vintage jobs may run concurrently via ``--workers`` (default 1).
 
+Artifacts::
+
+    data/backfills/{experiment_id}/{engine}/
+        manifest.json
+        state.sqlite
+        forecasts/
+        backtests/
+        logs/
+
 CLI::
 
     python -m pkg.benchmark.backfill_runner \\
@@ -18,6 +27,10 @@ CLI::
 """
 from __future__ import annotations
 
+from pkg.benchmark.backfill_runner.manifest import (
+    ExperimentManifestError,
+    make_experiment_id,
+)
 from pkg.benchmark.backfill_runner.runner import (
     BackfillPlan,
     BackfillRunSummary,
@@ -50,6 +63,7 @@ __all__ = [
     "BackfillStore",
     "EngineJobRequest",
     "EngineJobResult",
+    "ExperimentManifestError",
     "ForecastEngine",
     "JOB_FAILED",
     "JOB_PENDING",
@@ -63,6 +77,7 @@ __all__ = [
     "build_backfill_plan",
     "default_backfill_root",
     "enforce_historical_cutoff",
+    "make_experiment_id",
     "print_status",
     "run_backfill",
 ]

@@ -1,4 +1,21 @@
-"""Atomic artifact persistence for historical backfills (SQLite owns job status)."""
+"""Atomic artifact persistence for historical backfills (SQLite owns job status).
+
+Layout (isolated from production forecast CSVs)::
+
+    data/backfills/{experiment_id}/{engine}/
+        manifest.json
+        state.sqlite
+        run.lock
+        forecasts/{quarter}__{product}/
+            forecast.csv
+            result.json
+            .complete
+        backtests/{quarter}__{product}/   # optional selection/CV summaries
+        logs/{quarter}__{product}/
+            job_log.json
+            failure.json
+        logs/run_meta.json
+"""
 from __future__ import annotations
 
 import json
@@ -16,6 +33,8 @@ COMPLETE_MARKER = ".complete"
 FORECAST_CSV = "forecast.csv"
 RESULT_JSON = "result.json"
 LOG_JSON = "job_log.json"
+FAILURE_JSON = "failure.json"
+BACKTEST_JSON = "backtest_summary.json"
 
 
 class BackfillStoreError(Exception):
@@ -55,47 +74,53 @@ def atomic_write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def default_backfill_root() -> Path:
-    root = Path(__file__).resolve().parents[3] / "data" / "backfill"
+    """Historical backfill root — not production forecast export paths."""
+    root = Path(__file__).resolve().parents[3] / "data" / "backfills"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 class BackfillStore:
-    """Per-experiment artifact tree.
-
-    Layout::
-
-        {root}/{experiment_id}/
-            backfill.sqlite
-            run.lock
-            artifacts/{engine}/{quarter}__{product}/
-                forecast.csv
-                result.json
-                job_log.json
-                .complete
-    """
+    """Per-experiment / per-engine artifact tree under ``data/backfills``."""
 
     def __init__(self, experiment_dir: Path, engine: str):
         self.experiment_dir = Path(experiment_dir)
         self.engine = str(engine)
-        self.artifacts_root = self.experiment_dir / "artifacts" / self.engine
-        self.artifacts_root.mkdir(parents=True, exist_ok=True)
+        self.forecasts_root = self.experiment_dir / "forecasts"
+        self.backtests_root = self.experiment_dir / "backtests"
+        self.logs_root = self.experiment_dir / "logs"
+        for path in (self.forecasts_root, self.backtests_root, self.logs_root):
+            path.mkdir(parents=True, exist_ok=True)
 
+    def forecast_dir(self, identity: JobIdentity) -> Path:
+        return self.forecasts_root / identity.slug
+
+    def backtest_dir(self, identity: JobIdentity) -> Path:
+        return self.backtests_root / identity.slug
+
+    def log_dir(self, identity: JobIdentity) -> Path:
+        return self.logs_root / identity.slug
+
+    # Back-compat alias used by older call sites / tests.
     def job_dir(self, identity: JobIdentity) -> Path:
-        return self.artifacts_root / identity.slug
+        return self.forecast_dir(identity)
 
     def has_complete_artifacts(self, identity: JobIdentity) -> bool:
-        job = self.job_dir(identity)
+        job = self.forecast_dir(identity)
         return (job / COMPLETE_MARKER).exists() and (job / FORECAST_CSV).exists()
 
     def clear_artifacts(self, identity: JobIdentity) -> None:
-        job = self.job_dir(identity)
-        if not job.exists():
-            return
-        for name in (COMPLETE_MARKER, FORECAST_CSV, RESULT_JSON, LOG_JSON, "failure.json"):
-            path = job / name
-            if path.exists():
-                path.unlink()
+        for root, names in (
+            (self.forecast_dir(identity), (COMPLETE_MARKER, FORECAST_CSV, RESULT_JSON)),
+            (self.log_dir(identity), (LOG_JSON, FAILURE_JSON)),
+            (self.backtest_dir(identity), (BACKTEST_JSON,)),
+        ):
+            if not root.exists():
+                continue
+            for name in names:
+                path = root / name
+                if path.exists():
+                    path.unlink()
 
     def persist_success(
         self,
@@ -108,14 +133,16 @@ class BackfillStore:
                 f"Refusing to overwrite completed artifacts: {identity.slug}. "
                 "Use --force-job."
             )
-        job = self.job_dir(identity)
-        job.mkdir(parents=True, exist_ok=True)
+        forecast_dir = self.forecast_dir(identity)
+        log_dir = self.log_dir(identity)
+        forecast_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
         if result.forecasts is None or result.forecasts.empty:
             raise BackfillStoreError(f"successful job missing forecasts: {identity.slug}")
 
-        atomic_write_csv(job / FORECAST_CSV, result.forecasts)
+        atomic_write_csv(forecast_dir / FORECAST_CSV, result.forecasts)
         atomic_write_json(
-            job / RESULT_JSON,
+            forecast_dir / RESULT_JSON,
             {
                 "success": True,
                 "job_id": identity.job_id,
@@ -128,24 +155,46 @@ class BackfillStore:
                 "extras": dict(result.extras),
             },
         )
-        atomic_write_json(job / LOG_JSON, log_payload)
-        atomic_write_text(job / COMPLETE_MARKER, log_payload.get("finished_at", "") + "\n")
-        return job
+        atomic_write_json(log_dir / LOG_JSON, log_payload)
+        atomic_write_text(
+            forecast_dir / COMPLETE_MARKER,
+            log_payload.get("finished_at", "") + "\n",
+        )
+
+        # Optional backtest/selection summary when the engine provides one.
+        extras = dict(result.extras or {})
+        if extras.get("backtest_summary") is not None or extras.get("selection"):
+            bt = self.backtest_dir(identity)
+            bt.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(
+                bt / BACKTEST_JSON,
+                {
+                    "job_id": identity.job_id,
+                    "product_id": identity.product_id,
+                    "quarter": identity.quarter,
+                    "selected_model": result.selected_model,
+                    "backtest_summary": extras.get("backtest_summary"),
+                    "selection": extras.get("selection"),
+                    "selected_strategy": extras.get("selected_strategy"),
+                },
+            )
+        return forecast_dir
 
     def persist_failure(
         self,
         identity: JobIdentity,
         log_payload: dict[str, Any],
     ) -> Path:
-        job = self.job_dir(identity)
-        job.mkdir(parents=True, exist_ok=True)
+        log_dir = self.log_dir(identity)
+        log_dir.mkdir(parents=True, exist_ok=True)
         # No .complete marker — FAILED jobs are retryable.
-        marker = job / COMPLETE_MARKER
+        forecast_dir = self.forecast_dir(identity)
+        marker = forecast_dir / COMPLETE_MARKER
         if marker.exists():
             marker.unlink()
-        atomic_write_json(job / LOG_JSON, log_payload)
+        atomic_write_json(log_dir / LOG_JSON, log_payload)
         atomic_write_json(
-            job / "failure.json",
+            log_dir / FAILURE_JSON,
             {
                 "success": False,
                 "job_id": identity.job_id,
@@ -154,4 +203,4 @@ class BackfillStore:
                 "finished_at": log_payload.get("finished_at"),
             },
         )
-        return job
+        return log_dir

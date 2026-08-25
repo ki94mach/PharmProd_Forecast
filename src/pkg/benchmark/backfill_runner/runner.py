@@ -10,6 +10,21 @@ from typing import Any, Optional, Sequence
 
 import pandas as pd
 
+from pkg.benchmark.backfill_runner.manifest import (
+    ExperimentManifestError,
+    build_experiment_manifest,
+    build_scientific_config,
+    engine_cv_configuration,
+    engine_model_configuration,
+    engine_nonnegative_policy,
+    engine_random_seeds,
+    engine_selection_strategy,
+    engine_smoothing_policy,
+    ensure_immutable_manifest,
+    experiment_engine_dir,
+    make_experiment_id,
+    resolve_manifest_paths,
+)
 from pkg.benchmark.backfill_runner.state import (
     JOB_FAILED,
     JOB_PENDING,
@@ -20,7 +35,6 @@ from pkg.benchmark.backfill_runner.state import (
     RunLock,
     RunLockError,
     compute_config_hash,
-    make_experiment_id,
     resolve_git_commit,
     should_run_job,
 )
@@ -36,6 +50,7 @@ from pkg.benchmark.backfill_runner.types import (
     target_dates_for_origin,
 )
 from pkg.benchmark.calendar import iter_shamsi_quarters
+from pkg.benchmark.dataset import file_sha256
 from pkg.benchmark.universes import load_universe_product_names
 from pkg.benchmark.vintages import VintageSpec, load_vintage_manifest_by_name
 
@@ -152,8 +167,20 @@ def filter_vintages(
     return out
 
 
-def experiment_dir(output_root: Path, experiment_id: str) -> Path:
-    return Path(output_root) / experiment_id
+def experiment_dir(
+    output_root: Path,
+    experiment_id: str,
+    engine: Optional[str] = None,
+) -> Path:
+    """Resolve experiment directory.
+
+    Preferred layout: ``{root}/{experiment_id}/{engine}/``.
+    If ``engine`` is omitted, returns ``{root}/{experiment_id}/`` (status helpers).
+    """
+    base = Path(output_root) / str(experiment_id)
+    if engine is None:
+        return base
+    return experiment_engine_dir(output_root, experiment_id, engine)
 
 
 def build_config_payload(
@@ -163,15 +190,25 @@ def build_config_payload(
     universe_name: str,
     horizon: int = 15,
 ) -> dict[str, Any]:
-    # Worker count is intentionally excluded — reproducibility of forecasts
-    # must not depend on parallelism settings.
-    return {
-        "engine_version": str(engine),
-        "vintage_manifest": str(vintage_name),
-        "universe_manifest": str(universe_name),
-        "horizon": int(horizon),
-        "training_cutoff_rule": "date < forecast_origin",
-    }
+    """Scientific config used for ``config_hash`` (excludes workers / host)."""
+    vintage_csv, _ = resolve_manifest_paths(vintage_name, kind="vintage")
+    universe_csv, _ = resolve_manifest_paths(universe_name, kind="universe")
+    vintage_sha = file_sha256(vintage_csv) if vintage_csv.exists() else ""
+    universe_sha = file_sha256(universe_csv) if universe_csv.exists() else ""
+    return build_scientific_config(
+        engine=engine,
+        vintage_name=vintage_name,
+        universe_name=universe_name,
+        vintage_sha256=vintage_sha,
+        universe_sha256=universe_sha,
+        horizon=horizon,
+        model_configuration=engine_model_configuration(engine),
+        cv_configuration=engine_cv_configuration(engine),
+        selection_strategy=engine_selection_strategy(engine),
+        nonnegative_policy=engine_nonnegative_policy(engine),
+        smoothing_policy=engine_smoothing_policy(engine),
+        random_seeds=engine_random_seeds(engine),
+    )
 
 
 def build_backfill_plan(
@@ -287,16 +324,28 @@ def print_status(
     *,
     output_root: Path,
     experiment_id: str,
+    engine: str,
     quarter: Optional[str] = None,
     product: Optional[str] = None,
 ) -> int:
-    exp_dir = experiment_dir(output_root, experiment_id)
-    if not (exp_dir / "backfill.sqlite").exists():
-        print(f"No checkpoint DB at {exp_dir / 'backfill.sqlite'}")
+    exp_dir = experiment_dir(output_root, experiment_id, engine)
+    db = exp_dir / "state.sqlite"
+    legacy_db = exp_dir / "backfill.sqlite"
+    if not db.exists() and not legacy_db.exists():
+        print(f"No checkpoint DB at {db}")
         return 1
     state = JobStateStore(exp_dir)
     counts = state.status_counts(experiment_id)
     print(f"experiment_id={experiment_id}")
+    print(f"engine={engine}")
+    print(f"experiment_dir={exp_dir}")
+    manifest_path = exp_dir / "manifest.json"
+    if manifest_path.exists():
+        import json
+
+        man = json.loads(manifest_path.read_text(encoding="utf-8"))
+        print(f"config_hash={man.get('config_hash')}")
+        print(f"created_at={man.get('created_at')}")
     print(
         f"PENDING={counts.get(JOB_PENDING, 0)} "
         f"RUNNING={counts.get(JOB_RUNNING, 0)} "
@@ -554,13 +603,16 @@ def run_backfill(
 
     Parallelism is only at the SKU-vintage job level (``workers``). Model
     selection inside an engine must not spawn additional job pools.
+
+    Artifacts land under ``data/backfills/{experiment_id}/{engine}/`` and are
+    never mixed with production forecast CSV exports.
     """
     workers_n = max(1, int(workers))
     thread_config = apply_inner_thread_limits(workers=workers_n)
 
     root = Path(output_root) if output_root is not None else default_backfill_root()
-    exp_id = experiment_id or make_experiment_id(vintage_name, universe_name, engine.name)
-    exp_dir = experiment_dir(root, exp_id)
+    exp_id = experiment_id or make_experiment_id(vintage_name, universe_name)
+    exp_dir = experiment_dir(root, exp_id, engine.name)
     config = build_config_payload(
         engine=engine.name,
         vintage_name=vintage_name,
@@ -568,6 +620,16 @@ def run_backfill(
     )
     config_hash = compute_config_hash(config)
     git_commit = resolve_git_commit()
+    manifest = build_experiment_manifest(
+        experiment_id=exp_id,
+        engine=engine.name,
+        vintage_name=vintage_name,
+        universe_name=universe_name,
+        horizon=int(config.get("horizon", 15)),
+        git_commit=git_commit,
+    )
+    # Prefer hash from full scientific config (same builder as manifest).
+    config_hash = str(manifest["config_hash"])
 
     lock: Optional[RunLock] = None
     if acquire_lock and not dry_run:
@@ -576,6 +638,12 @@ def run_backfill(
 
     run_started = _utc_now()
     try:
+        if not dry_run:
+            try:
+                ensure_immutable_manifest(exp_dir, manifest)
+            except ExperimentManifestError:
+                raise
+
         state = JobStateStore(exp_dir)
         state.upsert_experiment(
             experiment_id=exp_id,
@@ -618,6 +686,7 @@ def run_backfill(
 
         for line in plan.report_lines():
             print(line)
+        print(f"experiment_dir={exp_dir}")
         print(f"thread_config={thread_config}")
         if n_reclaimed:
             print(f"reclaimed_stale_running={n_reclaimed}")
@@ -714,7 +783,7 @@ def run_backfill(
             "finished_at": _utc_stamp(),
             "git_commit": git_commit,
         }
-        atomic_write_json(exp_dir / "run_meta.json", run_meta)
+        atomic_write_json(exp_dir / "logs" / "run_meta.json", run_meta)
         print(
             f"done: success={summary.n_success} failed={summary.n_failed} "
             f"skipped={summary.n_skipped} reclaimed_stale={summary.n_reclaimed_stale} "

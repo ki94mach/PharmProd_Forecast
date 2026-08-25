@@ -14,6 +14,12 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from pkg.benchmark.backfill_runner.engines.dummy import DummyForecastEngine
+from pkg.benchmark.backfill_runner.manifest import (
+    ExperimentManifestError,
+    build_experiment_manifest,
+    ensure_immutable_manifest,
+    make_experiment_id,
+)
 from pkg.benchmark.backfill_runner.runner import (
     build_config_payload,
     enforce_historical_cutoff,
@@ -30,7 +36,6 @@ from pkg.benchmark.backfill_runner.state import (
     RunLock,
     RunLockError,
     compute_config_hash,
-    make_experiment_id,
 )
 from pkg.benchmark.backfill_runner.store import BackfillStore
 from pkg.benchmark.calendar import shamsi_add_months
@@ -46,8 +51,12 @@ def _synthetic_sales(products: list[str], start: int = 140001, n_months: int = 4
     return pd.DataFrame(rows)
 
 
-def _exp_id(engine: str = "dummy") -> str:
-    return make_experiment_id("ts_backfill_1401Q1_1405Q2", "mvp_products", engine)
+def _exp_id() -> str:
+    return make_experiment_id("ts_backfill_1401Q1_1405Q2", "mvp_products")
+
+
+def _exp_dir(root: Path, engine: str = "dummy") -> Path:
+    return experiment_dir(root, _exp_id(), engine)
 
 
 class TestHistoricalCutoff(unittest.TestCase):
@@ -56,6 +65,14 @@ class TestHistoricalCutoff(unittest.TestCase):
         cut = enforce_historical_cutoff(sales, 140501)
         self.assertTrue((cut["date"] < 140501).all())
         self.assertNotIn(140501, set(cut["date"]))
+
+
+class TestExperimentId(unittest.TestCase):
+    def test_default_experiment_id_shape(self):
+        self.assertEqual(
+            make_experiment_id("ts_backfill_1401Q1_1405Q2", "mvp_products"),
+            "ts_mvp_backfill_1401Q1_1405Q2",
+        )
 
 
 class TestBackfillDurableState(unittest.TestCase):
@@ -76,7 +93,13 @@ class TestBackfillDurableState(unittest.TestCase):
                 resume=False,
             )
             self.assertEqual(summary.n_success, 2)
-            state = JobStateStore(experiment_dir(root, _exp_id()))
+            exp = _exp_dir(root)
+            self.assertTrue((exp / "manifest.json").exists())
+            self.assertTrue((exp / "state.sqlite").exists())
+            self.assertTrue((exp / "forecasts").is_dir())
+            self.assertTrue((exp / "logs").is_dir())
+            self.assertTrue((exp / "backtests").is_dir())
+            state = JobStateStore(exp)
             self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 2)
 
             summary2 = run_backfill(
@@ -148,7 +171,7 @@ class TestBackfillDurableState(unittest.TestCase):
                 retry_failed=True,
             )
             self.assertEqual(summary3.n_success, 1)
-            state = JobStateStore(experiment_dir(root, _exp_id()))
+            state = JobStateStore(_exp_dir(root))
             self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 2)
             self.assertEqual(state.status_counts(_exp_id())[JOB_FAILED], 0)
 
@@ -158,7 +181,7 @@ class TestBackfillDurableState(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             exp_id = _exp_id()
-            exp = experiment_dir(root, exp_id)
+            exp = _exp_dir(root)
             state = JobStateStore(exp)
             config = build_config_payload(
                 engine="dummy",
@@ -223,7 +246,7 @@ class TestBackfillDurableState(unittest.TestCase):
                 products=products,
             )
             self.assertEqual(summary.n_failed, 1)
-            exp = experiment_dir(root, _exp_id())
+            exp = _exp_dir(root)
             state = JobStateStore(exp)
             job = state.list_jobs(_exp_id())[0]
             self.assertEqual(job.status, JOB_FAILED)
@@ -249,7 +272,7 @@ class TestBackfillDurableState(unittest.TestCase):
     def test_duplicate_runner_invocation_blocked_by_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            exp = experiment_dir(root, _exp_id())
+            exp = _exp_dir(root)
             lock = RunLock(exp)
             lock.acquire()
             try:
@@ -270,7 +293,7 @@ class TestBackfillDurableState(unittest.TestCase):
     def test_partial_csv_without_marker_not_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            exp = experiment_dir(root, _exp_id())
+            exp = _exp_dir(root)
             store = BackfillStore(exp, "dummy")
             identity = JobIdentity(
                 experiment_id=_exp_id(),
@@ -280,7 +303,7 @@ class TestBackfillDurableState(unittest.TestCase):
                 forecast_origin=140501,
                 product_id="Altebrel 25",
             )
-            job = store.job_dir(identity)
+            job = store.forecast_dir(identity)
             job.mkdir(parents=True)
             (job / "forecast.csv").write_text("product,forecast\nA,1\n", encoding="utf-8")
             self.assertFalse(store.has_complete_artifacts(identity))
@@ -304,9 +327,10 @@ class TestBackfillDurableState(unittest.TestCase):
             self.assertGreater(summary.plan.remaining, 0)
             self.assertEqual(summary.plan.remaining, summary.plan.total_jobs)
             self.assertEqual(summary.workers, 1)
-            exp = experiment_dir(root, _exp_id())
-            artifacts = exp / "artifacts"
-            self.assertFalse(artifacts.exists() and any(artifacts.rglob("forecast.csv")))
+            exp = _exp_dir(root)
+            self.assertFalse((exp / "manifest.json").exists())
+            forecasts = exp / "forecasts"
+            self.assertFalse(forecasts.exists() and any(forecasts.rglob("forecast.csv")))
 
     def test_parallel_workers_complete_all_jobs(self):
         products = ["Altebrel 25", "Altebrel 50"]
@@ -329,18 +353,26 @@ class TestBackfillDurableState(unittest.TestCase):
             self.assertEqual(summary.workers, 2)
             self.assertIsNotNone(summary.runtime_seconds)
             self.assertIn("requested_workers", summary.thread_config)
-            exp = experiment_dir(root, _exp_id())
-            meta_path = exp / "run_meta.json"
+            exp = _exp_dir(root)
+            meta_path = exp / "logs" / "run_meta.json"
             self.assertTrue(meta_path.exists())
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertEqual(meta["requested_workers"], 2)
             self.assertEqual(meta["n_success"], 4)
+            man = json.loads((exp / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(man["experiment_id"], _exp_id())
+            self.assertEqual(man["engine_version"], "dummy")
+            self.assertIn("config_hash", man)
+            self.assertIn("universe", man)
+            self.assertIn("vintages", man)
+            self.assertIn("environment", man)
+            self.assertIn("package_versions", man)
             state = JobStateStore(exp)
             self.assertEqual(state.status_counts(_exp_id())[JOB_SUCCESS], 4)
 
     def test_try_claim_job_is_exclusive(self):
         with tempfile.TemporaryDirectory() as tmp:
-            exp = experiment_dir(Path(tmp), _exp_id())
+            exp = _exp_dir(Path(tmp))
             state = JobStateStore(exp)
             identity = JobIdentity(
                 experiment_id=_exp_id(),
@@ -374,10 +406,29 @@ class TestBackfillDurableState(unittest.TestCase):
             )
             self.assertEqual(summary.n_failed, 1)
             self.assertEqual(summary.n_success, 1)
-            state = JobStateStore(experiment_dir(root, _exp_id()))
+            state = JobStateStore(_exp_dir(root))
             counts = state.status_counts(_exp_id())
             self.assertEqual(counts[JOB_SUCCESS], 1)
             self.assertEqual(counts[JOB_FAILED], 1)
+
+    def test_config_hash_conflict_refuses_same_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exp = _exp_dir(Path(tmp))
+            man = build_experiment_manifest(
+                experiment_id=_exp_id(),
+                engine="dummy",
+                vintage_name="ts_backfill_1401Q1_1405Q2",
+                universe_name="mvp_products",
+            )
+            ensure_immutable_manifest(exp, man)
+            conflicting = dict(man)
+            conflicting["config_hash"] = "deadbeefdeadbeef"
+            conflicting["scientific_config"] = {"tampered": True}
+            with self.assertRaises(ExperimentManifestError):
+                ensure_immutable_manifest(exp, conflicting)
+            # Same hash is allowed (immutable no-op).
+            again = ensure_immutable_manifest(exp, man)
+            self.assertEqual(again["config_hash"], man["config_hash"])
 
 
 class TestStartupReport(unittest.TestCase):
@@ -386,7 +437,7 @@ class TestStartupReport(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             exp_id = _exp_id()
-            exp = experiment_dir(Path(tmp), exp_id)
+            exp = _exp_dir(Path(tmp))
             state = JobStateStore(exp)
             config = build_config_payload(
                 engine="dummy",
