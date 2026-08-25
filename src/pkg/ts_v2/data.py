@@ -26,10 +26,13 @@ DateLike = Union[int, ForecastOrigin, ForecastWindow]
 
 
 def load_monthly_sales() -> pd.DataFrame:
-    """Load warehouse monthly sales.
+    """Load warehouse monthly sales keyed by stable ``product_id``.
 
-    Not implemented in this step. Production V1 loaders stay in
-    ``pkg.db.query.sales``; V2 will wrap them without changing V1 behavior.
+    Not implemented yet. Before wiring, run
+    ``pkg.ts_v2.product_identity.run_product_identity_audit`` on live
+    ``Dim.Product`` and ``pkg.db.query.sales_v2.load_sales_data_v2`` extracts.
+    See ``docs/ts_v2_product_identity.md``. V1 continues to use
+    ``pkg.db.query.sales.load_sales_data`` (title-based aggregation).
     """
     raise NotImplementedError("V2 sales loading is not implemented yet")
 

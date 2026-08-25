@@ -101,3 +101,13 @@ They do not pad horizons, apply ×0.8, or use `freq="M"`.
 
 Croston SBA / TSB use fixed config smoothing parameters (not tuned on future data)
 and emit a constant per-period demand rate for every horizon.
+
+## Product identity (audit pending)
+
+V1 keys products on **`ProductTitleEN`**. V2 target key is **`Dim.Product.ID_INT`**
+via **`Flat_Fact_Sale.FKProduct`** (see peer sales / F3C inventory SQL). Title
+remains descriptive metadata only.
+
+**Do not switch loaders or backtest keys until live DQ passes.** Audit helpers:
+`pkg.ts_v2.product_identity`; proposed FK sales SQL: `pkg.db.query.sales_v2`;
+write-up: [`docs/ts_v2_product_identity.md`](../../docs/ts_v2_product_identity.md).
