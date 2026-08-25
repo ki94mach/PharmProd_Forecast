@@ -69,6 +69,75 @@ def shamsi_month_diff(ym_a: int, ym_b: int) -> int:
     return (ya * 12 + ma) - (yb * 12 + mb)
 
 
+def parse_shamsi_quarter(quarter: str) -> tuple[int, int]:
+    """Parse ``YYYYQn`` (e.g. ``1405Q1``) into ``(year, quarter)``."""
+    text = str(quarter).strip().upper()
+    if len(text) < 6 or "Q" not in text:
+        raise ValueError(f"invalid Shamsi quarter label: {quarter!r}")
+    year_s, q_s = text.split("Q", 1)
+    try:
+        year = int(year_s)
+        q = int(q_s)
+    except ValueError as exc:
+        raise ValueError(f"invalid Shamsi quarter label: {quarter!r}") from exc
+    if year < 1300 or year > 1599:
+        raise ValueError(f"Shamsi year out of range in quarter: {quarter!r}")
+    if q < 1 or q > 4:
+        raise ValueError(f"quarter must be 1..4, got {quarter!r}")
+    return year, q
+
+
+def format_shamsi_quarter(year: int, quarter: int) -> str:
+    """Format ``(year, quarter)`` as ``YYYYQn``."""
+    if quarter < 1 or quarter > 4:
+        raise ValueError(f"quarter must be 1..4, got {quarter}")
+    return f"{int(year)}Q{int(quarter)}"
+
+
+def origin_from_quarter(quarter: str) -> int:
+    """Forecast origin for a Shamsi quarter: **first month of that quarter**.
+
+    This is the inverse of :func:`quarter_from_origin`:
+
+    - Q1 → month 01
+    - Q2 → month 04
+    - Q3 → month 07
+    - Q4 → month 10
+
+    Example: ``1405Q1`` → ``140501``, ``1404Q2`` → ``140404``.
+    """
+    year, q = parse_shamsi_quarter(quarter)
+    month = (q - 1) * 3 + 1
+    return year * 100 + month
+
+
+def quarter_from_origin(forecast_origin: int) -> str:
+    """Shamsi quarter label for a YYYYMM origin, e.g. ``140501`` → ``1405Q1``."""
+    ym = int(forecast_origin)
+    year, month = divmod(ym, 100)
+    if month < 1 or month > 12:
+        raise ValueError(f"invalid Shamsi YYYYMM for quarter: {forecast_origin!r}")
+    quarter = (month - 1) // 3 + 1
+    return format_shamsi_quarter(year, quarter)
+
+
+def iter_shamsi_quarters(start_quarter: str, end_quarter: str) -> list[str]:
+    """Inclusive contiguous Shamsi quarter sequence from ``start`` through ``end``."""
+    y0, q0 = parse_shamsi_quarter(start_quarter)
+    y1, q1 = parse_shamsi_quarter(end_quarter)
+    start_idx = y0 * 4 + (q0 - 1)
+    end_idx = y1 * 4 + (q1 - 1)
+    if end_idx < start_idx:
+        raise ValueError(
+            f"end quarter {end_quarter!r} is before start {start_quarter!r}"
+        )
+    out: list[str] = []
+    for idx in range(start_idx, end_idx + 1):
+        year, q0_idx = divmod(idx, 4)
+        out.append(format_shamsi_quarter(year, q0_idx + 1))
+    return out
+
+
 def last_complete_6m(origin_ym: int) -> tuple[int, int]:
     """Inclusive Shamsi window: origin-6 .. origin-1."""
     end = shamsi_add_months(origin_ym, -1)

@@ -1,0 +1,19 @@
+quarter,forecast_origin,horizon,status,training_cutoff_exclusive,notes
+1401Q1,140101,15,fully_matured,140101,
+1401Q2,140104,15,fully_matured,140104,Listed in EXCLUDED_EMPTY_FORECAST_QRTS for the v1 freeze (not in ALLOWED_FORECAST_QRTS); included here for contiguous backfill.
+1401Q3,140107,15,fully_matured,140107,
+1401Q4,140110,15,fully_matured,140110,
+1402Q1,140201,15,fully_matured,140201,
+1402Q2,140204,15,fully_matured,140204,
+1402Q3,140207,15,fully_matured,140207,
+1402Q4,140210,15,fully_matured,140210,
+1403Q1,140301,15,fully_matured,140301,Historical TS CSV modal origin was 140304; canonical experiment origin is 140301 (first month of quarter).
+1403Q2,140304,15,fully_matured,140304,Historical TS CSV modal origin was 140306; canonical experiment origin is 140304 (first month of quarter).
+1403Q3,140307,15,fully_matured,140307,
+1403Q4,140310,15,fully_matured,140310,
+1404Q1,140401,15,fully_matured,140401,
+1404Q2,140404,15,partially_matured,140404,
+1404Q3,140407,15,partially_matured,140407,
+1404Q4,140410,15,partially_matured,140410,
+1405Q1,140501,15,partially_matured,140501,
+1405Q2,140504,15,partially_matured,140504,

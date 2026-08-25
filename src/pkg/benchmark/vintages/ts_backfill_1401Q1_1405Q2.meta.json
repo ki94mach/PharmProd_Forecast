@@ -1,0 +1,39 @@
+{
+  "manifest_name": "ts_backfill_1401Q1_1405Q2",
+  "created_at_utc": "2026-08-25T10:05:56Z",
+  "description": "Canonical vintage list for historical TS V1/V2/V3 backfill experiments from 1401Q1 through 1405Q2. Forecast origins are derived only via origin_from_quarter (first month of quarter).",
+  "start_quarter": "1401Q1",
+  "end_quarter": "1405Q2",
+  "n_quarters": 18,
+  "horizon": 15,
+  "as_of_complete_month": 140504,
+  "as_of_source": "frozen src/data/benchmarks/v1/raw/sales.parquet max(date), walking back through INCOMPLETE_SHAMSI_MONTHS",
+  "origin_mapping": "pkg.benchmark.calendar.origin_from_quarter — inverse of quarter_from_origin; not hard-coded per quarter",
+  "training_rule": "date < forecast_origin (training_cutoff_exclusive)",
+  "status_policy": "Evaluation maturity only. Sales availability never changes the training cutoff. Status precedence: future_origin, fully_matured, partially_matured, forecastable.",
+  "historical_modal_origin_deviations": {
+    "1403Q1": 140304,
+    "1403Q2": 140306
+  },
+  "quarter_to_forecast_origin": {
+    "1401Q1": 140101,
+    "1401Q2": 140104,
+    "1401Q3": 140107,
+    "1401Q4": 140110,
+    "1402Q1": 140201,
+    "1402Q2": 140204,
+    "1402Q3": 140207,
+    "1402Q4": 140210,
+    "1403Q1": 140301,
+    "1403Q2": 140304,
+    "1403Q3": 140307,
+    "1403Q4": 140310,
+    "1404Q1": 140401,
+    "1404Q2": 140404,
+    "1404Q3": 140407,
+    "1404Q4": 140410,
+    "1405Q1": 140501,
+    "1405Q2": 140504
+  },
+  "csv_sha256": "fb5feebe26e405dc2eac76ec64a9c7acd1c9344eec57aa3ffcc57dfca0389ef6"
+}

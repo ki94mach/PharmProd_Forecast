@@ -73,13 +73,14 @@ def default_results_v2_root() -> Path:
 
 
 def quarter_from_origin(forecast_origin: int) -> str:
-    """Shamsi quarter label, e.g. ``140501`` -> ``1405Q1``."""
-    ym = int(forecast_origin)
-    year, month = divmod(ym, 100)
-    if month < 1 or month > 12:
-        raise ValueError(f"invalid Shamsi YYYYMM for quarter: {forecast_origin!r}")
-    quarter = (month - 1) // 3 + 1
-    return f"{year}Q{quarter}"
+    """Shamsi quarter label, e.g. ``140501`` -> ``1405Q1``.
+
+    Canonical definition lives in :func:`pkg.benchmark.calendar.quarter_from_origin`
+    (inverse of :func:`pkg.benchmark.calendar.origin_from_quarter`).
+    """
+    from pkg.benchmark.calendar import quarter_from_origin as _quarter_from_origin
+
+    return _quarter_from_origin(forecast_origin)
 
 
 def new_run_id(*, created_at: Optional[datetime] = None) -> str:

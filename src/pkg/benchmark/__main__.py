@@ -9,6 +9,8 @@ def main() -> int:
         "  python -m pkg.benchmark.verify   # offline: reproduce locked WMAPEs\n"
         "  python -m pkg.benchmark.universes validate  # MVP product manifest\n"
         "  python -m pkg.benchmark.universes build --force  # regenerate from freeze\n"
+        "  python -m pkg.benchmark.vintages validate  # TS backfill vintage map\n"
+        "  python -m pkg.benchmark.vintages build --force\n"
         "\n"
         "API:\n"
         "  from pkg.benchmark import backtest, scoreboard\n"
