@@ -396,7 +396,8 @@ def predictions_to_horizon_forecasts(frame: pd.DataFrame) -> list[HorizonForecas
                 origin=parse_origin(int(row.origin)),
                 horizon=int(row.horizon),
                 target_shamsi_yyyymm=int(row.target_date),
-                yhat=float(row.prediction),
+                raw_forecast=float(row.prediction),
+                constrained_forecast=float(row.prediction),
                 model_name=str(row.model),
             )
         )

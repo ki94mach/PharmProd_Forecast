@@ -74,7 +74,8 @@ class PreparedSeries:
     """Monthly training series in **raw sales units** for one product / origin.
 
     No MinMax, Yeo–Johnson, ADF, or other global transforms. Models must use
-    ``values`` as-is (aside from optional nonnegativity at forecast emit time).
+    ``values`` as-is. Non-negativity is applied centrally in
+    :mod:`pkg.ts_v2.postprocess`, not inside models.
 
     Attributes:
         product: English product key.
@@ -142,6 +143,25 @@ class ForecastResult:
 
 
 @dataclass(frozen=True)
+class ConstrainedForecastResult:
+    """Raw and business-constrained forecasts after centralized post-processing."""
+
+    model_name: str
+    raw_predictions: tuple[float, ...]
+    constrained_predictions: tuple[float, ...]
+    target_dates: tuple[int, ...]
+    horizons: tuple[int, ...]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    lower: Optional[tuple[float, ...]] = None
+    upper: Optional[tuple[float, ...]] = None
+
+    @property
+    def predictions(self) -> tuple[float, ...]:
+        """Business-facing values (constrained, unrounded)."""
+        return self.constrained_predictions
+
+
+@dataclass(frozen=True)
 class ModelFailure:
     """Typed failure for one model on one series; does not abort the SKU run."""
 
@@ -162,8 +182,14 @@ class HorizonForecast:
     origin: ForecastOrigin
     horizon: int
     target_shamsi_yyyymm: int
-    yhat: float
+    raw_forecast: float
+    constrained_forecast: float
     model_name: str
+
+    @property
+    def yhat(self) -> float:
+        """Business-facing quantity (constrained, unrounded)."""
+        return self.constrained_forecast
 
 
 @dataclass(frozen=True)
@@ -246,10 +272,38 @@ class EnsembleComparisonReport:
 
 
 @dataclass(frozen=True)
+class ProductFinalForecast:
+    """Production forecast for one SKU after fresh refit on full pre-origin history."""
+
+    product: str
+    forecast_origin: int
+    selected_strategy: str
+    selected_model: str
+    constituent_models: tuple[str, ...]
+    training_start: Optional[int]
+    training_end: Optional[int]
+    n_training_observations: int
+    cv_score: float
+    cv_coverage: Mapping[str, Any]
+    horizon_forecasts: tuple[HorizonForecast, ...]
+    raw_forecast: ForecastResult
+    constrained_forecast: ConstrainedForecastResult
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def forecast(self) -> ConstrainedForecastResult:
+        """Business-facing forecast (constrained, unrounded)."""
+        return self.constrained_forecast
+
+
+@dataclass
 class EngineResult:
     """Container for a V2 run (backtest and/or final refit forecasts)."""
 
     config_name: str = "default"
     selection: Optional[SelectionResult] = None
+    selections: Mapping[str, ProductSelectionResult] = field(default_factory=dict)
+    final_forecasts: Mapping[str, ProductFinalForecast] = field(default_factory=dict)
     forecasts: Sequence[HorizonForecast] = ()
+    backtest: Optional[BacktestResult] = None
     extras: Mapping[str, Any] = field(default_factory=dict)

@@ -14,7 +14,7 @@ import pandas as pd
 from pkg.ts_v2.config import DEFAULT_CONFIG, SelectionStrategy, TSForecastConfig
 from pkg.ts_v2.metrics import aggregate_metrics, metrics_summary_row
 from pkg.ts_v2.selection import simplicity_rank
-from pkg.ts_v2.types import BacktestResult, EnsembleComparisonReport
+from pkg.ts_v2.types import BacktestResult, EnsembleComparisonReport, ForecastResult
 
 # Internal analysis names (report evaluates all four).
 STRATEGY_BEST_SINGLE = "best_single_model"
@@ -153,6 +153,68 @@ def _combine_predictions(
         return float(np.dot(w, values)), tuple(used)
 
     raise ValueError(f"unknown ensemble strategy {strategy!r}")
+
+
+def combine_model_forecast_results(
+    model_results: Mapping[str, ForecastResult],
+    ranked_models: Sequence[str],
+    model_scores: Mapping[str, float],
+    strategy: str,
+    *,
+    output_name: str,
+) -> ForecastResult:
+    """Combine fresh constituent forecasts into one production :class:`ForecastResult`."""
+    if not model_results:
+        raise ValueError("model_results must be non-empty")
+    if strategy not in ALL_ENSEMBLE_STRATEGIES:
+        raise ValueError(f"unknown ensemble strategy {strategy!r}")
+
+    reference = next(iter(model_results.values()))
+    horizon = len(reference.predictions)
+    target_dates = reference.target_dates
+    if horizon != len(target_dates):
+        raise ValueError("constituent forecast length mismatch")
+
+    combined: list[float] = []
+    used_overall: list[str] = []
+    for i in range(horizon):
+        cell_preds = {
+            name: float(model_results[name].predictions[i])
+            for name in ranked_models
+            if name in model_results and i < len(model_results[name].predictions)
+        }
+        pred, used = _combine_predictions(cell_preds, ranked_models, model_scores, strategy)
+        combined.append(float(pred))
+        if i == 0:
+            used_overall = list(used)
+
+    return ForecastResult(
+        model_name=output_name,
+        predictions=tuple(combined),
+        target_dates=tuple(int(d) for d in target_dates),
+        horizons=tuple(range(1, horizon + 1)),
+        metadata={
+            "strategy": strategy,
+            "constituent_models": tuple(used_overall),
+            "ranked_models": tuple(ranked_models),
+        },
+    )
+
+
+def rank_models_for_production(
+    candidate_scores: Mapping[str, float],
+    *,
+    config: Optional[TSForecastConfig] = None,
+) -> list[str]:
+    """Rank models by full-CV ``selection_mae`` for production ensemble constituents."""
+    cfg = config or DEFAULT_CONFIG
+    available = {str(k) for k in candidate_scores.keys()}
+    finite_scores = {
+        str(k): float(v)
+        for k, v in candidate_scores.items()
+        if v is not None and math.isfinite(float(v))
+    }
+    return _rank_models_for_origin(finite_scores, available, config=cfg)
 
 
 def build_ensemble_predictions(

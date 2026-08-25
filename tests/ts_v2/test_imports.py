@@ -38,10 +38,14 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(backtest, "make_folds"))
         self.assertTrue(hasattr(backtest, "run_backtest"))
         self.assertTrue(hasattr(ensemble, "compare_ensemble_strategies"))
+        import pkg.ts_v2.postprocess as postprocess
+        self.assertTrue(hasattr(postprocess, "apply_final_constraints"))
         self.assertTrue(hasattr(selection, "select_best_model"))
         self.assertTrue(hasattr(selection, "select_product_model"))
         self.assertTrue(hasattr(selection, "select_models"))
         self.assertTrue(hasattr(engine, "forecast_products"))
+        self.assertTrue(hasattr(engine, "forecast_with_backtest"))
+        self.assertTrue(hasattr(engine, "refit_and_forecast_product"))
         self.assertTrue(hasattr(types, "ForecastOrigin"))
         self.assertTrue(hasattr(types, "ForecastWindow"))
 

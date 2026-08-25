@@ -21,7 +21,9 @@ class TSForecastConfig:
         seasonal_enable_after_months: Enable annual seasonality when
             ``n > seasonal_enable_after_months`` (V1 used ``len(train) > 24``).
         min_train_months: Minimum history required before fitting a model.
-        nonnegative_forecasts: If True, clip point forecasts at zero at the end.
+        nonnegative_forecasts: If True, apply ``max(forecast, 0)`` centrally in
+            :mod:`pkg.ts_v2.postprocess` after model/ensemble combination (never
+            inside individual models).
         activity_start_min_sales: Start the series at the first month whose
             aggregated sales are **strictly greater** than this value.
             Matches V1 ``sales > 5`` (see note below). ``None`` disables
