@@ -162,6 +162,24 @@ def _aggregate_product_months(
     return grouped.astype(float)
 
 
+def product_monthly_sales(
+    sales: pd.DataFrame,
+    product: str,
+    *,
+    product_col: str = "product",
+    date_col: str = "date",
+    sales_col: str = "sales",
+) -> pd.Series:
+    """Aggregate all warehouse months for ``product`` (no origin cut)."""
+    return _aggregate_product_months(
+        sales,
+        product,
+        product_col=product_col,
+        date_col=date_col,
+        sales_col=sales_col,
+    )
+
+
 def prepare_monthly_series(
     sales: pd.DataFrame,
     product: str,

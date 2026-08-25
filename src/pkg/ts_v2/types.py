@@ -185,6 +185,33 @@ class BacktestFold:
     train_end_exclusive: int  # Shamsi YYYYMM; train is date < this (== origin)
     horizons: Sequence[int]
     window: Optional[ForecastWindow] = None
+    evaluable_target_dates: Optional[tuple[int, ...]] = None
+    evaluable_horizons: Optional[tuple[int, ...]] = None
+    max_evaluated_horizon: Optional[int] = None
+    full_horizon_coverage: bool = False
+
+
+@dataclass(frozen=True)
+class ModelBacktestCoverage:
+    """Coverage summary for one (product, model) backtest."""
+
+    product: str
+    model: str
+    number_of_origins: int
+    number_of_predictions: int
+    evaluated_horizons: tuple[int, ...]
+    max_evaluated_horizon: int
+    n_full_horizon_origins: int
+
+
+@dataclass
+class BacktestResult:
+    """Expanding-window backtest output (raw units)."""
+
+    predictions: pd.DataFrame
+    coverage: pd.DataFrame
+    metrics: pd.DataFrame
+    failures: pd.DataFrame
 
 
 @dataclass(frozen=True)

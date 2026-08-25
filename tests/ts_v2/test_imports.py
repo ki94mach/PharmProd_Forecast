@@ -35,6 +35,7 @@ class TestTsV2Imports(unittest.TestCase):
         self.assertTrue(hasattr(types, "ForecastResult"))
         self.assertTrue(hasattr(types, "ModelFailure"))
         self.assertTrue(hasattr(backtest, "make_folds"))
+        self.assertTrue(hasattr(backtest, "run_backtest"))
         self.assertTrue(hasattr(selection, "select_best_model"))
         self.assertTrue(hasattr(engine, "forecast_products"))
         self.assertTrue(hasattr(types, "ForecastOrigin"))
