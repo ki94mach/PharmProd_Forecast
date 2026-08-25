@@ -19,10 +19,10 @@ from pkg.utils import (
     pivot_and_format_data,
     manage_excel,
 )
-from dotenv import load_dotenv
+from pkg.env import load_project_env
 import os
 
-load_dotenv()
+load_project_env()
 
 class SalesForecasting:
     def __init__(self, curr_qrt):

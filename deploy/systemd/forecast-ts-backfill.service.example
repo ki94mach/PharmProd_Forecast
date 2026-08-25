@@ -1,52 +1,63 @@
-# Example systemd unit for the TS historical backfill.
+# TS historical backfill systemd unit
 #
-# Install (Linux server):
-#   1. Copy this file to /etc/systemd/system/forecast-ts-backfill.service
-#   2. Edit User=, WorkingDirectory=, and ExecStart= paths for the deploy host
-#   3. Ensure repo .env exists (credentials live there — never in this unit)
-#   4. sudo systemctl daemon-reload
-#   5. sudo systemctl enable --now forecast-ts-backfill.service
+# Install:
+#   sudo cp forecast-ts-backfill.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now forecast-ts-backfill.service
 #
-# Do NOT put SQL passwords, API keys, or tokens in this file.
-# The runner loads .env via python-dotenv (see pkg.benchmark.backfill_runner).
+# Secrets remain in /opt/Forecast/src/.env.
 
 [Unit]
 Description=Forecast TS MVP historical backfill (SKU x vintage)
-Documentation=file:docs/ts_backfill_server.md
+Documentation=file:/opt/Forecast/docs/ts_backfill_server.md
 After=network-online.target
 Wants=network-online.target
 
-[Service]
-Type=simple
-# --- edit for the deploy host ---
-User=forecast
-Group=forecast
-WorkingDirectory=/opt/Forecast
-# Prefer the wrapper: activates conda, sets thread caps, creates log dirs, --resume.
-ExecStart=/opt/Forecast/scripts/run_ts_backfill.sh
-# Optional non-secret overrides (workers, engine). Keep secrets in .env only.
-Environment=BACKFILL_ENGINE=v2
-Environment=BACKFILL_VINTAGES=ts_backfill_1401Q1_1405Q2
-Environment=BACKFILL_UNIVERSE=mvp_products
-Environment=BACKFILL_WORKERS=1
-# Environment=FORECAST_CONDA_ENV=forecast
-# Environment=FORECAST_PYTHON=/opt/miniconda3/envs/forecast/bin/python
-
-# Restart only after unexpected failures (signals / crashes / fatal exit codes).
-# Exit 0 = success; exit 1 = orchestration completed with some FAILED jobs —
-# treat both as successful service completion so we do not loop forever.
-Restart=on-failure
-SuccessExitStatus=0 1
-RestartSec=30
+# Prevent repeated restart loops after fatal failures.
 StartLimitIntervalSec=600
 StartLimitBurst=3
 
-# Useful journal + file logs (wrapper also tees under data/backfills/logs/).
+[Service]
+Type=simple
+
+User=forecast
+Group=forecast
+WorkingDirectory=/opt/Forecast
+
+# Prevent numerical libraries from spawning additional CPU threads.
+Environment="OMP_NUM_THREADS=1"
+Environment="OPENBLAS_NUM_THREADS=1"
+Environment="MKL_NUM_THREADS=1"
+Environment="NUMEXPR_NUM_THREADS=1"
+
+# Backfill configuration.
+Environment="BACKFILL_ENGINE=v2"
+Environment="BACKFILL_VINTAGES=ts_backfill_1401Q1_1405Q2"
+Environment="BACKFILL_UNIVERSE=mvp_products"
+Environment="BACKFILL_WORKERS=1"
+
+# SQL connection profile. Credentials stay in src/.env.
+Environment="SQL_PROFILE=server"
+
+# Prefer an explicit Python executable if possible.
+# Environment="FORECAST_PYTHON=/opt/miniconda3/envs/forecast/bin/python"
+
+ExecStart=/opt/Forecast/scripts/run_ts_backfill.sh
+
+# Lower priority than production application processes.
+Nice=10
+
+# Restart after crashes/fatal orchestration failures.
+# Exit 0 = complete success.
+# Exit 1 = run completed but contains FAILED jobs.
+SuccessExitStatus=0 1
+Restart=on-failure
+RestartSec=30
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=forecast-ts-backfill
 
-# Hardening (safe defaults; relax if the host policy requires it)
 NoNewPrivileges=true
 PrivateTmp=true
 

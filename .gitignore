@@ -2,6 +2,7 @@ src/data
 src/test.ipynb
 .env
 .env.*
+src/.env
 !.env.example
 venv
 venv/*

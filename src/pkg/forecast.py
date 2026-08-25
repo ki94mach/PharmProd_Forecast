@@ -16,12 +16,12 @@ from gspread_formatting import *
 from sklearn.preprocessing import MinMaxScaler, PowerTransformer
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
-from dotenv import load_dotenv
+from pkg.env import load_project_env
 import os
 
 from statsmodels.tsa.stattools import adfuller
 
-load_dotenv()
+load_project_env()
 
 class SalesForecast:
     """

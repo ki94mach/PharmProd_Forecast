@@ -6,12 +6,12 @@ Pharmaceutical sales time-series forecasting: loads historical sales from SQL Se
 
 | Requirement             | Notes                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Windows**             | Windows auth (`SQL_AUTH=windows`) uses integrated security; SQL login also supported.                             |
+| **Windows**             | Windows auth (`SQL_AUTH=windows`) uses integrated security — same as DistCore (`Trusted_Connection=yes`).         |
 | **Python 3.10**         | Matches `environment.yml`.                                                                                        |
 | **Conda**               | Required — installs Python 3.10, Prophet/CmdStan, and the scientific stack.                                       |
-| **ODBC**                | Windows: `{SQL Server}`. Linux: **FreeTDS** (`sudo dnf install freetds-libs`) or `ODBC Driver 18 for SQL Server`. |
+| **ODBC**                | **ODBC Driver 17 for SQL Server** (DistCore default). FreeTDS is an optional Linux fallback only.               |
 | **Network / DB access** | Server `op-db1-srv`, database `DWOrchid`, read on `Flat_Fact_Sale`.                                               |
-| **DB credentials**      | Windows: domain user with DB access. SQL login: set `SQL_AUTH=sql`, `SQL_USER`, `SQL_PASSWORD`.                   |
+| **DB credentials**      | Prefer Windows auth (domain account). SQL login: `SQL_AUTH=sql` + `SQL_USER` / `SQL_PASSWORD` in `.env` only.     |
 
 ## Setup
 
@@ -41,10 +41,10 @@ python -m pip install -e .
 ### Environment variables
 
 ```powershell
-copy .env.example .env
+copy .env.example src\.env
 ```
 
-Edit `.env` — see [.env.example](.env.example). Set `ZERO_FORECAST_PRODUCTS` to a comma-separated list of English product names that should get zero forecasts.
+Edit **`src/.env`** (canonical location; see [.env.example](.env.example)). Keep **both** SQL profiles and switch with `SQL_PROFILE=local` (hostname `op-db1-srv` + Windows auth) or `SQL_PROFILE=server` (IP `10.20.40.40` + SQL login, matching DistCore’s server `db.yml`). Set `ZERO_FORECAST_PRODUCTS` to a comma-separated list of English product names that should get zero forecasts.
 
 ### Data files (not in git)
 
@@ -84,13 +84,13 @@ python main.py --qrt 1405Q1 --start-date 140501 --template
 python main.py --qrt 1404Q1 --start-date 140312 --vintage --force
 ```
 
-| Argument       | Description                                                  |
-| -------------- | ------------------------------------------------------------ |
-| `--qrt`        | Quarter label (e.g. `1405Q1`); used in paths and file names. |
-| `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`).                 |
-| `--template`   | Skip forecasting; write outputs with zeros only.             |
+| Argument       | Description                                                                        |
+| -------------- | ---------------------------------------------------------------------------------- |
+| `--qrt`        | Quarter label (e.g. `1405Q1`); used in paths and file names.                       |
+| `--start-date` | Shamsi start month `YYYYMM` (e.g. `140501`).                                       |
+| `--template`   | Skip forecasting; write outputs with zeros only.                                   |
 | `--vintage`    | As-of run: keep sales with `date < --start-date`, reset CSV, same basket universe. |
-| `--force`      | Required with `--vintage` if a forecast CSV already exists (backs it up). |
+| `--force`      | Required with `--vintage` if a forecast CSV already exists (backs it up).          |
 
 Default `main.py` is unchanged: full warehouse sales, resume CSV, `SalesForecast` still drops the last month (`[:-1]`) as incomplete.
 
@@ -150,12 +150,12 @@ Custom models: pass a callable `(train_df, test_df) -> forecasts` to `backtest`.
 [`pkg/research`](src/pkg/research/) adds point-in-time feature experiments **on top of**
 the freeze without changing locked WMAPEs or XGB hyperparameters.
 
-| Experiment | Features |
-|------------|----------|
-| **F0** | Frozen benchmark feature set |
-| **F1A** | F0 + demand dynamics |
-| **F1B** | F0 + historical Human reliability |
-| **F1C** | F0 + demand + Human reliability |
+| Experiment | Features                          |
+| ---------- | --------------------------------- |
+| **F0**     | Frozen benchmark feature set      |
+| **F1A**    | F0 + demand dynamics              |
+| **F1B**    | F0 + historical Human reliability |
+| **F1C**    | F0 + demand + Human reliability   |
 
 ```python
 from pkg.research import compare_feature_experiments
@@ -213,7 +213,7 @@ Forecast/
 ## Handoff checklist
 
 - [ ] Conda env created and `pip install -r requirements.txt` succeeded
-- [ ] `.env` created from `.env.example`
+- [ ] `.env` created as `src/.env` from `.env.example`
 - [ ] VPN / corporate network and SQL Server access verified
 - [ ] `src/data/` structure and any pipeline Excel files provided
 - [ ] Optional: `credentials.json` for Google Sheets
@@ -236,4 +236,3 @@ For controlled forecasting research runs:
 
 Multithreaded XGBoost can be used for separate performance experiments, but not
 as canonical research benchmark runs unless reproducibility is re-established.
-

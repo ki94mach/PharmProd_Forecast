@@ -25,9 +25,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
+from pkg.env import load_project_env
 
-load_dotenv()
+load_project_env()
 
 from pkg.db.query.constants import TARGET_GENERIC_EN
 from pkg.db.query.dim_product import load_dim_product

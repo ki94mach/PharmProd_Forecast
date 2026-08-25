@@ -3,9 +3,9 @@ import argparse
 import logging
 import sys
 
-from dotenv import load_dotenv
+from pkg.env import load_project_env
 
-load_dotenv()
+load_project_env()
 
 from pkg.sales_forecasting import SalesForecasting
 
