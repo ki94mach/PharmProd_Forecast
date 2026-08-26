@@ -40,7 +40,7 @@ def update_department_info(curr_qrt):
         'بیماری های عفونی': 'Infectious',
         'چشم': 'Ophth',
         'درمو کازمتیک': 'Dermo',
-        'ارولوژی و سلامت زنان': 'Gyno',
+        'ارولوژی و سلامت زنان': 'Uro',
     }
     # Add the qaurter information for each department name for later references
     updated_dep_dict = {key: curr_qrt + '_' + value for key, value in dep_dict.items()}
