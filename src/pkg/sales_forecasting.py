@@ -10,7 +10,10 @@ from tqdm import tqdm
 from pkg.db.query.dim_product import load_basket_products
 from pkg.db.query.inventory import load_distributor_inventory
 from pkg.db.query.sales import load_sales_data as fetch_sales_data
-from pkg.excel_product_filter import filter_forecast_for_excel
+from pkg.product_activity_filter import (
+    filter_basket_active,
+    filter_forecast_active,
+)
 from pkg.forecast import SalesForecast
 from pkg.utils import (
     DATA_DIR,
@@ -288,6 +291,17 @@ class SalesForecasting:
         else:
             forecast_df = self.load_forecast_data()
 
+        # Before TS: keep only products with recent sales or distributor inventory.
+        dist_inv = load_distributor_inventory()
+        basket_df, skipped_inactive = filter_basket_active(
+            basket_df, sale_df_total, dist_inv, forecast_start_date
+        )
+        if skipped_inactive:
+            print(
+                f"Skipping {len(skipped_inactive)} product(s) with no sales in the "
+                "last 6 months and no distributor inventory (not forecasted)."
+            )
+
         forecast_total_df = self.process_sales_data(
             sale_df_total,
             forecast_df,
@@ -305,22 +319,21 @@ class SalesForecasting:
         # temp = pd.concat([sale_df_total, forecast_total_df])
         # forecast_total_df_mod = replace_negative_sales(temp)
 
-        # CSV stays complete; drop inactive SKUs from Excel packaging only.
-        dist_inv = load_distributor_inventory()
-        forecast_for_excel, inactive = filter_forecast_for_excel(
+        # Resume CSV may still contain products that no longer pass the check.
+        forecast_active, inactive_in_csv = filter_forecast_active(
             forecast_total_df,
             sale_df_total,
             dist_inv,
             forecast_start_date,
         )
-        if inactive:
+        if inactive_in_csv:
             print(
-                f"Excluding {len(inactive)} inactive product(s) from Excel "
-                "(no sales in last 6 months and no distributor inventory)."
+                f"Excluding {len(inactive_in_csv)} product(s) with no sales in the "
+                "last 6 months and no distributor inventory from Excel outputs."
             )
 
         pivot = pivot_and_format_data(
-            forecast_for_excel, updated_dep_dict, forecast_start_date
+            forecast_active, updated_dep_dict, forecast_start_date
         )
         pivot = drop_unmapped_departments(pivot)
         # updated_pivot = self.append_pipeline(pivot, updated_dep_dict)

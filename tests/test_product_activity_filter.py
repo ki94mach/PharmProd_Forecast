@@ -1,4 +1,4 @@
-"""Excel inactive-product filter tests (no live SQL)."""
+"""Product activity filter tests (no live SQL)."""
 from __future__ import annotations
 
 import sys
@@ -12,9 +12,10 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from pkg.benchmark.calendar import last_complete_6m
-from pkg.excel_product_filter import (
-    filter_forecast_for_excel,
-    products_inactive_for_excel,
+from pkg.product_activity_filter import (
+    filter_basket_active,
+    filter_forecast_active,
+    inactive_products,
     products_with_distributor_inventory,
     products_with_recent_sales,
 )
@@ -115,11 +116,9 @@ class TestInactiveFilter(unittest.TestCase):
                 }
             ]
         )
-        inactive = products_inactive_for_excel(
-            sale_df, inv, ORIGIN, {"A", "B"}
-        )
+        inactive = inactive_products(sale_df, inv, ORIGIN, {"A", "B"})
         self.assertEqual(inactive, {"B"})
-        out, dropped = filter_forecast_for_excel(forecast, sale_df, inv, ORIGIN)
+        out, dropped = filter_forecast_active(forecast, sale_df, inv, ORIGIN)
         self.assertEqual(dropped, {"B"})
         self.assertEqual(set(out["product"]), {"A"})
 
@@ -135,11 +134,9 @@ class TestInactiveFilter(unittest.TestCase):
                 }
             ]
         )
-        inactive = products_inactive_for_excel(
-            sale_df, inv, ORIGIN, {"StockOnly"}
-        )
+        inactive = inactive_products(sale_df, inv, ORIGIN, {"StockOnly"})
         self.assertEqual(inactive, set())
-        out, dropped = filter_forecast_for_excel(forecast, sale_df, inv, ORIGIN)
+        out, dropped = filter_forecast_active(forecast, sale_df, inv, ORIGIN)
         self.assertEqual(dropped, set())
         self.assertEqual(set(out["product"]), {"StockOnly"})
 
@@ -155,22 +152,42 @@ class TestInactiveFilter(unittest.TestCase):
                 }
             ]
         )
-        inactive = products_inactive_for_excel(
+        inactive = inactive_products(
             sale_df, inv, ORIGIN, {"Missing", "Zero"}
         )
         self.assertEqual(inactive, {"Missing", "Zero"})
-        out, dropped = filter_forecast_for_excel(forecast, sale_df, inv, ORIGIN)
+        out, dropped = filter_forecast_active(forecast, sale_df, inv, ORIGIN)
         self.assertEqual(dropped, {"Missing", "Zero"})
         self.assertTrue(out.empty)
 
     def test_sales_outside_window_treated_as_no_recent(self):
-        forecast = _forecast("Stale")
         sale_df = _sales([{"product": "Stale", "date": 140301, "sales": 99}])
         inv = _inv([])
-        inactive = products_inactive_for_excel(
-            sale_df, inv, ORIGIN, {"Stale"}
-        )
+        inactive = inactive_products(sale_df, inv, ORIGIN, {"Stale"})
         self.assertEqual(inactive, {"Stale"})
+
+
+class TestFilterBasketActive(unittest.TestCase):
+    def test_drops_inactive_before_ts(self):
+        basket = pd.DataFrame(
+            {
+                "ProductTitleEN": ["KeepSales", "DropMe", "KeepInv"],
+                "OrchidBoxQuantity": ["بسته", "عدد", "بسته"],
+            }
+        )
+        sale_df = _sales([{"product": "KeepSales", "date": 140410, "sales": 2}])
+        inv = _inv(
+            [
+                {
+                    "product": "KeepInv",
+                    "snapshot_date": "2025-06-01",
+                    "distributor_inventory_qty": 5,
+                }
+            ]
+        )
+        out, skipped = filter_basket_active(basket, sale_df, inv, ORIGIN)
+        self.assertEqual(skipped, {"DropMe"})
+        self.assertEqual(set(out["ProductTitleEN"]), {"KeepSales", "KeepInv"})
 
 
 if __name__ == "__main__":

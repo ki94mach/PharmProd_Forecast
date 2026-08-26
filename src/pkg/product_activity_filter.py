@@ -1,4 +1,4 @@
-"""Drop inactive products from Excel packaging (CSV stays complete).
+"""Drop inactive products before forecasting / Excel packaging.
 
 A product is inactive when it has no sales in the last complete 6 Shamsi months
 and no positive distributor inventory on the latest snapshot.
@@ -11,7 +11,10 @@ from pkg.benchmark.calendar import last_complete_6m
 
 
 def products_with_recent_sales(sale_df: pd.DataFrame, origin_ym: int) -> set[str]:
-    """Products with summed sales > 0 in last_complete_6m(origin)."""
+    """Products with summed sales > 0 in last_complete_6m(origin).
+
+    ``sale_df['date']`` must be Shamsi YYYYMM (not Gregorian +62100).
+    """
     if sale_df is None or sale_df.empty:
         return set()
     start, end = last_complete_6m(int(origin_ym))
@@ -48,7 +51,7 @@ def products_with_distributor_inventory(dist_inv_df: pd.DataFrame) -> set[str]:
     return set(totals[totals > 0].index.astype(str))
 
 
-def products_inactive_for_excel(
+def inactive_products(
     sale_df: pd.DataFrame,
     dist_inv_df: pd.DataFrame,
     origin_ym: int,
@@ -64,7 +67,24 @@ def products_inactive_for_excel(
     }
 
 
-def filter_forecast_for_excel(
+def filter_basket_active(
+    basket_df: pd.DataFrame,
+    sale_df: pd.DataFrame,
+    dist_inv_df: pd.DataFrame,
+    origin_ym: int,
+) -> tuple[pd.DataFrame, set[str]]:
+    """Drop inactive basket rows before the time-series loop."""
+    if basket_df is None or basket_df.empty:
+        return basket_df, set()
+    products = set(basket_df["ProductTitleEN"].astype(str))
+    inactive = inactive_products(sale_df, dist_inv_df, origin_ym, products)
+    if not inactive:
+        return basket_df, set()
+    keep = ~basket_df["ProductTitleEN"].astype(str).isin(inactive)
+    return basket_df.loc[keep].copy(), inactive
+
+
+def filter_forecast_active(
     forecast_df: pd.DataFrame,
     sale_df: pd.DataFrame,
     dist_inv_df: pd.DataFrame,
@@ -74,9 +94,7 @@ def filter_forecast_for_excel(
     if forecast_df is None or forecast_df.empty:
         return forecast_df, set()
     products = set(forecast_df["product"].astype(str).unique())
-    inactive = products_inactive_for_excel(
-        sale_df, dist_inv_df, origin_ym, products
-    )
+    inactive = inactive_products(sale_df, dist_inv_df, origin_ym, products)
     if not inactive:
         return forecast_df, set()
     mask = ~forecast_df["product"].astype(str).isin(inactive)
