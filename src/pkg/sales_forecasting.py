@@ -8,7 +8,9 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from pkg.db.query.dim_product import load_basket_products
+from pkg.db.query.inventory import load_distributor_inventory
 from pkg.db.query.sales import load_sales_data as fetch_sales_data
+from pkg.excel_product_filter import filter_forecast_for_excel
 from pkg.forecast import SalesForecast
 from pkg.utils import (
     DATA_DIR,
@@ -172,11 +174,25 @@ class SalesForecasting:
                         sale_df = self._stub_sale_df(
                             product, attrs_by_product[product], forecast_start_date
                         )
-                        prod_fr = SalesForecast(product, sale_df, self.forecasts)
+                        prod_fr = SalesForecast(
+                            product,
+                            sale_df,
+                            self.forecasts,
+                            orchid_box_quantity=attrs_by_product[product].get(
+                                "OrchidBoxQuantity"
+                            ),
+                        )
                         self._write_zero_forecast(prod_fr, forecast_start_date)
                         continue
 
-                    prod_fr = SalesForecast(product, sale_df, self.forecasts)
+                    sf_kwargs = {}
+                    if product in attrs_by_product:
+                        sf_kwargs["orchid_box_quantity"] = attrs_by_product[
+                            product
+                        ].get("OrchidBoxQuantity")
+                    prod_fr = SalesForecast(
+                        product, sale_df, self.forecasts, **sf_kwargs
+                    )
 
                     # Output-only mode: write zero forecast for every product, no model run
                     if skip_forecast:
@@ -289,7 +305,23 @@ class SalesForecasting:
         # temp = pd.concat([sale_df_total, forecast_total_df])
         # forecast_total_df_mod = replace_negative_sales(temp)
 
-        pivot = pivot_and_format_data(forecast_total_df, updated_dep_dict, forecast_start_date)
+        # CSV stays complete; drop inactive SKUs from Excel packaging only.
+        dist_inv = load_distributor_inventory()
+        forecast_for_excel, inactive = filter_forecast_for_excel(
+            forecast_total_df,
+            sale_df_total,
+            dist_inv,
+            forecast_start_date,
+        )
+        if inactive:
+            print(
+                f"Excluding {len(inactive)} inactive product(s) from Excel "
+                "(no sales in last 6 months and no distributor inventory)."
+            )
+
+        pivot = pivot_and_format_data(
+            forecast_for_excel, updated_dep_dict, forecast_start_date
+        )
         pivot = drop_unmapped_departments(pivot)
         # updated_pivot = self.append_pipeline(pivot, updated_dep_dict)
         manage_excel(pivot, os.path.join(DATA_DIR, 'results', self.curr_qrt), self.curr_qrt)

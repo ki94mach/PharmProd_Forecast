@@ -20,8 +20,12 @@ from pkg.env import load_project_env
 import os
 
 from statsmodels.tsa.stattools import adfuller
+from pkg.product_status import status_from_orchid_box_quantity
 
 load_project_env()
+
+_ORCHID_BOX_UNSET = object()
+
 
 class SalesForecast:
     """
@@ -41,7 +45,13 @@ class SalesForecast:
         best_model_type (str): The type of the best-performing model based on 
         RMSE.
     """
-    def __init__(self, product: str, sale_df: pd.DataFrame, output: str):
+    def __init__(
+        self,
+        product: str,
+        sale_df: pd.DataFrame,
+        output: str,
+        orchid_box_quantity=_ORCHID_BOX_UNSET,
+    ):
         """
         Initializes the SalesForecast class of product of interest.
 
@@ -51,6 +61,10 @@ class SalesForecast:
         - sale_df (pd.DataFrame): Sales data of the product with "sales" and
         "date" columns
         - output (str): csv results path file
+        - orchid_box_quantity: Dim.Product OrchidBoxQuantity (``بسته`` /
+          ``عدد``). When passed, that label is used as status (missing /
+          unexpected → عدد). When omitted, legacy sale_df boxq / Zytux
+          special-case logic is used.
         """
         self.product = product
         self.sale_df = sale_df
@@ -61,12 +75,15 @@ class SalesForecast:
         self.dep = self.sale_df['dep'].unique()[-1]
         self.product_fa = self.sale_df['product_fa'].unique()[-1]
         self.provider = self.sale_df['provider'].unique()[-1]
-        boxq_ser = pd.Series(self.sale_df['boxq'])
-        boxq_ser.dropna(inplace=True)
-        if product == 'Zytux 100':
-            self.status = 'بسته'
+        if orchid_box_quantity is not _ORCHID_BOX_UNSET:
+            self.status = status_from_orchid_box_quantity(orchid_box_quantity)
         else:
-            self.status = "بسته" if boxq_ser.eq(1).all() else "عدد"
+            boxq_ser = pd.Series(self.sale_df['boxq'])
+            boxq_ser.dropna(inplace=True)
+            if product == 'Zytux 100':
+                self.status = 'بسته'
+            else:
+                self.status = "بسته" if boxq_ser.eq(1).all() else "عدد"
         self.scaler_minmax = MinMaxScaler(feature_range=(0, 1))
         self.transformer_yeo = PowerTransformer(method='yeo-johnson')
         self.trans_flag = 0

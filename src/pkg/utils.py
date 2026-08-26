@@ -37,7 +37,7 @@ def update_department_info(curr_qrt):
         'مکمل': 'Suppl',
         'خود ایمنی و پوکی استخوان': 'Autoimm & Osteo',
         'ناباروری': 'Infert',
-        'بیماری های عفونی و واکسن': 'ID & Vacc',
+        'بیماری های عفونی': 'Infectious',
         'چشم': 'Ophth',
         'درمو کازمتیک': 'Dermo',
         'ارولوژی و سلامت زنان': 'Gyno',
