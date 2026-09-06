@@ -1,11 +1,22 @@
-# TS historical backfill systemd unit
+# TS historical backfill systemd unit for op-minos-srv
 #
-# Install (adjust paths for this host):
-#   sudo cp forecast-ts-backfill.service /etc/systemd/system/
+# Host layout (do not use /opt/Forecast — that path does not exist here):
+#   App:     /opt/app/Forecast
+#   Python:  /opt/app/Forecast/.venv/bin/python
+#   Secrets: /opt/app/Forecast/src/.env   (SQL_PROFILE=server)
+#   State:   /opt/app/Forecast/src/data/backfills/...
+#   OS user: root (no dedicated forecast account)
+#
+# Install / refresh on the server:
+#   sudo cp /opt/app/Forecast/deploy/systemd/forecast-ts-backfill.service.example \
+#     /etc/systemd/system/forecast-ts-backfill.service
+#   sudo chmod +x /opt/app/Forecast/scripts/run_ts_backfill.sh
 #   sudo systemctl daemon-reload
+#   sudo systemctl reset-failed forecast-ts-backfill.service
 #   sudo systemctl enable --now forecast-ts-backfill.service
 #
-# Secrets remain in src/.env (e.g. /opt/app/Forecast/src/.env).
+# After code updates: git pull (or sync), then:
+#   sudo systemctl restart forecast-ts-backfill.service
 
 [Unit]
 Description=Forecast TS MVP historical backfill (SKU x vintage)
@@ -40,7 +51,7 @@ Environment="BACKFILL_WORKERS=1"
 # SQL connection profile. Credentials stay in src/.env.
 Environment="SQL_PROFILE=server"
 
-# Pip-only servers: point at the venv python (required if not using conda).
+# Pip-only server: explicit venv python (required; conda is not installed).
 Environment="FORECAST_PYTHON=/opt/app/Forecast/.venv/bin/python"
 # Make src/ importable even if editable install is broken/stale.
 Environment="PYTHONPATH=/opt/app/Forecast/src"
