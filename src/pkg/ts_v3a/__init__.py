@@ -1,8 +1,8 @@
 """V3A experimental local neural forecasting engine.
 
 Per-SKU neural models under the V2 forecasting contract. This package does not
-modify V1 or V2 behavior. A1 ``small_recursive_lstm`` is implemented; A0/A2–A6
-graphs are not yet.
+modify V1 or V2 behavior. A1 ``small_recursive_lstm`` and A2 ``mimo_lstm`` are
+implemented; A0/A3–A6 graphs are not yet.
 """
 from __future__ import annotations
 
@@ -15,6 +15,13 @@ from pkg.ts_v3a.eligibility import (
     SampleEligibility,
     evaluate_history_eligibility,
     evaluate_split_eligibility,
+)
+from pkg.ts_v3a.models import (
+    MimoLSTM,
+    SmallRecursiveLSTM,
+    build_mimo_lstm,
+    build_small_recursive_lstm,
+    rollout_recursive_forecast,
 )
 from pkg.ts_v3a.scaling import FoldScaler, fit_fold_scaler, unique_observation_indices
 from pkg.ts_v3a.seeds import set_global_seeds
@@ -34,11 +41,6 @@ from pkg.ts_v3a.windows import (
     build_windows,
     expected_n_samples,
 )
-from pkg.ts_v3a.models import (
-    SmallRecursiveLSTM,
-    build_small_recursive_lstm,
-    rollout_recursive_forecast,
-)
 
 __all__ = [
     "ArchitectureName",
@@ -49,6 +51,7 @@ __all__ = [
     "ForecastWindow",
     "IneligibleForTrainingError",
     "InsufficientHistoryError",
+    "MimoLSTM",
     "NeuralExperimentConfig",
     "NeuralTrainer",
     "SampleEligibility",
@@ -56,6 +59,7 @@ __all__ = [
     "TargetMode",
     "TrainMetadata",
     "WindowDataset",
+    "build_mimo_lstm",
     "build_mimo_windows",
     "build_recursive_windows",
     "build_small_recursive_lstm",
