@@ -64,7 +64,7 @@ class FoldScaler:
 
     @property
     def fit_indices(self) -> tuple[int, ...]:
-        """Series indices used for the last fit (empty for ``fit_on_series``)."""
+        """Series indices used for the last fit (unique train or full-series)."""
         return self._fit_indices
 
     def fit_on_unique_train_observations(

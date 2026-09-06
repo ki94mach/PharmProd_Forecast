@@ -64,6 +64,56 @@ class TestScalingLeakage(unittest.TestCase):
         restored = scaler.inverse_transform_y(scaled_y)
         np.testing.assert_allclose(restored, split.train.y, rtol=1e-6, atol=1e-6)
 
+    def test_fit_indices_metadata_matches_unique_train_obs(self):
+        history = np.arange(40, dtype=float) * 3.0
+        ds = build_mimo_windows(history, lookback=12, horizon=15)
+        split = chronological_train_val_split(ds, validation_fraction=0.2)
+        expected = unique_observation_indices(split.train)
+        scaler = fit_fold_scaler(history, split.train)
+        self.assertEqual(tuple(scaler.fit_indices), tuple(expected.tolist()))
+        self.assertEqual(scaler.params()["fit_indices"], list(expected.tolist()))
+        # Validation-only indices must not appear in fit metadata.
+        if split.validation is not None:
+            val_only = set(unique_observation_indices(split.validation).tolist()) - set(
+                expected.tolist()
+            )
+            for i in val_only:
+                self.assertNotIn(i, scaler.fit_indices)
+
+    def test_same_scaler_transforms_train_and_validation(self):
+        history = np.linspace(5.0, 95.0, 48)
+        ds = build_recursive_windows(history, lookback=12)
+        split = chronological_train_val_split(
+            ds,
+            validation_fraction=0.2,
+            min_internal_train_windows=8,
+            min_internal_validation_windows=2,
+        )
+        self.assertIsNotNone(split.validation)
+        scaler = fit_fold_scaler(history, split.train)
+        mean = scaler.params()["mean"]
+        scale = scaler.params()["scale"]
+        scaled = scaler.transform_split(split)
+
+        np.testing.assert_allclose(
+            scaled.train.X, (split.train.X - mean) / scale, rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            scaled.train.y, (split.train.y - mean) / scale, rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            scaled.validation.X,
+            (split.validation.X - mean) / scale,
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            scaled.validation.y,
+            (split.validation.y - mean) / scale,
+            rtol=1e-6,
+            atol=1e-6,
+        )
+
     def test_overlapping_windows_do_not_alter_scaler_statistics(self):
         # Spike in the middle is repeated across many overlapping windows; a
         # flattened-window fit would overweight it vs unique chronological fit.
