@@ -45,7 +45,7 @@ class TestNeuralTrainer(unittest.TestCase):
         # Long enough recursive history for eligibility (24 windows).
         history = np.linspace(10.0, 100.0, 36)
         cfg = NeuralExperimentConfig(
-            architecture_name="recursive_lstm",
+            architecture_name="small_recursive_lstm",
             max_epochs=5,
             early_stopping_patience=3,
             batch_size=4,
@@ -82,7 +82,7 @@ class TestNeuralTrainer(unittest.TestCase):
         self.assertIsNotNone(meta.parameter_count)
         self.assertGreater(meta.parameter_count, 0)
         self.assertIn("mean", meta.scaler_params)
-        self.assertEqual(meta.architecture, "recursive_lstm")
+        self.assertEqual(meta.architecture, "small_recursive_lstm")
 
         preds = trainer.predict(fold.val_X[:2], inverse_transform=True)
         self.assertEqual(preds.shape[0], 2)

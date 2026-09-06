@@ -72,7 +72,7 @@ class TestBoundaryLookbackHorizon(unittest.TestCase):
             TargetMode.RECURSIVE,
         )
         self.assertEqual(
-            target_mode_for("recursive_lstm"), TargetMode.RECURSIVE
+            target_mode_for("small_recursive_lstm"), TargetMode.RECURSIVE
         )
         self.assertEqual(target_mode_for("mimo_lstm"), TargetMode.DIRECT_MIMO)
         self.assertEqual(

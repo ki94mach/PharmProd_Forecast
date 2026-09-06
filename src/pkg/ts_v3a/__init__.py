@@ -1,7 +1,8 @@
-"""V3A experimental local neural forecasting engine (foundation).
+"""V3A experimental local neural forecasting engine.
 
 Per-SKU neural models under the V2 forecasting contract. This package does not
-modify V1 or V2 behavior. LSTM architectures A0–A6 are not implemented yet.
+modify V1 or V2 behavior. A1 ``small_recursive_lstm`` is implemented; A0/A2–A6
+graphs are not yet.
 """
 from __future__ import annotations
 
@@ -33,6 +34,11 @@ from pkg.ts_v3a.windows import (
     build_windows,
     expected_n_samples,
 )
+from pkg.ts_v3a.models import (
+    SmallRecursiveLSTM,
+    build_small_recursive_lstm,
+    rollout_recursive_forecast,
+)
 
 __all__ = [
     "ArchitectureName",
@@ -46,11 +52,13 @@ __all__ = [
     "NeuralExperimentConfig",
     "NeuralTrainer",
     "SampleEligibility",
+    "SmallRecursiveLSTM",
     "TargetMode",
     "TrainMetadata",
     "WindowDataset",
     "build_mimo_windows",
     "build_recursive_windows",
+    "build_small_recursive_lstm",
     "build_train_metadata",
     "build_windows",
     "chronological_train_val_split",
@@ -59,6 +67,7 @@ __all__ = [
     "expected_n_samples",
     "fit_fold_scaler",
     "make_forecast_window",
+    "rollout_recursive_forecast",
     "set_global_seeds",
     "target_mode_for",
     "unique_observation_indices",

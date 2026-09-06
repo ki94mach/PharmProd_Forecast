@@ -14,7 +14,7 @@ class ArchitectureName(str, Enum):
     """Experimental architecture IDs (A0–A6)."""
 
     A0_LEGACY_RECURSIVE_LSTM = "legacy_recursive_lstm"
-    A1_RECURSIVE_LSTM = "recursive_lstm"
+    A1_SMALL_RECURSIVE_LSTM = "small_recursive_lstm"
     A2_MIMO_LSTM = "mimo_lstm"
     A3_STACKED_MIMO_LSTM = "stacked_mimo_lstm"
     A4_ENCODER_DECODER_LSTM = "encoder_decoder_lstm"
@@ -24,7 +24,7 @@ class ArchitectureName(str, Enum):
 
 _TARGET_MODE: dict[ArchitectureName, TargetMode] = {
     ArchitectureName.A0_LEGACY_RECURSIVE_LSTM: TargetMode.RECURSIVE,
-    ArchitectureName.A1_RECURSIVE_LSTM: TargetMode.RECURSIVE,
+    ArchitectureName.A1_SMALL_RECURSIVE_LSTM: TargetMode.RECURSIVE,
     ArchitectureName.A2_MIMO_LSTM: TargetMode.DIRECT_MIMO,
     ArchitectureName.A3_STACKED_MIMO_LSTM: TargetMode.DIRECT_MIMO,
     ArchitectureName.A4_ENCODER_DECODER_LSTM: TargetMode.DIRECT_MIMO,

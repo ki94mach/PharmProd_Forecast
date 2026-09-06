@@ -28,14 +28,15 @@ window builders, unique-observation fold-local scaling, chronological internal
 train/validation for early stopping, sample eligibility gates, a shared
 `NeuralTrainer`, deterministic seed helpers, and training metadata.
 
-**Not implemented yet:** A0–A6 LSTM graphs, backtest engine, results writers.
+**Implemented:** A1 `small_recursive_lstm` (shared `NeuralTrainer` + recursive rollout).
+**Not implemented yet:** A0 / A2–A6 graphs, backtest engine, results writers.
 
 ## Architecture candidates
 
 | ID | Name | Target mode |
 |----|------|-------------|
 | A0 | `legacy_recursive_lstm` | RECURSIVE |
-| A1 | `recursive_lstm` | RECURSIVE |
+| A1 | `small_recursive_lstm` | RECURSIVE |
 | A2 | `mimo_lstm` | DIRECT/MIMO |
 | A3 | `stacked_mimo_lstm` | DIRECT/MIMO |
 | A4 | `encoder_decoder_lstm` | DIRECT/MIMO |

@@ -41,7 +41,7 @@ class TestEligibility(unittest.TestCase):
         history = np.arange(36, dtype=float)
         ds = build_recursive_windows(history, lookback=12)
         cfg = NeuralExperimentConfig(
-            architecture_name="recursive_lstm",
+            architecture_name="small_recursive_lstm",
             min_internal_train_windows=8,
             min_internal_validation_windows=2,
         )
