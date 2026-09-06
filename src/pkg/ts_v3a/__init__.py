@@ -1,8 +1,7 @@
 """V3A experimental local neural forecasting engine.
 
 Per-SKU neural models under the V2 forecasting contract. This package does not
-modify V1 or V2 behavior. A1 ``small_recursive_lstm`` and A2 ``mimo_lstm`` are
-implemented; A0/A3–A6 graphs are not yet.
+modify V1 or V2 behavior. A1–A3 are implemented; A0/A4–A6 graphs are not yet.
 """
 from __future__ import annotations
 
@@ -19,8 +18,10 @@ from pkg.ts_v3a.eligibility import (
 from pkg.ts_v3a.models import (
     MimoLSTM,
     SmallRecursiveLSTM,
+    StackedMimoLSTM,
     build_mimo_lstm,
     build_small_recursive_lstm,
+    build_stacked_mimo_lstm,
     rollout_recursive_forecast,
 )
 from pkg.ts_v3a.scaling import FoldScaler, fit_fold_scaler, unique_observation_indices
@@ -56,6 +57,7 @@ __all__ = [
     "NeuralTrainer",
     "SampleEligibility",
     "SmallRecursiveLSTM",
+    "StackedMimoLSTM",
     "TargetMode",
     "TrainMetadata",
     "WindowDataset",
@@ -63,6 +65,7 @@ __all__ = [
     "build_mimo_windows",
     "build_recursive_windows",
     "build_small_recursive_lstm",
+    "build_stacked_mimo_lstm",
     "build_train_metadata",
     "build_windows",
     "chronological_train_val_split",
