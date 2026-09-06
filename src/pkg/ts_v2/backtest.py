@@ -81,17 +81,13 @@ def forecast_fold(
     *,
     config: Optional[TSForecastConfig] = None,
 ) -> ForecastResult | ModelFailure:
-    """Run one candidate on one fold via the shared :func:`run_model` interface."""
+    """Run one candidate on one fold via the shared :func:`run_model` interface.
+
+    Always uses the full contiguous ``1..H`` window. Evaluable-horizon filtering
+    for scoring belongs to the caller (see :func:`backtest_product`).
+    """
     cfg = config or DEFAULT_CONFIG
-    if fold.evaluable_target_dates and fold.evaluable_horizons and fold.window is not None:
-        window = ForecastWindow(
-            forecast_origin=fold.window.forecast_origin,
-            training_end=fold.window.training_end,
-            target_dates=fold.evaluable_target_dates,
-            horizons=tuple(int(h) for h in fold.evaluable_horizons),
-        )
-    else:
-        window = fold.window or make_forecast_window(fold.origin, config=cfg)
+    window = fold.window or make_forecast_window(fold.origin, config=cfg)
     return run_model(model, train_series, window)
 
 
@@ -103,14 +99,14 @@ def _actual_at(full_sales: pd.Series, target_date: int) -> float:
 
 
 def _fold_from_coverage(coverage: OriginCoverage) -> BacktestFold:
-    eval_win = eval_window_for_origin(coverage)
+    window = eval_window_for_origin(coverage)
     return BacktestFold(
         origin=coverage.origin,
-        train_end_exclusive=eval_win.forecast_origin,
-        horizons=eval_win.horizons,
-        window=eval_win,
-        evaluable_target_dates=eval_win.target_dates,
-        evaluable_horizons=eval_win.horizons,
+        train_end_exclusive=window.forecast_origin,
+        horizons=window.horizons,
+        window=window,
+        evaluable_target_dates=coverage.evaluable_target_dates,
+        evaluable_horizons=coverage.evaluable_horizons,
         max_evaluated_horizon=coverage.max_evaluated_horizon,
         full_horizon_coverage=coverage.full_horizon_coverage,
     )
@@ -221,11 +217,13 @@ def backtest_product(
             continue
         prepared_by_origin[int(cover.window.forecast_origin)] = prepared
         fold = _fold_from_coverage(cover)
-        eval_win = fold.window
-        assert eval_win is not None
+        full_win = fold.window
+        assert full_win is not None
+        evaluable_h = {int(h) for h in cover.evaluable_horizons}
 
         for model in models:
-            outcome = run_model(model, prepared.values, eval_win)
+            # Full 1..H contract for models; score only months with actuals.
+            outcome = run_model(model, prepared.values, full_win)
             if is_failure(outcome):
                 assert isinstance(outcome, ModelFailure)
                 fail_rows.append(
@@ -245,6 +243,8 @@ def backtest_product(
                 outcome.target_dates,
                 outcome.predictions,
             ):
+                if int(h) not in evaluable_h:
+                    continue
                 pred_rows.append(
                     {
                         "product": product,

@@ -65,6 +65,29 @@ class DummyHorizonBiasModel(BaseForecastModel):
         )
 
 
+class HorizonCaptureModel(BaseForecastModel):
+    """Records the last requested horizons / target_dates for contract tests."""
+
+    name = "horizon_capture"
+    last_horizons: tuple[int, ...] = ()
+    last_target_dates: tuple[int, ...] = ()
+
+    def fit(self, train_series: pd.Series) -> "HorizonCaptureModel":
+        return self
+
+    def predict(self, horizon: int, target_dates: Sequence[int]) -> ForecastResult:
+        dates = tuple(int(d) for d in target_dates)
+        horizons = tuple(range(1, horizon + 1))
+        HorizonCaptureModel.last_horizons = horizons
+        HorizonCaptureModel.last_target_dates = dates
+        return ForecastResult(
+            model_name=self.name,
+            predictions=tuple(1.0 for _ in range(horizon)),
+            target_dates=dates,
+            horizons=horizons,
+        )
+
+
 def _monthly_sales_frame(
     product: str,
     start_ym: int,
@@ -216,6 +239,54 @@ class TestBacktestEngine(unittest.TestCase):
         self.assertGreater(row["number_of_origins"], 0)
         self.assertLess(row["max_evaluated_horizon"], 15)
         self.assertEqual(row["n_full_horizon_origins"], 0)
+
+    def test_sparse_origin_month_uses_full_window_scores_evaluable_only(self):
+        """Missing origin-month actual must not build a non-contiguous window."""
+        from pkg.benchmark.calendar import shamsi_add_months
+        from pkg.ts_v2.backtest_origins import eval_window_for_origin
+
+        # Contiguous history, then drop one month that will be used as an origin.
+        sales = _monthly_sales_frame("SPARSE", 140401, 30)
+        gap_origin = 140501  # valid Shamsi YYYYMM (month 13 of contiguous series)
+        sales = sales.loc[sales["date"] != gap_origin].reset_index(drop=True)
+        cfg = TSForecastConfig(
+            forecast_horizon=15,
+            min_train_months=12,
+            activity_start_min_sales=None,
+        )
+        series = product_monthly_sales(sales, "SPARSE")
+        covers = discover_origins(
+            series, config=cfg, explicit_origins=[gap_origin]
+        )
+        self.assertEqual(len(covers), 1)
+        cover = covers[0]
+        self.assertNotIn(1, cover.evaluable_horizons)
+        self.assertEqual(cover.evaluable_horizons[0], 2)
+
+        full_win = eval_window_for_origin(cover)
+        self.assertEqual(full_win.horizons, tuple(range(1, 16)))
+        self.assertEqual(full_win.target_dates[0], gap_origin)
+
+        HorizonCaptureModel.last_horizons = ()
+        result = backtest_product(
+            sales,
+            "SPARSE",
+            [HorizonCaptureModel()],
+            config=cfg,
+            explicit_origins=[gap_origin],
+        )
+        self.assertEqual(HorizonCaptureModel.last_horizons, tuple(range(1, 16)))
+        self.assertFalse(result.predictions.empty)
+        self.assertNotIn(1, set(result.predictions["horizon"].astype(int)))
+        self.assertEqual(
+            int(result.predictions["horizon"].min()),
+            2,
+        )
+        # h2 target is origin+1 and must be present.
+        self.assertEqual(
+            int(result.predictions["target_date"].min()),
+            shamsi_add_months(gap_origin, 1),
+        )
 
     def test_coverage_fields_present(self):
         result = run_backtest(

@@ -104,10 +104,10 @@ def discover_origins(
 
 
 def eval_window_for_origin(coverage: OriginCoverage) -> ForecastWindow:
-    """Build the forecast window passed to models (evaluable targets only)."""
-    return ForecastWindow(
-        forecast_origin=coverage.window.forecast_origin,
-        training_end=coverage.window.training_end,
-        target_dates=coverage.evaluable_target_dates,
-        horizons=coverage.evaluable_horizons,
-    )
+    """Return the full ``1..H`` forecast window passed to models.
+
+    Models always forecast the complete contract window. Scoring still uses
+    only :attr:`OriginCoverage.evaluable_horizons` (months with warehouse
+    actuals); that subset must not be used to build ``ForecastWindow``.
+    """
+    return coverage.window

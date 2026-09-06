@@ -112,12 +112,13 @@ class TestFinalForecast(unittest.TestCase):
             REGISTRY.unregister(name)
 
     def test_final_fit_uses_more_history_than_cv_folds(self):
+        # Keep CV models alive so id() comparison is meaningful (no GC recycle).
         cv_models = models_from_config(self.cfg.candidate_models)
-        cv_ids = [id(m) for m in cv_models]
+        cv_ids = {id(m) for m in cv_models}
         bt = backtest_product(self.sales, "SKU-F", cv_models, config=self.cfg)
-        del cv_models
 
         selection = select_product_model(bt, "SKU-F", config=self.cfg)
+        n_before_refit = len(InstanceTrackingModel.instances)
         final = refit_and_forecast_product(
             self.sales,
             "SKU-F",
@@ -144,6 +145,10 @@ class TestFinalForecast(unittest.TestCase):
         )
         refit_ids = final.metadata["refit_model_ids"]
         self.assertTrue(all(i not in cv_ids for i in refit_ids))
+        # Fresh registry instance created for production refit.
+        self.assertGreater(len(InstanceTrackingModel.instances), n_before_refit)
+        # Prevent unused-variable lint; CV list must stay referenced.
+        self.assertEqual(len(cv_models), 1)
 
     def test_forecast_contract_assertions(self):
         cv_models = models_from_config(self.cfg.candidate_models)
@@ -172,16 +177,24 @@ class TestFinalForecast(unittest.TestCase):
         )
 
     def test_cv_models_not_reused_in_full_pipeline(self):
+        InstanceTrackingModel.instances.clear()
         result = forecast_with_backtest(
             self.sales,
             ["SKU-F"],
             self.origin,
             config=self.cfg,
         )
-        cv_ids = set(result.extras["cv_model_ids"])
         final = result.final_forecasts["SKU-F"]
-        for mid in final.metadata["refit_model_ids"]:
-            self.assertNotIn(mid, cv_ids)
+        # All fitted instances remain referenced via the class list.
+        all_ids = [m.instance_id for m in InstanceTrackingModel.instances]
+        refit_ids = list(final.metadata["refit_model_ids"])
+        self.assertTrue(refit_ids)
+        for mid in refit_ids:
+            self.assertIn(mid, all_ids)
+        # Production refit is the last created instance, distinct from CV fits.
+        self.assertGreater(len(all_ids), 1)
+        self.assertEqual(refit_ids[-1], all_ids[-1])
+        self.assertNotIn(refit_ids[-1], all_ids[:-1])
 
     def test_metadata_includes_cv_score_and_coverage(self):
         result = forecast_with_backtest(

@@ -337,7 +337,6 @@ def forecast_with_backtest(
     product_list = [str(p) for p in products]
 
     # 1–2. Historical backtest + selection (CV model instances are not retained).
-    cv_models = None
     from pkg.ts_v2.models.registry import models_from_config
 
     cv_models = models_from_config(cfg.candidate_models)
@@ -350,12 +349,13 @@ def forecast_with_backtest(
         date_col=date_col,
         sales_col=sales_col,
     )
-    cv_model_ids = tuple(id(m) for m in cv_models)
+    # Drop CV instances so production refit cannot accidentally share them.
+    # Do not compare ``id()`` after deletion: CPython may recycle those ids.
     del cv_models
 
     selections = select_models(backtest, product_list, config=cfg)
 
-    # 3–6. Fresh production refit per SKU.
+    # 3–6. Fresh production refit per SKU (always via ``_fresh_model`` / registry).
     final_map: dict[str, ProductFinalForecast] = {}
     all_horizon: list[HorizonForecast] = []
     for product in product_list:
@@ -370,11 +370,6 @@ def forecast_with_backtest(
             date_col=date_col,
             sales_col=sales_col,
         )
-        reused = [mid for mid in final.metadata.get("refit_model_ids", ()) if mid in cv_model_ids]
-        if reused:
-            raise RuntimeError(
-                f"{product!r}: production refit reused CV model instance(s)"
-            )
         final_map[product] = final
         all_horizon.extend(final.horizon_forecasts)
 
@@ -398,7 +393,7 @@ def forecast_with_backtest(
         final_forecasts=final_map,
         forecasts=tuple(all_horizon),
         backtest=backtest,
-        extras={"cv_model_ids": cv_model_ids},
+        extras={},
     )
 
 
