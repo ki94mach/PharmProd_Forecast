@@ -1,7 +1,7 @@
 """V3A experimental local neural forecasting engine.
 
 Per-SKU neural models under the V2 forecasting contract. This package does not
-modify V1 or V2 behavior. A1–A4 are implemented; A0/A5–A6 graphs are not yet.
+modify V1 or V2 behavior. A1–A5 are implemented; A0/A6 graphs are not yet.
 """
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ from pkg.ts_v3a.eligibility import (
     evaluate_split_eligibility,
 )
 from pkg.ts_v3a.models import (
+    BidirectionalMimoLSTM,
     EncoderDecoderLSTM,
     MimoLSTM,
     SmallRecursiveLSTM,
     StackedMimoLSTM,
+    build_bidirectional_mimo_lstm,
     build_encoder_decoder_lstm,
     build_mimo_lstm,
     build_small_recursive_lstm,
@@ -48,6 +50,7 @@ from pkg.ts_v3a.windows import (
 
 __all__ = [
     "ArchitectureName",
+    "BidirectionalMimoLSTM",
     "DEFAULT_CONFIG",
     "EncoderDecoderLSTM",
     "FoldScaler",
@@ -65,6 +68,7 @@ __all__ = [
     "TargetMode",
     "TrainMetadata",
     "WindowDataset",
+    "build_bidirectional_mimo_lstm",
     "build_encoder_decoder_lstm",
     "build_mimo_lstm",
     "build_mimo_windows",
