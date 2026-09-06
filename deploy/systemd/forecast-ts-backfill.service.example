@@ -47,6 +47,9 @@ Environment="BACKFILL_ENGINE=v2"
 Environment="BACKFILL_VINTAGES=ts_backfill_1401Q1_1405Q2"
 Environment="BACKFILL_UNIVERSE=mvp_products"
 Environment="BACKFILL_WORKERS=1"
+# Uncomment only for a one-shot retry of FAILED jobs, then comment again:
+#   sudo systemctl daemon-reload && sudo systemctl restart forecast-ts-backfill.service
+# Environment="BACKFILL_EXTRA_ARGS=--retry-failed"
 
 # SQL connection profile. Credentials stay in src/.env.
 Environment="SQL_PROFILE=server"
