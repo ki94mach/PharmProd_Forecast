@@ -63,6 +63,8 @@ class TestBoundaryLookbackHorizon(unittest.TestCase):
         self.assertEqual(cfg.random_seeds, (41, 42, 43))
         self.assertEqual(cfg.scaling_method, "standard")
         self.assertEqual(cfg.number_layers, 1)
+        self.assertEqual(cfg.min_internal_train_windows, 8)
+        self.assertEqual(cfg.min_internal_validation_windows, 2)
 
     def test_architecture_target_modes(self):
         self.assertEqual(

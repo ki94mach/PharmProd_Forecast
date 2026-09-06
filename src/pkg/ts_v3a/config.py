@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Literal, Mapping, Optional, Sequence, Union
+from typing import Literal, Mapping, Optional, Union
 
 from pkg.ts_v3a.architectures import ArchitectureName, coerce_architecture_name
 
@@ -36,7 +36,8 @@ class NeuralExperimentConfig:
     random_seeds: tuple[int, ...] = (41, 42, 43)
     scaling_method: ScalingMethod = "standard"
     validation_fraction: float = 0.2
-    min_train_windows: int = 1
+    min_internal_train_windows: int = 8
+    min_internal_validation_windows: int = 2
 
     def __post_init__(self) -> None:
         coerce_architecture_name(self.architecture_name)
@@ -48,8 +49,16 @@ class NeuralExperimentConfig:
             raise ValueError(
                 f"validation_fraction must be in (0, 1), got {self.validation_fraction}"
             )
-        if self.min_train_windows < 1:
-            raise ValueError(f"min_train_windows must be >= 1, got {self.min_train_windows}")
+        if self.min_internal_train_windows < 1:
+            raise ValueError(
+                "min_internal_train_windows must be >= 1, "
+                f"got {self.min_internal_train_windows}"
+            )
+        if self.min_internal_validation_windows < 1:
+            raise ValueError(
+                "min_internal_validation_windows must be >= 1, "
+                f"got {self.min_internal_validation_windows}"
+            )
         if len(self.random_seeds) < 1:
             raise ValueError("random_seeds must contain at least one seed")
 
@@ -80,7 +89,8 @@ class NeuralExperimentConfig:
             random_seeds=self.random_seeds,
             scaling_method=self.scaling_method,
             validation_fraction=self.validation_fraction,
-            min_train_windows=self.min_train_windows,
+            min_internal_train_windows=self.min_internal_train_windows,
+            min_internal_validation_windows=self.min_internal_validation_windows,
         )
 
 

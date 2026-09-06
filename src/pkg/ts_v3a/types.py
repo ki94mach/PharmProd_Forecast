@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional
 
 import numpy as np
 
@@ -67,12 +67,25 @@ class TrainMetadata:
     random_seed: int
     n_train_samples: int
     n_validation_samples: int
-    epochs_trained: Optional[int]
-    best_validation_loss: Optional[float]
+    train_window_count: int
+    validation_window_count: int
+    epochs_ran: Optional[int]
+    best_epoch: Optional[int]
+    best_val_loss: Optional[float]
+    parameter_count: Optional[int]
     scaler_params: Mapping[str, Any]
     training_start: Optional[int]
     training_end: Optional[int]
     forecast_origin: int
+
+    # Backward-compatible aliases used by earlier foundation helpers.
+    @property
+    def epochs_trained(self) -> Optional[int]:
+        return self.epochs_ran
+
+    @property
+    def best_validation_loss(self) -> Optional[float]:
+        return self.best_val_loss
 
 
 def build_train_metadata(
@@ -86,18 +99,37 @@ def build_train_metadata(
     scaler_params: Optional[Mapping[str, Any]] = None,
     training_start: Optional[int] = None,
     training_end: Optional[int] = None,
+    epochs_ran: Optional[int] = None,
+    best_epoch: Optional[int] = None,
+    best_val_loss: Optional[float] = None,
+    parameter_count: Optional[int] = None,
+    train_window_count: Optional[int] = None,
+    validation_window_count: Optional[int] = None,
+    # Deprecated aliases
     epochs_trained: Optional[int] = None,
     best_validation_loss: Optional[float] = None,
 ) -> TrainMetadata:
-    """Assemble :class:`TrainMetadata` (epochs/loss optional until a trainer exists)."""
+    """Assemble :class:`TrainMetadata`."""
+    epochs = epochs_ran if epochs_ran is not None else epochs_trained
+    best_loss = best_val_loss if best_val_loss is not None else best_validation_loss
     return TrainMetadata(
         architecture=architecture,
         parameters=dict(parameters),
         random_seed=int(random_seed),
         n_train_samples=int(n_train_samples),
         n_validation_samples=int(n_validation_samples),
-        epochs_trained=epochs_trained,
-        best_validation_loss=best_validation_loss,
+        train_window_count=int(
+            train_window_count if train_window_count is not None else n_train_samples
+        ),
+        validation_window_count=int(
+            validation_window_count
+            if validation_window_count is not None
+            else n_validation_samples
+        ),
+        epochs_ran=epochs,
+        best_epoch=best_epoch,
+        best_val_loss=best_loss,
+        parameter_count=parameter_count,
         scaler_params=dict(scaler_params or {}),
         training_start=training_start,
         training_end=training_end,
@@ -114,5 +146,7 @@ class PreparedNeuralFold:
     val_X: Optional[np.ndarray]
     val_y: Optional[np.ndarray]
     metadata: TrainMetadata
+    eligible_for_training: bool
+    eligibility_reason: Optional[str] = None
     end_indices_train: tuple[int, ...] = field(default_factory=tuple)
     end_indices_val: tuple[int, ...] = field(default_factory=tuple)

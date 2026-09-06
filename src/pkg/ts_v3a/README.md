@@ -21,13 +21,14 @@ V3A reuses the V2 forecasting contract wherever possible:
 Callers should pass monthly series already cut to `date < forecast_origin`
 (e.g. via `pkg.ts_v2.prepare_monthly_series`).
 
-## This foundation step
+## Training infrastructure
 
 Provides architecture/config abstractions (A0–A6), recursive and DIRECT/MIMO
-window builders, fold-local scaling, chronological internal train/validation
-for early stopping, deterministic seed helpers, and training metadata.
+window builders, unique-observation fold-local scaling, chronological internal
+train/validation for early stopping, sample eligibility gates, a shared
+`NeuralTrainer`, deterministic seed helpers, and training metadata.
 
-**Not implemented yet:** LSTM/Keras layers, backtest engine, results writers.
+**Not implemented yet:** A0–A6 LSTM graphs, backtest engine, results writers.
 
 ## Architecture candidates
 
@@ -43,7 +44,19 @@ for early stopping, deterministic seed helpers, and training metadata.
 
 ## Fold-local scaling
 
-Scaler is fitted **only** on values inside the internal-train supervised
-windows for the current historical fold. Never fit on full SKU history, the
-outer CV test horizon, or future observations. Inverse-transform predictions
-before evaluation.
+Scaler is fitted **exactly once** on the unique chronological raw observations
+belonging to the internal training period (series indices covered by train
+windows). Overlapping windows do not re-weight observations. Never fit on the
+outer CV test horizon, internal validation-only observations, or future data.
+The same univariate scaler transforms train and validation; predictions are
+inverse-transformed before evaluation. `fit_on_series` supports a later full
+pre-origin refit.
+
+## Sample eligibility
+
+- `mathematically_constructible`: at least one supervised window exists
+- `eligible_for_training`: internal train windows ≥ `min_internal_train_windows`
+  (default 8) **and** validation windows ≥ `min_internal_validation_windows`
+  (default 2)
+
+NeuralTrainer refuses train-only fits when useful validation cannot be built.
