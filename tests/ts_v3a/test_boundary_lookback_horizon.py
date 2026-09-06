@@ -68,7 +68,7 @@ class TestBoundaryLookbackHorizon(unittest.TestCase):
 
     def test_architecture_target_modes(self):
         self.assertEqual(
-            target_mode_for(ArchitectureName.A0_LEGACY_RECURSIVE_LSTM),
+            target_mode_for(ArchitectureName.A0_LEGACY_ADAPTIVE_RECURSIVE_LSTM),
             TargetMode.RECURSIVE,
         )
         self.assertEqual(

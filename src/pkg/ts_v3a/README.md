@@ -28,15 +28,16 @@ window builders, unique-observation fold-local scaling, chronological internal
 train/validation for early stopping, sample eligibility gates, a shared
 `NeuralTrainer`, deterministic seed helpers, and training metadata.
 
-**Implemented:** A1 `small_recursive_lstm`, A2 `mimo_lstm`, A3 `stacked_mimo_lstm`,
-A4 `encoder_decoder_lstm`, A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`).
-**Not implemented yet:** A0 / A6 graphs, backtest engine, results writers.
+**Implemented:** A0 `legacy_adaptive_recursive_lstm`, A1 `small_recursive_lstm`,
+A2 `mimo_lstm`, A3 `stacked_mimo_lstm`, A4 `encoder_decoder_lstm`,
+A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`).
+**Not implemented yet:** A6 graph, backtest engine, results writers.
 
 ## Architecture candidates
 
 | ID | Name | Target mode |
 |----|------|-------------|
-| A0 | `legacy_recursive_lstm` | RECURSIVE |
+| A0 | `legacy_adaptive_recursive_lstm` | RECURSIVE |
 | A1 | `small_recursive_lstm` | RECURSIVE |
 | A2 | `mimo_lstm` | DIRECT/MIMO |
 | A3 | `stacked_mimo_lstm` | DIRECT/MIMO |

@@ -1,6 +1,14 @@
-"""V3A neural models: A1–A5."""
+"""V3A neural models: A0–A5."""
 from __future__ import annotations
 
+from pkg.ts_v3a.models.a0_legacy_adaptive_recursive_lstm import (
+    LegacyAdaptiveRecursiveLSTM,
+    LegacyArchitectureSpec,
+    build_legacy_adaptive_recursive_lstm,
+    config_from_legacy_spec,
+    default_a0_config,
+    resolve_legacy_architecture,
+)
 from pkg.ts_v3a.models.a1_small_recursive_lstm import (
     SmallRecursiveLSTM,
     build_small_recursive_lstm,
@@ -34,20 +42,26 @@ __all__ = [
     "BaseNeuralForecastModel",
     "BidirectionalMimoLSTM",
     "EncoderDecoderLSTM",
+    "LegacyAdaptiveRecursiveLSTM",
+    "LegacyArchitectureSpec",
     "MimoLSTM",
     "NeuralForecastModel",
     "SmallRecursiveLSTM",
     "StackedMimoLSTM",
     "build_bidirectional_mimo_lstm",
     "build_encoder_decoder_lstm",
+    "build_legacy_adaptive_recursive_lstm",
     "build_mimo_lstm",
     "build_small_recursive_lstm",
     "build_stacked_mimo_lstm",
+    "config_from_legacy_spec",
+    "default_a0_config",
     "default_a1_config",
     "default_a2_config",
     "default_a3_config",
     "default_a4_config",
     "default_a5_config",
     "reshape_mimo_targets",
+    "resolve_legacy_architecture",
     "rollout_recursive_forecast",
 ]
