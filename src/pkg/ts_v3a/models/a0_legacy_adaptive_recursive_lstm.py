@@ -217,6 +217,8 @@ class LegacyAdaptiveRecursiveLSTM(BaseNeuralForecastModel):
             forecast_origin=int(window.forecast_origin),
             training_start=fold.metadata.training_start,
             training_end=fold.metadata.training_end,
+            validation_start=fold.metadata.validation_start,
+            validation_end=fold.metadata.validation_end,
         )
         params = dict(metadata.parameters)
         params.update(spec.as_dict())  # resolved history_length/l1/l2/lookback/max_epochs

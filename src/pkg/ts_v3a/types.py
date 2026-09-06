@@ -77,6 +77,8 @@ class TrainMetadata:
     training_start: Optional[int]
     training_end: Optional[int]
     forecast_origin: int
+    validation_start: Optional[int] = None
+    validation_end: Optional[int] = None
 
     # Backward-compatible aliases used by earlier foundation helpers.
     @property
@@ -99,6 +101,8 @@ def build_train_metadata(
     scaler_params: Optional[Mapping[str, Any]] = None,
     training_start: Optional[int] = None,
     training_end: Optional[int] = None,
+    validation_start: Optional[int] = None,
+    validation_end: Optional[int] = None,
     epochs_ran: Optional[int] = None,
     best_epoch: Optional[int] = None,
     best_val_loss: Optional[float] = None,
@@ -134,6 +138,8 @@ def build_train_metadata(
         training_start=training_start,
         training_end=training_end,
         forecast_origin=int(forecast_origin),
+        validation_start=validation_start,
+        validation_end=validation_end,
     )
 
 

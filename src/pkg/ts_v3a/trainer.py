@@ -7,7 +7,7 @@ candidates do not fork training loops.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Protocol
+from typing import Any, Optional, Protocol
 
 import numpy as np
 
@@ -77,6 +77,8 @@ class NeuralTrainer:
         forecast_origin: int,
         training_start: Optional[int] = None,
         training_end: Optional[int] = None,
+        validation_start: Optional[int] = None,
+        validation_end: Optional[int] = None,
         eligibility: Optional[SampleEligibility] = None,
     ) -> TrainMetadata:
         """Fit on already-scaled train/val arrays with chronological validation."""
@@ -135,6 +137,7 @@ class NeuralTrainer:
             epochs=int(self.config.max_epochs),
             batch_size=int(self.config.batch_size),
             callbacks=[early],
+            shuffle=False,
             verbose=0,
         )
 
@@ -164,6 +167,8 @@ class NeuralTrainer:
             scaler_params=scaler.params(),
             training_start=training_start,
             training_end=training_end,
+            validation_start=validation_start,
+            validation_end=validation_end,
             epochs_ran=epochs_ran,
             best_epoch=best_epoch,
             best_val_loss=best_val_loss,
@@ -184,6 +189,8 @@ class NeuralTrainer:
         forecast_origin: int,
         training_start: Optional[int] = None,
         training_end: Optional[int] = None,
+        validation_start: Optional[int] = None,
+        validation_end: Optional[int] = None,
     ) -> TrainMetadata:
         """Fit from a scaled :class:`FoldSplit` (requires non-empty validation)."""
         eligibility = evaluate_split_eligibility(split, config=self.config)
@@ -201,13 +208,17 @@ class NeuralTrainer:
             forecast_origin=forecast_origin,
             training_start=training_start,
             training_end=training_end,
+            validation_start=validation_start,
+            validation_end=validation_end,
             eligibility=eligibility,
         )
 
-    def predict(self, X: np.ndarray, *, inverse_transform: bool = True) -> np.ndarray:
-        """Predict; by default inverse-transform to raw sales units.
+    def predict(self, X: np.ndarray, *, inverse_transform: bool = False) -> np.ndarray:
+        """Predict in scaled space by default.
 
-        Does **not** apply non-negativity or any business postprocessing.
+        Set ``inverse_transform=True`` to map through the fold scaler.
+        Does **not** apply clipping, non-negativity, rounding, smoothing, or
+        any business postprocessing.
         """
         if self.model_ is None:
             raise RuntimeError("NeuralTrainer.predict called before fit")

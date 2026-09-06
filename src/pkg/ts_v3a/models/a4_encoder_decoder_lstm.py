@@ -135,6 +135,8 @@ class EncoderDecoderLSTM(BaseNeuralForecastModel):
             forecast_origin=int(window.forecast_origin),
             training_start=fold.metadata.training_start,
             training_end=fold.metadata.training_end,
+            validation_start=fold.metadata.validation_start,
+            validation_end=fold.metadata.validation_end,
         )
         self._trainer = trainer
         self._scaler = scaler

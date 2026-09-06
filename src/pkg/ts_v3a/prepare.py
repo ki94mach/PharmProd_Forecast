@@ -11,8 +11,20 @@ from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig, config_par
 from pkg.ts_v3a.eligibility import evaluate_split_eligibility
 from pkg.ts_v3a.scaling import FoldScaler, fit_fold_scaler
 from pkg.ts_v3a.split import assert_split_before_origin, chronological_train_val_split
-from pkg.ts_v3a.types import PreparedNeuralFold, TargetMode, build_train_metadata
+from pkg.ts_v3a.types import PreparedNeuralFold, TargetMode, WindowDataset, build_train_metadata
 from pkg.ts_v3a.windows import ArrayLike, build_windows
+
+
+def _first_last_end_dates(
+    dataset: Optional[WindowDataset],
+) -> tuple[Optional[int], Optional[int]]:
+    """Return first/last non-null ``end_dates`` from a window dataset."""
+    if dataset is None or not dataset.end_dates:
+        return None, None
+    non_null = [int(d) for d in dataset.end_dates if d is not None]
+    if not non_null:
+        return None, None
+    return non_null[0], non_null[-1]
 
 
 def prepare_neural_fold(
@@ -43,17 +55,17 @@ def prepare_neural_fold(
         require_samples=True,
     )
 
-    training_start: Optional[int] = None
-    training_end: Optional[int] = None
+    series_start: Optional[int] = None
+    series_end: Optional[int] = None
     if isinstance(history, pd.Series):
         n_history = len(history)
         if n_history:
             try:
-                training_start = int(history.index[0])
-                training_end = int(history.index[-1])
+                series_start = int(history.index[0])
+                series_end = int(history.index[-1])
             except (TypeError, ValueError):
-                training_start = None
-                training_end = None
+                series_start = None
+                series_end = None
     else:
         n_history = int(np.asarray(history, dtype=float).reshape(-1).shape[0])
 
@@ -77,6 +89,13 @@ def prepare_neural_fold(
     scaler = fit_fold_scaler(history, split.train, method=cfg.scaling_method)
     scaled = scaler.transform_split(split)
 
+    training_start, training_end = _first_last_end_dates(scaled.train)
+    if training_start is None:
+        training_start = series_start
+    if training_end is None:
+        training_end = series_end
+    validation_start, validation_end = _first_last_end_dates(scaled.validation)
+
     metadata = build_train_metadata(
         architecture=cfg.architecture_name,
         parameters=config_parameters_snapshot(cfg),
@@ -89,6 +108,8 @@ def prepare_neural_fold(
         scaler_params=scaler.params(),
         training_start=training_start,
         training_end=training_end,
+        validation_start=validation_start,
+        validation_end=validation_end,
     )
     fold = PreparedNeuralFold(
         train_X=scaled.train.X,
