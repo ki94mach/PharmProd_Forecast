@@ -75,6 +75,23 @@ experiments refuse overwrite; incompatible hashes raise
 `ExperimentConfigConflictError` (no silent append). Not wired to production
 or backfill runners.
 
+### Smoke / screening CLI
+
+```bash
+python -m pkg.ts_v3a.screen \
+  --products product1,product2 \
+  --origins 140401,140501 \
+  --architectures a0,a1,a2,a3,a4,a5 \
+  --seeds 41,42,43 \
+  --output data/ts_v3a/screening
+```
+
+Runs a small product×origin set through A0–A5 under the same V2/V3A contract,
+prints a per-fold runtime table, and persists immutable screening artifacts.
+Short aliases `a0`–`a5` are accepted. Does **not** select a winning architecture.
+Use `--dry-run` to resolve inputs and print `config_hash` without training.
+Optional `--max-epochs` / `--early-stopping-patience` bound smoke runtime.
+
 ## Training infrastructure
 
 Provides architecture/config abstractions (A0–A6), recursive and DIRECT/MIMO
@@ -83,7 +100,7 @@ train/validation for early stopping, sample eligibility gates, a shared
 `NeuralTrainer`, deterministic seed helpers, and training metadata.
 
 **Implemented:** A0–A5, outer expanding CV with multi-seed ensemble evaluation,
-immutable screening persistence (`V3A_VERSION = "v3a"`).
+immutable screening persistence (`V3A_VERSION = "v3a"`), smoke/screening CLI.
 **Not implemented yet:** A6 graph, architecture selection, full-history refit,
 production/backfill integration.
 
