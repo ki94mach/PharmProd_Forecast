@@ -4,12 +4,17 @@ Evaluates A0–A5 under the same historical forecasting contract as TS V2:
 ``ForecastWindow``, ``date < forecast_origin``, horizons 1..15, and
 horizon-equal MAE. Does not modify V1/V2 behavior, select architectures,
 refit on full history, or integrate with the server runner.
+
+Each configured seed is an independent training run. Seed-level OOF rows are
+always retained. A seed-ensemble forecast (mean across successful seeds) is
+emitted only when at least ``min_successful_seeds`` succeed for that
+architecture × origin (default 3).
 """
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Optional, Sequence, Union
 
 import pandas as pd
 
@@ -27,7 +32,13 @@ from pkg.ts_v2.types import PreparedSeries
 from pkg.ts_v3a.architectures import ArchitectureName
 from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig
 from pkg.ts_v3a.eligibility import IneligibleForTrainingError
-from pkg.ts_v3a.metrics import metrics_summary_row
+from pkg.ts_v3a.metrics import (
+    PREDICTION_KIND_SEED,
+    build_seed_ensemble_predictions,
+    ensemble_metrics_table,
+    seed_metrics_table,
+    stability_table,
+)
 from pkg.ts_v3a.model_factory import coerce_architecture_list, create_neural_model
 from pkg.ts_v3a.types import TrainMetadata
 from pkg.ts_v3a.windows import InsufficientHistoryError
@@ -42,6 +53,7 @@ PREDICTION_COLUMNS = (
     "horizon",
     "actual",
     "prediction",
+    "prediction_kind",
 )
 
 FOLD_METADATA_COLUMNS = (
@@ -78,11 +90,27 @@ STATUS_ERROR = "error"
 
 @dataclass
 class NeuralOuterBacktestResult:
-    """Out-of-fold predictions, fold metadata, and architecture metrics."""
+    """Out-of-fold seed predictions, seed-ensemble, and evaluation tables.
+
+    ``predictions`` / ``seed_predictions`` hold every individual seed OOF row.
+    ``ensemble_predictions`` holds mean forecasts across successful seeds only
+    when ``min_successful_seeds`` is met. ``metrics`` aliases ``ensemble_metrics``
+    (primary architecture screening score).
+    """
 
     predictions: pd.DataFrame
     fold_metadata: pd.DataFrame
     metrics: pd.DataFrame
+    ensemble_predictions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    ensemble_origin_status: pd.DataFrame = field(default_factory=pd.DataFrame)
+    seed_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
+    ensemble_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
+    stability: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    @property
+    def seed_predictions(self) -> pd.DataFrame:
+        """Alias for per-seed OOF predictions."""
+        return self.predictions
 
 
 def _actual_at(full_sales: pd.Series, target_date: int) -> float:
@@ -203,8 +231,8 @@ def _unavailable_metadata(
     }
 
 
-def _reason_from_exception(exc: BaseException) -> tuple[str, str, str]:
-    """Return (status, unavailable_reason, error_type) plus message separately."""
+def _reason_from_exception(exc: BaseException) -> tuple[str, Optional[str], str]:
+    """Return (status, unavailable_reason, error_type)."""
     if isinstance(exc, InsufficientHistoryError):
         return STATUS_UNAVAILABLE, "insufficient_history", type(exc).__name__
     if isinstance(exc, IneligibleForTrainingError):
@@ -221,35 +249,79 @@ def _reason_from_exception(exc: BaseException) -> tuple[str, str, str]:
     return STATUS_ERROR, None, type(exc).__name__
 
 
-def _coverage_for_slice(
-    predictions: pd.DataFrame,
+def _resolve_min_successful_seeds(
+    seed_list: Sequence[int],
     *,
-    product: str,
-    architecture: str,
+    config: NeuralExperimentConfig,
+    min_successful_seeds: Optional[int],
+) -> int:
+    min_ok = int(
+        min_successful_seeds
+        if min_successful_seeds is not None
+        else config.min_successful_seeds
+    )
+    if min_ok < 1:
+        raise ValueError(f"min_successful_seeds must be >= 1, got {min_ok}")
+    if min_ok > len(seed_list):
+        raise ValueError(
+            f"min_successful_seeds={min_ok} exceeds number of configured seeds "
+            f"({len(seed_list)}); pass fewer min_successful_seeds or more seeds"
+        )
+    return min_ok
+
+
+def _assemble_evaluation(
+    *,
+    predictions: pd.DataFrame,
+    fold_metadata: pd.DataFrame,
+    seed_list: Sequence[int],
+    arch_names: Sequence[str],
+    products: Sequence[str],
+    min_successful_seeds: int,
     forecast_horizon: int,
-) -> dict[str, Any]:
-    sub = predictions.loc[
-        (predictions["product"] == product)
-        & (predictions["architecture"] == architecture)
-    ]
-    if sub.empty:
-        return {
-            "number_of_origins": 0,
-            "number_of_predictions": 0,
-            "evaluated_horizons": (),
-            "max_evaluated_horizon": 0,
-        }
-    horizons = tuple(sorted(int(h) for h in sub["horizon"].unique()))
-    max_h = int(max(horizons)) if horizons else 0
-    return {
-        "number_of_origins": int(sub["origin"].nunique()),
-        "number_of_predictions": int(len(sub)),
-        "evaluated_horizons": horizons,
-        "max_evaluated_horizon": max_h,
-        "n_full_horizon_origins": int(
-            (sub.groupby("origin")["horizon"].max() >= forecast_horizon).sum()
-        ),
-    }
+    v2_cfg: TSForecastConfig,
+) -> NeuralOuterBacktestResult:
+    if not predictions.empty and "prediction_kind" not in predictions.columns:
+        predictions = predictions.copy()
+        predictions["prediction_kind"] = PREDICTION_KIND_SEED
+
+    ensemble_predictions, ensemble_origin_status = build_seed_ensemble_predictions(
+        predictions,
+        fold_metadata,
+        seeds=seed_list,
+        min_successful_seeds=min_successful_seeds,
+        status_ok=STATUS_OK,
+    )
+    seed_metrics = seed_metrics_table(
+        predictions,
+        fold_metadata,
+        forecast_horizon=forecast_horizon,
+        v2_config=v2_cfg,
+        status_ok=STATUS_OK,
+    )
+    ensemble_metrics = ensemble_metrics_table(
+        ensemble_predictions,
+        ensemble_origin_status,
+        products=products,
+        architectures=list(arch_names),
+        forecast_horizon=forecast_horizon,
+        v2_config=v2_cfg,
+    )
+    stability = stability_table(
+        predictions,
+        seed_metrics,
+        forecast_horizon=forecast_horizon,
+    )
+    return NeuralOuterBacktestResult(
+        predictions=predictions,
+        fold_metadata=fold_metadata,
+        metrics=ensemble_metrics,
+        ensemble_predictions=ensemble_predictions,
+        ensemble_origin_status=ensemble_origin_status,
+        seed_metrics=seed_metrics,
+        ensemble_metrics=ensemble_metrics,
+        stability=stability,
+    )
 
 
 def _run_one_fold(
@@ -313,13 +385,13 @@ def _run_one_fold(
                     "horizon": int(h),
                     "actual": _actual_at(full_sales, int(target)),
                     "prediction": float(pred),
+                    "prediction_kind": PREDICTION_KIND_SEED,
                 }
             )
         return pred_rows, fold_meta
     except Exception as exc:  # noqa: BLE001 — fold isolation
         runtime = time.perf_counter() - t0
         status, unavailable_reason, error_type = _reason_from_exception(exc)
-        # Prefer typed eligibility reason when present.
         if isinstance(exc, IneligibleForTrainingError) and exc.eligibility is not None:
             unavailable_reason = exc.eligibility.reason or unavailable_reason
         lookback = None
@@ -352,7 +424,6 @@ def _run_one_fold(
         )
         return [], fold_meta
     finally:
-        # Discard fitted model after the fold (no cross-fold weight reuse).
         model = None
 
 
@@ -365,18 +436,27 @@ def backtest_product_architectures(
     config: Optional[NeuralExperimentConfig] = None,
     v2_config: Optional[TSForecastConfig] = None,
     explicit_origins: Optional[Sequence[int]] = None,
+    min_successful_seeds: Optional[int] = None,
     product_col: str = "product",
     date_col: str = "date",
     sales_col: str = "sales",
     product_id_col: Optional[str] = "product_id",
 ) -> NeuralOuterBacktestResult:
-    """Expanding outer CV for one SKU across architectures and seeds."""
+    """Expanding outer CV for one SKU across architectures and seeds.
+
+    Seeds are never mixed across SKU / origin / architecture. Each seed trains
+    a fresh model. Seed-ensemble means require at least ``min_successful_seeds``
+    successful seeds (default 3 from config).
+    """
     cfg = config or DEFAULT_CONFIG
     v2_cfg = v2_config or V2_DEFAULT_CONFIG
     arch_list = coerce_architecture_list(architectures)
     seed_list = tuple(int(s) for s in (seeds if seeds is not None else cfg.random_seeds))
     if not seed_list:
         raise ValueError("seeds must contain at least one seed")
+    min_ok = _resolve_min_successful_seeds(
+        seed_list, config=cfg, min_successful_seeds=min_successful_seeds
+    )
 
     product_id = _product_id_lookup(
         sales, product, product_col=product_col, product_id_col=product_id_col
@@ -409,7 +489,6 @@ def backtest_product_architectures(
             sales_col=sales_col,
         )
         if prepared.n_observations < v2_cfg.min_train_months:
-            # Same gate as V2: skip origin entirely (no fake folds).
             continue
         prepared_by_origin[int(cover.window.forecast_origin)] = prepared
 
@@ -442,48 +521,15 @@ def backtest_product_architectures(
     if not predictions.empty:
         assert_backtest_no_leakage(predictions, prepared_by_origin)
 
-    metrics_rows: list[dict[str, Any]] = []
-    for architecture in arch_list:
-        arch_name = architecture.value
-        cov = _coverage_for_slice(
-            predictions,
-            product=product,
-            architecture=arch_name,
-            forecast_horizon=v2_cfg.forecast_horizon,
-        )
-        unavailable_count = 0
-        if not fold_metadata.empty:
-            unavailable_count = int(
-                (
-                    (fold_metadata["product"] == product)
-                    & (fold_metadata["architecture"] == arch_name)
-                    & (fold_metadata["status"] != STATUS_OK)
-                ).sum()
-            )
-        sub = predictions.loc[
-            (predictions["product"] == product)
-            & (predictions["architecture"] == arch_name)
-        ]
-        metrics_rows.append(
-            metrics_summary_row(
-                product,
-                arch_name,
-                sub,
-                number_of_origins=cov["number_of_origins"],
-                number_of_predictions=cov["number_of_predictions"],
-                evaluated_horizons=cov["evaluated_horizons"],
-                max_evaluated_horizon=cov["max_evaluated_horizon"],
-                unavailable_fold_count=unavailable_count,
-                forecast_horizon=v2_cfg.forecast_horizon,
-                v2_config=v2_cfg,
-            )
-        )
-
-    metrics = pd.DataFrame(metrics_rows) if metrics_rows else pd.DataFrame()
-    return NeuralOuterBacktestResult(
+    return _assemble_evaluation(
         predictions=predictions,
         fold_metadata=fold_metadata,
-        metrics=metrics,
+        seed_list=seed_list,
+        arch_names=[a.value for a in arch_list],
+        products=[product],
+        min_successful_seeds=min_ok,
+        forecast_horizon=v2_cfg.forecast_horizon,
+        v2_cfg=v2_cfg,
     )
 
 
@@ -496,6 +542,7 @@ def run_outer_backtest(
     config: Optional[NeuralExperimentConfig] = None,
     v2_config: Optional[TSForecastConfig] = None,
     explicit_origins: Optional[Sequence[int]] = None,
+    min_successful_seeds: Optional[int] = None,
     product_col: str = "product",
     date_col: str = "date",
     sales_col: str = "sales",
@@ -503,31 +550,41 @@ def run_outer_backtest(
 ) -> NeuralOuterBacktestResult:
     """Evaluate A0–A5 across products, outer origins, and seeds (raw units).
 
-    For each historical origin ``O``:
+    For each historical origin ``O`` and each configured seed:
 
     - select history with ``date < O`` via V2 ``prepare_monthly_series``
     - resolve architecture configuration from that history only (A0 tiers)
-    - train a fresh model through ``NeuralTrainer``
+    - train a fresh model through ``NeuralTrainer`` (independent seed run)
     - forecast exactly h1..h15 and score evaluable outer actuals only
     - discard the fitted model after the fold
 
-    Primary architecture metric is ``mean_horizon_MAE`` (equal-weight mean of
-    horizon MAEs). Seeds are pooled for metrics; seed remains on OOF rows.
+    Seed-ensemble ``prediction = mean(successful seeds)`` is built only when
+    at least ``min_successful_seeds`` (default 3) succeed for that
+    architecture × origin. Primary architecture metric is ensemble
+    ``mean_horizon_MAE``.
     """
+    cfg = config or DEFAULT_CONFIG
+    v2_cfg = v2_config or V2_DEFAULT_CONFIG
+    arch_list = coerce_architecture_list(architectures)
+    seed_list = tuple(int(s) for s in (seeds if seeds is not None else cfg.random_seeds))
+    min_ok = _resolve_min_successful_seeds(
+        seed_list, config=cfg, min_successful_seeds=min_successful_seeds
+    )
+
     product_list = [str(p) for p in products]
     all_pred: list[pd.DataFrame] = []
     all_meta: list[pd.DataFrame] = []
-    all_met: list[pd.DataFrame] = []
 
     for product in product_list:
         result = backtest_product_architectures(
             sales,
             product,
             architectures=architectures,
-            seeds=seeds,
-            config=config,
-            v2_config=v2_config,
+            seeds=seed_list,
+            config=cfg,
+            v2_config=v2_cfg,
             explicit_origins=explicit_origins,
+            min_successful_seeds=min_ok,
             product_col=product_col,
             date_col=date_col,
             sales_col=sales_col,
@@ -537,8 +594,6 @@ def run_outer_backtest(
             all_pred.append(result.predictions)
         if not result.fold_metadata.empty:
             all_meta.append(result.fold_metadata)
-        if not result.metrics.empty:
-            all_met.append(result.metrics)
 
     predictions = (
         pd.concat(all_pred, ignore_index=True) if all_pred else _empty_predictions()
@@ -546,11 +601,15 @@ def run_outer_backtest(
     fold_metadata = (
         pd.concat(all_meta, ignore_index=True) if all_meta else _empty_fold_metadata()
     )
-    metrics = pd.concat(all_met, ignore_index=True) if all_met else pd.DataFrame()
-    return NeuralOuterBacktestResult(
+    return _assemble_evaluation(
         predictions=predictions,
         fold_metadata=fold_metadata,
-        metrics=metrics,
+        seed_list=seed_list,
+        arch_names=[a.value for a in arch_list],
+        products=product_list,
+        min_successful_seeds=min_ok,
+        forecast_horizon=v2_cfg.forecast_horizon,
+        v2_cfg=v2_cfg,
     )
 
 

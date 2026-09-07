@@ -61,6 +61,7 @@ class TestBoundaryLookbackHorizon(unittest.TestCase):
         self.assertEqual(cfg.max_epochs, 500)
         self.assertEqual(cfg.early_stopping_patience, 30)
         self.assertEqual(cfg.random_seeds, (41, 42, 43))
+        self.assertEqual(cfg.min_successful_seeds, 3)
         self.assertEqual(cfg.scaling_method, "standard")
         self.assertEqual(cfg.number_layers, 1)
         self.assertEqual(cfg.min_internal_train_windows, 8)

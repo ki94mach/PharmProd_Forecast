@@ -23,7 +23,14 @@ from pkg.ts_v3a.eligibility import (
     evaluate_history_eligibility,
     evaluate_split_eligibility,
 )
-from pkg.ts_v3a.metrics import mean_horizon_mae, metrics_summary_row
+from pkg.ts_v3a.metrics import (
+    build_seed_ensemble_predictions,
+    ensemble_metrics_table,
+    mean_horizon_mae,
+    metrics_summary_row,
+    seed_metrics_table,
+    stability_table,
+)
 from pkg.ts_v3a.model_factory import (
     IMPLEMENTED_ARCHITECTURES,
     coerce_architecture_list,
@@ -100,6 +107,7 @@ __all__ = [
     "build_mimo_lstm",
     "build_mimo_windows",
     "build_recursive_windows",
+    "build_seed_ensemble_predictions",
     "build_small_recursive_lstm",
     "build_stacked_mimo_lstm",
     "build_train_metadata",
@@ -108,6 +116,7 @@ __all__ = [
     "coerce_architecture_list",
     "create_neural_model",
     "default_a0_config",
+    "ensemble_metrics_table",
     "evaluate_history_eligibility",
     "evaluate_split_eligibility",
     "expected_n_samples",
@@ -119,7 +128,9 @@ __all__ = [
     "resolve_legacy_architecture",
     "rollout_recursive_forecast",
     "run_outer_backtest",
+    "seed_metrics_table",
     "set_global_seeds",
+    "stability_table",
     "target_mode_for",
     "unique_observation_indices",
 ]

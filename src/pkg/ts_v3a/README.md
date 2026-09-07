@@ -34,8 +34,31 @@ the V2 historical contract for every SKU × architecture × outer origin × seed
 6. score outer actuals only after prediction; discard the fitted model
 
 Insufficient / ineligible history records a typed unavailable fold (no zero
-forecasts). Primary metric is `mean_horizon_MAE` (equal-weight mean of
-horizon MAEs), not row-weighted MAE.
+forecasts).
+
+### Multi-seed evaluation
+
+Default seeds are `(41, 42, 43)`. Each seed is an independent training run; all
+seed OOF rows are retained (`predictions` / `seed_predictions` with
+`prediction_kind="seed"`).
+
+A seed-ensemble forecast is then formed per architecture × origin:
+
+`prediction_seed_ensemble = mean(prediction across successful seeds)`
+
+Architecture screening requires `min_successful_seeds = 3` by default. If fewer
+seeds succeed, that origin’s ensemble is marked unavailable
+(`insufficient_successful_seeds`) rather than averaging a partial set.
+
+Result tables:
+
+- `seed_metrics` — per-seed horizon MAE / mean_horizon_MAE / RMSE / bias / WMAPE
+- `ensemble_predictions` / `ensemble_metrics` — ensemble OOF and primary screening metrics
+- `stability` — prediction std by horizon, MAE std/min/max/CV across seeds
+- `metrics` — alias of `ensemble_metrics`
+
+Primary architecture metric remains equal-weight `mean_horizon_MAE` on the
+seed-ensemble forecasts (not row-weighted MAE).
 
 ## Training infrastructure
 
@@ -46,7 +69,8 @@ train/validation for early stopping, sample eligibility gates, a shared
 
 **Implemented:** A0 `legacy_adaptive_recursive_lstm`, A1 `small_recursive_lstm`,
 A2 `mimo_lstm`, A3 `stacked_mimo_lstm`, A4 `encoder_decoder_lstm`,
-A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`), outer expanding CV.
+A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`), outer expanding CV with
+multi-seed ensemble evaluation.
 **Not implemented yet:** A6 graph, architecture selection, full-history refit,
 results writers.
 

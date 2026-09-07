@@ -34,6 +34,7 @@ class NeuralExperimentConfig:
     max_epochs: int = 500
     early_stopping_patience: int = 30
     random_seeds: tuple[int, ...] = (41, 42, 43)
+    min_successful_seeds: int = 3
     scaling_method: ScalingMethod = "standard"
     validation_fraction: float = 0.2
     min_internal_train_windows: int = 8
@@ -61,6 +62,10 @@ class NeuralExperimentConfig:
             )
         if len(self.random_seeds) < 1:
             raise ValueError("random_seeds must contain at least one seed")
+        if self.min_successful_seeds < 1:
+            raise ValueError(
+                f"min_successful_seeds must be >= 1, got {self.min_successful_seeds}"
+            )
 
     def as_parameters_dict(self) -> dict:
         """Serializable parameter snapshot for :class:`TrainMetadata`."""
@@ -87,6 +92,7 @@ class NeuralExperimentConfig:
             max_epochs=self.max_epochs,
             early_stopping_patience=self.early_stopping_patience,
             random_seeds=self.random_seeds,
+            min_successful_seeds=self.min_successful_seeds,
             scaling_method=self.scaling_method,
             validation_fraction=self.validation_fraction,
             min_internal_train_windows=self.min_internal_train_windows,

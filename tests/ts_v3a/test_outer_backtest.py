@@ -214,6 +214,7 @@ class TestOuterContract(unittest.TestCase):
             max_epochs=1,
             early_stopping_patience=1,
             random_seeds=(41,),
+            min_successful_seeds=1,
         )
         # 12 train + 15 targets = 27 months from 140301 → origin 140401 has full H.
         self.sales = _monthly_sales_frame("SKU1", 140301, 40, product_id=101)
@@ -309,6 +310,7 @@ class TestOuterLeakage(unittest.TestCase):
             max_epochs=1,
             early_stopping_patience=1,
             random_seeds=(41,),
+            min_successful_seeds=1,
         )
         self.origin = 140401
         # Distinct huge post-origin actuals that would dominate a leaky scaler.
@@ -427,6 +429,7 @@ class TestA0FoldIsolation(unittest.TestCase):
             max_epochs=1,
             early_stopping_patience=1,
             random_seeds=(41,),
+            min_successful_seeds=1,
         )
         with patch(
             "pkg.ts_v3a.backtest.create_neural_model",
@@ -464,6 +467,7 @@ class TestUnavailableFolds(unittest.TestCase):
             max_epochs=1,
             early_stopping_patience=1,
             random_seeds=(41,),
+            min_successful_seeds=1,
         )
         eligibility = SampleEligibility(
             mathematically_constructible=False,
@@ -550,6 +554,7 @@ class TestOuterMetrics(unittest.TestCase):
             horizon=2,
             lookback=3,
             random_seeds=(41,),
+            min_successful_seeds=1,
             min_internal_train_windows=2,
             min_internal_validation_windows=1,
         )
@@ -658,6 +663,7 @@ class TestOuterBacktestSmoke(unittest.TestCase):
             early_stopping_patience=1,
             batch_size=4,
             random_seeds=(41,),
+            min_successful_seeds=1,
         )
         result = run_outer_backtest(
             sales,
