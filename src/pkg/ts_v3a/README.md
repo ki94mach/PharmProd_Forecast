@@ -12,7 +12,7 @@ V3A reuses the V2 forecasting contract wherever possible:
 - Explicit `forecast_origin` (first target month; Shamsi `YYYYMM`)
 - Training history strictly `date < forecast_origin`
 - Exactly 15 target months (`horizon = 15`)
-- Expanding historical backtesting and horizon-level MAE (engine TBD)
+- Expanding historical backtesting and horizon-level MAE (`run_outer_backtest`)
 - Final full-history refit (engine TBD)
 - No quarterly smoothing
 - Common non-negative forecast constraint (postprocess TBD)
@@ -20,6 +20,22 @@ V3A reuses the V2 forecasting contract wherever possible:
 
 Callers should pass monthly series already cut to `date < forecast_origin`
 (e.g. via `pkg.ts_v2.prepare_monthly_series`).
+
+## Outer expanding backtest
+
+`run_outer_backtest` / `backtest_product_architectures` evaluate A0–A5 under
+the V2 historical contract for every SKU × architecture × outer origin × seed:
+
+1. history strictly `date < outer_origin` (V2 `prepare_monthly_series`)
+2. architecture resolution from that history only (A0 adaptive tiers)
+3. supervised windows → chronological internal train/val
+4. `FoldScaler` on unique raw internal-train observations
+5. fresh `NeuralTrainer` fit; forecast h1..h15; inverse-transform to raw units
+6. score outer actuals only after prediction; discard the fitted model
+
+Insufficient / ineligible history records a typed unavailable fold (no zero
+forecasts). Primary metric is `mean_horizon_MAE` (equal-weight mean of
+horizon MAEs), not row-weighted MAE.
 
 ## Training infrastructure
 
@@ -30,8 +46,9 @@ train/validation for early stopping, sample eligibility gates, a shared
 
 **Implemented:** A0 `legacy_adaptive_recursive_lstm`, A1 `small_recursive_lstm`,
 A2 `mimo_lstm`, A3 `stacked_mimo_lstm`, A4 `encoder_decoder_lstm`,
-A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`).
-**Not implemented yet:** A6 graph, backtest engine, results writers.
+A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`), outer expanding CV.
+**Not implemented yet:** A6 graph, architecture selection, full-history refit,
+results writers.
 
 ## Architecture candidates
 
