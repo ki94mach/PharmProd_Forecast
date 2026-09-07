@@ -1,8 +1,9 @@
 """V3A experimental local neural forecasting engine.
 
 Per-SKU neural models under the V2 forecasting contract. This package does not
-modify V1 or V2 behavior. A0–A5 and the outer expanding backtest are
-implemented; A6, architecture selection, and full-history refit are not yet.
+modify V1 or V2 behavior. A0–A5, outer expanding backtest, multi-seed evaluation,
+and immutable screening persistence are implemented; A6, architecture selection,
+and full-history refit are not yet.
 """
 from __future__ import annotations
 
@@ -55,6 +56,20 @@ from pkg.ts_v3a.models import (
     resolve_legacy_architecture,
     rollout_recursive_forecast,
 )
+from pkg.ts_v3a.persistence import (
+    V3A_VERSION,
+    ExperimentConfigConflictError,
+    ExperimentImmutableError,
+    LoadedScreeningExperiment,
+    ScreeningExperimentCheckpoint,
+    assert_compatible_config,
+    begin_screening_experiment,
+    finalize_screening_experiment,
+    load_screening_experiment,
+    persist_completed_screening_experiment,
+    screening_config_hash,
+    write_screening_checkpoint,
+)
 from pkg.ts_v3a.scaling import FoldScaler, fit_fold_scaler, unique_observation_indices
 from pkg.ts_v3a.seeds import set_global_seeds
 from pkg.ts_v3a.split import chronological_train_val_split
@@ -79,6 +94,8 @@ __all__ = [
     "BidirectionalMimoLSTM",
     "DEFAULT_CONFIG",
     "EncoderDecoderLSTM",
+    "ExperimentConfigConflictError",
+    "ExperimentImmutableError",
     "FOLD_METADATA_COLUMNS",
     "FoldScaler",
     "FoldSplit",
@@ -89,18 +106,23 @@ __all__ = [
     "InsufficientHistoryError",
     "LegacyAdaptiveRecursiveLSTM",
     "LegacyArchitectureSpec",
+    "LoadedScreeningExperiment",
     "MimoLSTM",
     "NeuralExperimentConfig",
     "NeuralOuterBacktestResult",
     "NeuralTrainer",
     "PREDICTION_COLUMNS",
     "SampleEligibility",
+    "ScreeningExperimentCheckpoint",
     "SmallRecursiveLSTM",
     "StackedMimoLSTM",
     "TargetMode",
     "TrainMetadata",
+    "V3A_VERSION",
     "WindowDataset",
+    "assert_compatible_config",
     "backtest_product_architectures",
+    "begin_screening_experiment",
     "build_bidirectional_mimo_lstm",
     "build_encoder_decoder_lstm",
     "build_legacy_adaptive_recursive_lstm",
@@ -120,17 +142,22 @@ __all__ = [
     "evaluate_history_eligibility",
     "evaluate_split_eligibility",
     "expected_n_samples",
+    "finalize_screening_experiment",
     "fit_fold_scaler",
+    "load_screening_experiment",
     "make_forecast_window",
     "mean_horizon_mae",
     "metrics_summary_row",
+    "persist_completed_screening_experiment",
     "reshape_mimo_targets",
     "resolve_legacy_architecture",
     "rollout_recursive_forecast",
     "run_outer_backtest",
+    "screening_config_hash",
     "seed_metrics_table",
     "set_global_seeds",
     "stability_table",
     "target_mode_for",
     "unique_observation_indices",
+    "write_screening_checkpoint",
 ]

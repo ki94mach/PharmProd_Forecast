@@ -16,7 +16,7 @@ V3A reuses the V2 forecasting contract wherever possible:
 - Final full-history refit (engine TBD)
 - No quarterly smoothing
 - Common non-negative forecast constraint (postprocess TBD)
-- Immutable forecast artifacts (persistence TBD)
+- Immutable screening experiment artifacts (`pkg.ts_v3a.persistence`)
 
 Callers should pass monthly series already cut to `date < forecast_origin`
 (e.g. via `pkg.ts_v2.prepare_monthly_series`).
@@ -60,6 +60,21 @@ Result tables:
 Primary architecture metric remains equal-weight `mean_horizon_MAE` on the
 seed-ensemble forecasts (not row-weighted MAE).
 
+### Screening persistence
+
+Immutable screening outputs land under:
+
+`data/ts_v3a/screening/{experiment_id}/`
+
+with `manifest.json`, seed OOF parquet, fold metadata, architecture /
+horizon / seed metrics CSVs, and `failures.csv`. Incomplete work uses
+`data/ts_v3a/screening/.incomplete/{experiment_id}/` then promotes on finalize.
+
+A deterministic `config_hash` covers scientific settings only. Completed
+experiments refuse overwrite; incompatible hashes raise
+`ExperimentConfigConflictError` (no silent append). Not wired to production
+or backfill runners.
+
 ## Training infrastructure
 
 Provides architecture/config abstractions (A0–A6), recursive and DIRECT/MIMO
@@ -67,12 +82,10 @@ window builders, unique-observation fold-local scaling, chronological internal
 train/validation for early stopping, sample eligibility gates, a shared
 `NeuralTrainer`, deterministic seed helpers, and training metadata.
 
-**Implemented:** A0 `legacy_adaptive_recursive_lstm`, A1 `small_recursive_lstm`,
-A2 `mimo_lstm`, A3 `stacked_mimo_lstm`, A4 `encoder_decoder_lstm`,
-A5 `bidirectional_mimo_lstm` (shared `NeuralTrainer`), outer expanding CV with
-multi-seed ensemble evaluation.
+**Implemented:** A0–A5, outer expanding CV with multi-seed ensemble evaluation,
+immutable screening persistence (`V3A_VERSION = "v3a"`).
 **Not implemented yet:** A6 graph, architecture selection, full-history refit,
-results writers.
+production/backfill integration.
 
 ## Architecture candidates
 
