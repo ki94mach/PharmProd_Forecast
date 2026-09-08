@@ -12,7 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.ts_v2.dates import make_screening_forecast_window, target_month
 from pkg.ts_v3a.split import assert_split_before_origin, chronological_train_val_split
 from pkg.ts_v3a.windows import build_mimo_windows, build_recursive_windows
 
@@ -24,8 +24,8 @@ def _shamsi_months(start: int, n: int) -> list[int]:
 class TestInternalSplit(unittest.TestCase):
     def test_validation_entirely_before_forecast_origin(self):
         origin = 140501
-        window = make_forecast_window(origin)
-        # 36 months ending at training_end
+        # MIMO / screening contract: history through origin - 1.
+        window = make_screening_forecast_window(origin)
         months = _shamsi_months(140201, 36)
         self.assertEqual(months[-1], window.training_end)
         history = pd.Series(np.arange(36, dtype=float), index=months)
@@ -44,7 +44,7 @@ class TestInternalSplit(unittest.TestCase):
 
     def test_outer_test_horizon_untouched_by_early_stopping(self):
         origin = 140501
-        window = make_forecast_window(origin)
+        window = make_screening_forecast_window(origin)
         months = _shamsi_months(140201, 36)
         history = pd.Series(np.arange(36, dtype=float), index=months)
         outer_dates = set(window.target_dates)

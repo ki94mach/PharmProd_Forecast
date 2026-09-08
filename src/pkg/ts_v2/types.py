@@ -12,10 +12,11 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class ForecastOrigin:
-    """Explicit forecast origin (first month of the forecast window).
+    """Explicit forecast origin (first delivered forecast month).
 
-    Shamsi ``YYYYMM`` integer, e.g. ``140501``. Training uses months strictly
-    before this origin; there is no implicit last-month drop.
+    Shamsi ``YYYYMM`` integer, e.g. ``140501``. Under the production time
+    contract this equals ``forecast_start``; training ends at
+    ``last_complete_month = forecast_start - 2``.
     """
 
     shamsi_yyyymm: int
@@ -23,21 +24,30 @@ class ForecastOrigin:
 
 @dataclass(frozen=True)
 class ForecastWindow:
-    """Explicit V2 origin / training / target-date contract for one run.
+    """Explicit origin / training / target-date contract for one run.
 
     Attributes:
-        forecast_origin: First forecast month (Shamsi YYYYMM), e.g. ``140501``.
-        training_end: Last inclusive training month (``forecast_origin - 1``).
-        target_dates: Exactly ``H`` Shamsi months; index ``i`` is horizon ``i+1``.
+        forecast_origin: First *delivered* forecast month (Shamsi YYYYMM),
+            also called ``forecast_start`` in the production contract.
+        training_end: Last inclusive training month.
+            Production: ``forecast_start - 2`` (``last_complete_month``).
+            Screening (A2–A5): ``forecast_origin - 1``.
+        target_dates: Exactly ``H`` *delivered* Shamsi months; index ``i``
+            is horizon ``i+1``. Horizon 1 equals ``forecast_origin``.
         horizons: ``(1, 2, ..., H)`` aligned with ``target_dates``.
+        current_partial_month: Bridge month (``forecast_start - 1``) under
+            the production contract; ``None`` for screening windows (no bridge).
 
-    Training rule: ``date < forecast_origin`` (never include the origin month).
+    Training rule: ``date <= training_end``. Production windows exclude the
+    partial/bridge month from training; models may still predict it internally
+    and discard it before delivery.
     """
 
     forecast_origin: int
     training_end: int
     target_dates: tuple[int, ...]
     horizons: tuple[int, ...]
+    current_partial_month: Optional[int] = None
 
     def __post_init__(self) -> None:
         if len(self.target_dates) != len(self.horizons):
@@ -52,6 +62,25 @@ class ForecastWindow:
                 "horizon 1 target must equal forecast_origin: "
                 f"{self.target_dates[0]} != {self.forecast_origin}"
             )
+        if self.current_partial_month is not None:
+            partial = int(self.current_partial_month)
+            if partial in self.target_dates:
+                raise ValueError(
+                    "current_partial_month must not appear in delivered "
+                    f"target_dates: {partial}"
+                )
+            if self.training_end >= partial:
+                raise ValueError(
+                    "training_end must be strictly before current_partial_month: "
+                    f"training_end={self.training_end}, partial={partial}"
+                )
+
+    @property
+    def internal_target_dates(self) -> tuple[int, ...]:
+        """Months predicted internally (bridge + delivered when production)."""
+        if self.current_partial_month is None:
+            return self.target_dates
+        return (int(self.current_partial_month),) + tuple(self.target_dates)
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.ts_v2.dates import make_screening_forecast_window, target_month
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a2_mimo_lstm import (
     MimoLSTM,
@@ -73,7 +73,7 @@ class TestA2PredictContract(unittest.TestCase):
     def test_output_shape_horizon_ordering_and_target_dates(self):
         months = [target_month(140201, i + 1) for i in range(40)]
         series = pd.Series(np.linspace(10.0, 100.0, 40), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         # Identity-ish: use raw 1..15 as "scaled" outputs with a series-fitted scaler
         # so we still check ordering after inverse transform preserves order.
         scaled_out = np.arange(1, 16, dtype=float)
@@ -108,7 +108,7 @@ class TestA2PredictContract(unittest.TestCase):
     def test_no_prediction_fed_back_as_input(self):
         months = [target_month(140201, i + 1) for i in range(40)]
         series = pd.Series(np.linspace(10.0, 100.0, 40), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         fake = _MimoFakeModel(np.arange(1, 16, dtype=float) * 0.1)
         model = MimoLSTM(default_a2_config())
         scaler = self._install_fake(model, series, fake)
@@ -127,7 +127,7 @@ class TestA2PredictContract(unittest.TestCase):
         history = np.linspace(10.0, 100.0, 40)
         months = [target_month(140201, i + 1) for i in range(40)]
         series = pd.Series(history, index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         scaled_out = np.linspace(-1.0, 1.0, 15)
         fake = _MimoFakeModel(scaled_out)
         model = MimoLSTM(default_a2_config())
@@ -151,7 +151,7 @@ class TestA2EndToEnd(unittest.TestCase):
         # N=48 → 22 MIMO windows: enough for eligibility (8+2).
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         self.assertEqual(months[-1], window.training_end)
 
         model = MimoLSTM(

@@ -84,7 +84,8 @@ class AutoARIMAModel(BaseForecastModel):
     def predict(self, horizon: int, target_dates: Sequence[int]) -> ForecastResult:
         if self._model is None:
             raise ModelUnavailableError("auto_arima is not fitted", model_name=self.name)
-        # Exactly ``horizon`` periods — never request horizon+1 and drop one.
+        # Exactly ``horizon`` periods relative to the dates passed in (run_model
+        # may request internal bridge+delivered length under the production contract).
         raw = self._model.predict(n_periods=int(horizon))
         preds = tuple(float(x) for x in raw)
         return point_forecast(

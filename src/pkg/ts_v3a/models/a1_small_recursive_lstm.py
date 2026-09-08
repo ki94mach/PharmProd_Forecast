@@ -10,6 +10,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+from pkg.ts_v2.dates import exclusive_training_cutoff, map_internal_predictions_to_delivered
 from pkg.ts_v2.types import ForecastResult, ForecastWindow
 from pkg.ts_v3a.architectures import ArchitectureName
 from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig
@@ -80,7 +81,7 @@ class SmallRecursiveLSTM(BaseNeuralForecastModel):
             )
         fold, scaler = prepare_neural_fold(
             train_series,
-            forecast_origin=int(window.forecast_origin),
+            forecast_origin=exclusive_training_cutoff(window),
             config=self.config,
             seed=int(seed),
             mode=TargetMode.RECURSIVE,
@@ -114,23 +115,30 @@ class SmallRecursiveLSTM(BaseNeuralForecastModel):
         return self
 
     def predict(self, window: ForecastWindow) -> ForecastResult:
-        """Recursive H-step forecast; inverse-transform once; no postprocess."""
+        """Recursive forecast; production windows roll 16 and discard the bridge."""
         if self._trainer is None or self._trainer.model_ is None:
             raise RuntimeError("SmallRecursiveLSTM.predict called before fit")
         if self._scaler is None or self._last_lookback_raw is None:
             raise RuntimeError("SmallRecursiveLSTM missing scaler or lookback state")
 
-        horizon = len(window.target_dates)
-        if horizon < 1:
+        delivered_horizon = len(window.target_dates)
+        if delivered_horizon < 1:
             raise ValueError("window.target_dates must be non-empty")
+        internal_horizon = len(window.internal_target_dates)
 
         scaled_lookback = self._scaler.transform(self._last_lookback_raw)
         scaled_preds = rollout_recursive_forecast(
             self._trainer.model_,
             scaled_lookback,
-            horizon=horizon,
+            horizon=internal_horizon,
         )
         raw_preds = self._scaler.inverse_transform_y(scaled_preds).reshape(-1)
+        if window.current_partial_month is not None:
+            delivered = map_internal_predictions_to_delivered(
+                raw_preds, delivered_horizon=delivered_horizon
+            )
+        else:
+            delivered = tuple(float(x) for x in raw_preds.tolist())
 
         meta: dict[str, Any] = {}
         if self.metadata_ is not None:
@@ -144,7 +152,7 @@ class SmallRecursiveLSTM(BaseNeuralForecastModel):
 
         return ForecastResult(
             model_name=self.name,
-            predictions=tuple(float(x) for x in raw_preds.tolist()),
+            predictions=tuple(float(x) for x in delivered),
             target_dates=tuple(int(d) for d in window.target_dates),
             horizons=tuple(int(h) for h in window.horizons),
             metadata=meta,

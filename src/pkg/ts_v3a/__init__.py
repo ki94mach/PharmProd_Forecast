@@ -7,9 +7,13 @@ and full-history refit are not yet.
 """
 from __future__ import annotations
 
-from pkg.ts_v2.dates import make_forecast_window
+from pkg.ts_v2.dates import make_forecast_window, make_screening_forecast_window
 from pkg.ts_v2.types import ForecastOrigin, ForecastWindow
-from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
+from pkg.ts_v3a.architectures import (
+    ArchitectureName,
+    target_mode_for,
+    uses_production_time_contract,
+)
 from pkg.ts_v3a.backtest import (
     FOLD_METADATA_COLUMNS,
     PREDICTION_COLUMNS,
@@ -146,6 +150,7 @@ __all__ = [
     "fit_fold_scaler",
     "load_screening_experiment",
     "make_forecast_window",
+    "make_screening_forecast_window",
     "mean_horizon_mae",
     "metrics_summary_row",
     "persist_completed_screening_experiment",
@@ -159,5 +164,6 @@ __all__ = [
     "stability_table",
     "target_mode_for",
     "unique_observation_indices",
+    "uses_production_time_contract",
     "write_screening_checkpoint",
 ]

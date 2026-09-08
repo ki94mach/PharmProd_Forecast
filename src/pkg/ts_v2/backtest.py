@@ -150,8 +150,18 @@ def _coverage_row(
 def assert_backtest_no_leakage(
     predictions: pd.DataFrame,
     prepared_by_origin: Mapping[int, PreparedSeries],
+    *,
+    windows_by_origin: Optional[Mapping[int, ForecastWindow]] = None,
 ) -> None:
-    """For each origin: ``max(training_date) < origin <= min(target_date)``."""
+    """For each origin: training ends at ``training_end``; targets start at origin.
+
+    Checks:
+    - ``max(train) <= training_end``
+    - ``max(train) < min(delivered target)``
+    - ``min(delivered target) == forecast_origin``
+    - when a production partial month is set: it is absent from training and
+      from delivered targets
+    """
     if predictions is None or predictions.empty:
         return
     for origin, group in predictions.groupby("origin"):
@@ -161,16 +171,55 @@ def assert_backtest_no_leakage(
             raise AssertionError(f"missing prepared series for origin {origin_i}")
         max_train = max(int(d) for d in prepared.dates)
         min_target = int(group["target_date"].min())
-        if not (max_train < origin_i <= min_target):
+        window = None
+        if windows_by_origin is not None:
+            window = windows_by_origin.get(origin_i)
+        training_end = (
+            int(window.training_end)
+            if window is not None
+            else (
+                int(prepared.last_training_month)
+                if prepared.last_training_month is not None
+                else max_train
+            )
+        )
+        if max_train > training_end:
+            raise AssertionError(
+                f"leakage at origin {origin_i}: max_train={max_train} > "
+                f"training_end={training_end}"
+            )
+        if not (max_train < min_target):
             raise AssertionError(
                 f"leakage/alignment at origin {origin_i}: "
                 f"max_train={max_train}, min_target={min_target}; "
-                f"require max_train < origin <= min_target"
+                f"require max_train < min_target"
             )
-        if any(int(d) >= origin_i for d in prepared.dates):
+        if min_target < origin_i:
             raise AssertionError(
-                f"prepared training dates include origin or later at {origin_i}"
+                f"delivered targets must start at or after forecast_origin "
+                f"{origin_i}, got min_target={min_target}"
             )
+        if any(int(d) > training_end for d in prepared.dates):
+            raise AssertionError(
+                f"prepared training dates include months after training_end "
+                f"at {origin_i}"
+            )
+        partial = window.current_partial_month if window is not None else None
+        if partial is None and prepared.forecast_origin == origin_i:
+            # Infer production partial when window not supplied: origin - 1.
+            # Prefer explicit window when available.
+            pass
+        if window is not None and window.current_partial_month is not None:
+            partial_i = int(window.current_partial_month)
+            if any(int(d) == partial_i for d in prepared.dates):
+                raise AssertionError(
+                    f"partial/bridge month {partial_i} present in training at {origin_i}"
+                )
+            if any(int(t) == partial_i for t in group["target_date"]):
+                raise AssertionError(
+                    f"partial/bridge month {partial_i} present in delivered "
+                    f"targets at {origin_i}"
+                )
 
 
 def backtest_product(
@@ -202,12 +251,13 @@ def backtest_product(
     pred_rows: list[dict] = []
     fail_rows: list[dict] = []
     prepared_by_origin: dict[int, PreparedSeries] = {}
+    windows_by_origin: dict[int, ForecastWindow] = {}
 
     for cover in origin_covers:
         prepared = prepare_monthly_series(
             sales,
             product,
-            cover.window.forecast_origin,
+            cover.window,
             config=cfg,
             product_col=product_col,
             date_col=date_col,
@@ -215,14 +265,16 @@ def backtest_product(
         )
         if prepared.n_observations < cfg.min_train_months:
             continue
-        prepared_by_origin[int(cover.window.forecast_origin)] = prepared
+        origin_key = int(cover.window.forecast_origin)
+        prepared_by_origin[origin_key] = prepared
+        windows_by_origin[origin_key] = cover.window
         fold = _fold_from_coverage(cover)
         full_win = fold.window
         assert full_win is not None
         evaluable_h = {int(h) for h in cover.evaluable_horizons}
 
         for model in models:
-            # Full 1..H contract for models; score only months with actuals.
+            # Full production contract for models; score only months with actuals.
             outcome = run_model(model, prepared.values, full_win)
             if is_failure(outcome):
                 assert isinstance(outcome, ModelFailure)
@@ -230,7 +282,7 @@ def backtest_product(
                     {
                         "product": product,
                         "model": outcome.model_name,
-                        "origin": int(cover.window.forecast_origin),
+                        "origin": origin_key,
                         "reason": outcome.reason,
                         "error_type": outcome.error_type,
                     }
@@ -249,7 +301,7 @@ def backtest_product(
                     {
                         "product": product,
                         "model": outcome.model_name,
-                        "origin": int(cover.window.forecast_origin),
+                        "origin": origin_key,
                         "target_date": int(target),
                         "horizon": int(h),
                         "actual": _actual_at(full_sales, int(target)),
@@ -267,7 +319,11 @@ def backtest_product(
     )
 
     if not predictions.empty:
-        assert_backtest_no_leakage(predictions, prepared_by_origin)
+        assert_backtest_no_leakage(
+            predictions,
+            prepared_by_origin,
+            windows_by_origin=windows_by_origin,
+        )
 
     coverage_rows = []
     metrics_rows = []

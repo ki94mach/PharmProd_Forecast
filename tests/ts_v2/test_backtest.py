@@ -20,6 +20,7 @@ from pkg.ts_v2.backtest import (
 from pkg.ts_v2.backtest_origins import discover_origins
 from pkg.ts_v2.config import TSForecastConfig
 from pkg.ts_v2.data import prepare_monthly_series, product_monthly_sales
+from pkg.ts_v2.dates import make_forecast_window
 from pkg.ts_v2.metrics import horizon_mae, selection_mae_from_horizons
 from pkg.ts_v2.models import BaseForecastModel, ForecastResult, register_model
 from pkg.ts_v2.models.registry import REGISTRY
@@ -217,10 +218,14 @@ class TestBacktestEngine(unittest.TestCase):
             prep = prepare_monthly_series(
                 self.sales, "SKU1", int(origin), config=self.cfg
             )
+            window = make_forecast_window(int(origin), config=self.cfg)
             max_train = max(prep.dates)
             min_target = int(group["target_date"].min())
-            self.assertLess(max_train, int(origin))
-            self.assertLessEqual(int(origin), min_target)
+            self.assertLessEqual(max_train, int(window.training_end))
+            self.assertLess(max_train, min_target)
+            self.assertEqual(min_target, int(origin))
+            if window.current_partial_month is not None:
+                self.assertNotIn(int(window.current_partial_month), prep.dates)
 
     def test_short_history_reduced_coverage_reported(self):
         short_sales = _monthly_sales_frame("SHORT", 140401, 16)
@@ -245,9 +250,10 @@ class TestBacktestEngine(unittest.TestCase):
         from pkg.benchmark.calendar import shamsi_add_months
         from pkg.ts_v2.backtest_origins import eval_window_for_origin
 
-        # Contiguous history, then drop one month that will be used as an origin.
-        sales = _monthly_sales_frame("SPARSE", 140401, 30)
-        gap_origin = 140501  # valid Shamsi YYYYMM (month 13 of contiguous series)
+        # Contiguous history long enough for production last_complete cut
+        # (train through origin-2 needs >= min_train months before partial).
+        sales = _monthly_sales_frame("SPARSE", 140312, 32)
+        gap_origin = 140501  # valid Shamsi YYYYMM inside the contiguous series
         sales = sales.loc[sales["date"] != gap_origin].reset_index(drop=True)
         cfg = TSForecastConfig(
             forecast_horizon=15,
@@ -268,6 +274,7 @@ class TestBacktestEngine(unittest.TestCase):
         self.assertEqual(full_win.target_dates[0], gap_origin)
 
         HorizonCaptureModel.last_horizons = ()
+        HorizonCaptureModel.last_target_dates = ()
         result = backtest_product(
             sales,
             "SPARSE",
@@ -275,7 +282,13 @@ class TestBacktestEngine(unittest.TestCase):
             config=cfg,
             explicit_origins=[gap_origin],
         )
-        self.assertEqual(HorizonCaptureModel.last_horizons, tuple(range(1, 16)))
+        # Production: models see bridge + delivered (16 internal steps).
+        self.assertEqual(HorizonCaptureModel.last_horizons, tuple(range(1, 17)))
+        self.assertEqual(len(HorizonCaptureModel.last_target_dates), 16)
+        self.assertEqual(
+            HorizonCaptureModel.last_target_dates[0],
+            shamsi_add_months(gap_origin, -1),
+        )
         self.assertFalse(result.predictions.empty)
         self.assertNotIn(1, set(result.predictions["horizon"].astype(int)))
         self.assertEqual(

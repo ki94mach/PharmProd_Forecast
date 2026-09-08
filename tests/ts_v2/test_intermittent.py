@@ -56,9 +56,11 @@ class TestIntermittencyDiagnostics(unittest.TestCase):
         )
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
+        # Production cut excludes partial 140412 → two months (10, 0).
         self.assertEqual(prepared.n_demand_months, 1)
-        self.assertAlmostEqual(prepared.zero_month_proportion, 2.0 / 3.0)
+        self.assertAlmostEqual(prepared.zero_month_proportion, 0.5)
         self.assertIsNone(prepared.average_inter_demand_interval)
+        self.assertEqual(prepared.last_training_month, 140411)
 
 
 class TestCrostonSBA(unittest.TestCase):

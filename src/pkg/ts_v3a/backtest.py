@@ -1,9 +1,11 @@
 """V3A outer expanding-CV backtest engine.
 
-Evaluates A0–A5 under the same historical forecasting contract as TS V2:
-``ForecastWindow``, ``date < forecast_origin``, horizons 1..15, and
-horizon-equal MAE. Does not modify V1/V2 behavior, select architectures,
-refit on full history, or integrate with the server runner.
+Evaluates A0–A5 under the V2 historical forecasting contracts:
+- A0/A1: production time contract (train through last_complete, 16→15 bridge)
+- A2–A5: screening contract (train through origin−1, no bridge)
+
+Horizon-equal MAE scoring is unchanged. Does not modify V1 behavior, select
+architectures, refit on full history, or integrate with the server runner.
 
 Each configured seed is an independent training run. Seed-level OOF rows are
 always retained. A seed-ensemble forecast (mean across successful seeds) is
@@ -22,14 +24,21 @@ from pkg.ts_v2.backtest import assert_backtest_no_leakage
 from pkg.ts_v2.backtest_origins import (
     OriginCoverage,
     discover_origins,
-    eval_window_for_origin,
 )
 from pkg.ts_v2.config import DEFAULT_CONFIG as V2_DEFAULT_CONFIG
 from pkg.ts_v2.config import TSForecastConfig
 from pkg.ts_v2.data import prepare_monthly_series, product_monthly_sales
-from pkg.ts_v2.dates import validate_shamsi_yyyymm
-from pkg.ts_v2.types import PreparedSeries
-from pkg.ts_v3a.architectures import ArchitectureName, coerce_architecture_name
+from pkg.ts_v2.dates import (
+    make_forecast_window,
+    make_screening_forecast_window,
+    validate_shamsi_yyyymm,
+)
+from pkg.ts_v2.types import ForecastWindow, PreparedSeries
+from pkg.ts_v3a.architectures import (
+    ArchitectureName,
+    coerce_architecture_name,
+    uses_production_time_contract,
+)
 from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig
 from pkg.ts_v3a.eligibility import IneligibleForTrainingError
 from pkg.ts_v3a.metrics import (
@@ -360,10 +369,23 @@ def assemble_neural_backtest_result(
     )
 
 
+def _window_for_architecture(
+    origin_ym: int,
+    architecture: ArchitectureName,
+    *,
+    v2_config: TSForecastConfig,
+) -> ForecastWindow:
+    """Production window for A0/A1; screening window for A2–A5."""
+    if uses_production_time_contract(architecture):
+        return make_forecast_window(origin_ym, config=v2_config)
+    return make_screening_forecast_window(origin_ym, config=v2_config)
+
+
 def _run_one_fold(
     *,
     prepared: PreparedSeries,
     cover: OriginCoverage,
+    window: ForecastWindow,
     architecture: ArchitectureName,
     seed: int,
     config: NeuralExperimentConfig,
@@ -373,7 +395,6 @@ def _run_one_fold(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fit + predict one fold; return (prediction rows, fold metadata row)."""
     origin = int(cover.window.forecast_origin)
-    window = eval_window_for_origin(cover)
     history = prepared.values
     available_history_length = int(prepared.n_observations)
     evaluable_h = {int(h) for h in cover.evaluable_horizons}
@@ -513,27 +534,35 @@ def backtest_product_architectures(
 
     pred_rows: list[dict[str, Any]] = []
     meta_rows: list[dict[str, Any]] = []
-    prepared_by_origin: dict[int, PreparedSeries] = {}
+    prepared_by_arch_origin: dict[tuple[str, int], PreparedSeries] = {}
+    windows_by_arch_origin: dict[tuple[str, int], ForecastWindow] = {}
 
     for cover in origin_covers:
-        prepared = prepare_monthly_series(
-            sales,
-            product,
-            cover.window.forecast_origin,
-            config=v2_cfg,
-            product_col=product_col,
-            date_col=date_col,
-            sales_col=sales_col,
-        )
-        if prepared.n_observations < v2_cfg.min_train_months:
-            continue
-        prepared_by_origin[int(cover.window.forecast_origin)] = prepared
-
+        origin_ym = int(cover.window.forecast_origin)
         for architecture in arch_list:
+            window = _window_for_architecture(
+                origin_ym, architecture, v2_config=v2_cfg
+            )
+            prepared = prepare_monthly_series(
+                sales,
+                product,
+                window,
+                config=v2_cfg,
+                product_col=product_col,
+                date_col=date_col,
+                sales_col=sales_col,
+            )
+            if prepared.n_observations < v2_cfg.min_train_months:
+                continue
+            arch_key = (architecture.value, origin_ym)
+            prepared_by_arch_origin[arch_key] = prepared
+            windows_by_arch_origin[arch_key] = window
+
             for seed in seed_list:
                 fold_preds, fold_meta = _run_one_fold(
                     prepared=prepared,
                     cover=cover,
+                    window=window,
                     architecture=architecture,
                     seed=seed,
                     config=cfg,
@@ -546,7 +575,7 @@ def backtest_product_architectures(
                 if progress_prefix:
                     rt = fold_meta.get("runtime_seconds")
                     print(
-                        f"{progress_prefix} origin={cover.window.forecast_origin} "
+                        f"{progress_prefix} origin={origin_ym} "
                         f"arch={architecture.value} seed={seed} "
                         f"status={fold_meta.get('status')} runtime_s={rt}",
                         flush=True,
@@ -564,7 +593,24 @@ def backtest_product_architectures(
     )
 
     if not predictions.empty:
-        assert_backtest_no_leakage(predictions, prepared_by_origin)
+        for architecture in arch_list:
+            arch_name = architecture.value
+            sub = predictions.loc[predictions["architecture"] == arch_name]
+            if sub.empty:
+                continue
+            prepared_map = {
+                origin: prepared_by_arch_origin[(arch_name, int(origin))]
+                for origin in sub["origin"].unique()
+                if (arch_name, int(origin)) in prepared_by_arch_origin
+            }
+            windows_map = {
+                origin: windows_by_arch_origin[(arch_name, int(origin))]
+                for origin in sub["origin"].unique()
+                if (arch_name, int(origin)) in windows_by_arch_origin
+            }
+            assert_backtest_no_leakage(
+                sub, prepared_map, windows_by_origin=windows_map
+            )
 
     return _assemble_evaluation(
         predictions=predictions,
@@ -597,10 +643,11 @@ def run_outer_backtest(
 
     For each historical origin ``O`` and each configured seed:
 
-    - select history with ``date < O`` via V2 ``prepare_monthly_series``
+    - A0/A1: production contract (train through ``O-2``, bridge 16→15)
+    - A2–A5: screening contract (train through ``O-1``, no bridge)
     - resolve architecture configuration from that history only (A0 tiers)
     - train a fresh model through ``NeuralTrainer`` (independent seed run)
-    - forecast exactly h1..h15 and score evaluable outer actuals only
+    - forecast delivered h1..h15 and score evaluable outer actuals only
     - discard the fitted model after the fold
 
     Seed-ensemble ``prediction = mean(successful seeds)`` is built only when

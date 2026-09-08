@@ -80,7 +80,8 @@ class TestSeasonalNaiveModel(unittest.TestCase):
         outcome = run_model(SeasonalNaiveModel(), train, _window(15))
         self.assertTrue(is_success(outcome))
         assert isinstance(outcome, ForecastResult)
-        expected = tuple(cycle + [1.0, 2.0, 3.0])
+        # Production: internal 16 = cycle + [1,2,3,4]; discard bridge (1) → rest.
+        expected = tuple(cycle[1:] + [1.0, 2.0, 3.0, 4.0])
         self.assertEqual(outcome.predictions, expected)
         self.assertEqual(len(outcome.predictions), 15)
         self.assertEqual(outcome.target_dates, _window(15).target_dates)
@@ -91,7 +92,9 @@ class TestSeasonalNaiveModel(unittest.TestCase):
         train = _series(old + latest)
         outcome = run_model(SeasonalNaiveModel(), train, _window(15))
         assert isinstance(outcome, ForecastResult)
-        self.assertEqual(outcome.predictions, tuple(latest + [1.0, 2.0, 3.0]))
+        self.assertEqual(
+            outcome.predictions, tuple(latest[1:] + [1.0, 2.0, 3.0, 4.0])
+        )
 
     def test_insufficient_history_is_unavailable_not_naive(self):
         train = _series([1.0] * 11)
@@ -121,23 +124,23 @@ class TestSeasonalNaiveModel(unittest.TestCase):
 class TestDriftModel(unittest.TestCase):
     def test_two_points_hand_calculated_horizon_15(self):
         # y = [10, 20], T=2, slope = (20-10)/1 = 10
-        # yhat[h] = 20 + 10*h
+        # Internal yhat[h] = 20 + 10*h for h=1..16; discard bridge → h=2..16
         train = _series([10.0, 20.0])
         outcome = run_model(DriftModel(), train, _window(15))
         self.assertTrue(is_success(outcome))
         assert isinstance(outcome, ForecastResult)
-        expected = tuple(20.0 + 10.0 * h for h in range(1, 16))
+        expected = tuple(20.0 + 10.0 * h for h in range(2, 17))
         self.assertEqual(outcome.predictions, expected)
-        self.assertEqual(outcome.predictions[-1], 170.0)
+        self.assertEqual(outcome.predictions[-1], 180.0)
         self.assertEqual(len(outcome.predictions), 15)
 
     def test_three_points_hand_calculated(self):
         # y = [10, 12, 14], T=3, slope = (14-10)/2 = 2
-        # yhat[h] = 14 + 2*h
+        # Internal h=1..5 → 16..24; discard bridge → 18..24
         train = _series([10.0, 12.0, 14.0])
         outcome = run_model(DriftModel(), train, _window(4))
         assert isinstance(outcome, ForecastResult)
-        self.assertEqual(outcome.predictions, (16.0, 18.0, 20.0, 22.0))
+        self.assertEqual(outcome.predictions, (18.0, 20.0, 22.0, 24.0))
 
     def test_one_observation_unavailable_not_naive(self):
         train = _series([7.0])
@@ -155,11 +158,11 @@ class TestDriftModel(unittest.TestCase):
         self.assertEqual(outcome.predictions, tuple(0.0 for _ in range(15)))
 
     def test_negative_drift_not_clipped(self):
-        # y = [10, 4], slope = (4-10)/1 = -6; yhat[h] = 4 - 6h
+        # y = [10, 4], slope = -6; internal h=1..4 then discard bridge
         train = _series([10.0, 4.0])
         outcome = run_model(DriftModel(), train, _window(3))
         assert isinstance(outcome, ForecastResult)
-        self.assertEqual(outcome.predictions, (-2.0, -8.0, -14.0))
+        self.assertEqual(outcome.predictions, (-8.0, -14.0, -20.0))
 
 
 class TestBaselineRegistry(unittest.TestCase):

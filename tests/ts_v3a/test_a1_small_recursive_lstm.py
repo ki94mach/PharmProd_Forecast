@@ -12,7 +12,12 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.benchmark.calendar import shamsi_add_months
+from pkg.ts_v2.dates import (
+    exclusive_training_cutoff,
+    make_forecast_window,
+    target_month,
+)
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a1_small_recursive_lstm import (
     SmallRecursiveLSTM,
@@ -97,10 +102,12 @@ class TestA1InverseScalingAndForecastResult(unittest.TestCase):
 
     def test_forecast_result_matches_v2_window_dates(self):
         """Wire SmallRecursiveLSTM.predict path with injected fake trainer model."""
-        months = [target_month(140201, i + 1) for i in range(36)]
-        series = pd.Series(np.linspace(10.0, 100.0, 36), index=months)
+        # 35 months ending at last_complete (140411) for forecast_start 140501.
+        months = [target_month(140201, i + 1) for i in range(35)]
+        series = pd.Series(np.linspace(10.0, 100.0, 35), index=months)
         window = make_forecast_window(140501)
         self.assertEqual(window.training_end, months[-1])
+        self.assertEqual(len(window.internal_target_dates), 16)
 
         model = SmallRecursiveLSTM(
             default_a1_config(max_epochs=1, early_stopping_patience=1)
@@ -120,8 +127,8 @@ class TestA1InverseScalingAndForecastResult(unittest.TestCase):
         self.assertEqual(len(result.predictions), 15)
         self.assertEqual(result.target_dates, window.target_dates)
         self.assertEqual(result.horizons, window.horizons)
-        # Predictions are inverse-transformed 1..15 in scaled space.
-        scaled = np.arange(1, 16, dtype=float)
+        # Internal 16 steps (1..16); bridge discarded → delivered inverse(2..16).
+        scaled = np.arange(2, 17, dtype=float)
         expected = scaler.inverse_transform_y(scaled).reshape(-1)
         np.testing.assert_allclose(result.predictions, expected)
 
@@ -152,10 +159,11 @@ class TestA1BuilderAndTrainer(unittest.TestCase):
         self.assertGreater(n_params, 0)
 
     def test_model_recreated_per_fold_and_parameter_count_in_metadata(self):
-        history = np.linspace(10.0, 100.0, 36)
-        months = [target_month(140201, i + 1) for i in range(36)]
+        history = np.linspace(10.0, 100.0, 35)
+        months = [target_month(140201, i + 1) for i in range(35)]
         series = pd.Series(history, index=months)
         window = make_forecast_window(140501)
+        self.assertEqual(window.training_end, months[-1])
 
         call_count = {"n": 0}
         models: list[int] = []
@@ -176,7 +184,7 @@ class TestA1BuilderAndTrainer(unittest.TestCase):
         for seed in (41, 42):
             fold, scaler = prepare_neural_fold(
                 series,
-                forecast_origin=window.forecast_origin,
+                forecast_origin=exclusive_training_cutoff(window),
                 config=cfg,
                 seed=seed,
                 mode=TargetMode.RECURSIVE,
@@ -203,9 +211,10 @@ class TestA1BuilderAndTrainer(unittest.TestCase):
         self.assertNotEqual(models[0], models[1])
 
     def test_small_recursive_lstm_end_to_end_short_train(self):
-        months = [target_month(140201, i + 1) for i in range(36)]
-        series = pd.Series(np.linspace(10.0, 100.0, 36), index=months)
+        months = [target_month(140201, i + 1) for i in range(35)]
+        series = pd.Series(np.linspace(10.0, 100.0, 35), index=months)
         window = make_forecast_window(140501)
+        self.assertEqual(window.training_end, months[-1])
         model = SmallRecursiveLSTM(
             default_a1_config(
                 max_epochs=3,

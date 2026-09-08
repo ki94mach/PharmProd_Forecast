@@ -12,7 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.ts_v2.dates import make_screening_forecast_window, target_month
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a3_stacked_mimo_lstm import (
     StackedMimoLSTM,
@@ -114,7 +114,7 @@ class TestA3PredictAndTrain(unittest.TestCase):
     def test_predict_length_fifteen_with_target_dates(self):
         months = [target_month(140201, i + 1) for i in range(40)]
         series = pd.Series(np.linspace(10.0, 100.0, 40), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         model = StackedMimoLSTM(default_a3_config())
         scaler = FoldScaler("standard").fit_on_series(series.to_numpy())
         model._scaler = scaler
@@ -136,7 +136,7 @@ class TestA3PredictAndTrain(unittest.TestCase):
     def test_parameter_count_metadata_matches_model(self):
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         model = StackedMimoLSTM(
             default_a3_config(
                 max_epochs=3,

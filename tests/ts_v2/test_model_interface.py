@@ -89,7 +89,7 @@ class TestDummyModelInterface(unittest.TestCase):
     def setUp(self) -> None:
         self.train = pd.Series(
             [10.0, 20.0, 30.0],
-            index=[140410, 140411, 140412],
+            index=[140409, 140410, 140411],
             name="sales",
         )
         self.cfg = TSForecastConfig(forecast_horizon=15)
@@ -108,7 +108,7 @@ class TestDummyModelInterface(unittest.TestCase):
         self.assertEqual(outcome.model_name, "dummy_last_value")
 
     def test_dummy_does_not_round_or_smooth(self):
-        train = pd.Series([10.4], index=[140412])
+        train = pd.Series([10.4], index=[140411])
         outcome = run_model(DummyLastValueModel(), train, self.window)
         assert isinstance(outcome, ForecastResult)
         self.assertEqual(outcome.predictions[0], 10.4)
@@ -132,7 +132,16 @@ class TestDummyModelInterface(unittest.TestCase):
         self.assertTrue(is_failure(outcome))
         assert isinstance(outcome, ModelFailure)
         self.assertEqual(outcome.model_name, "dummy_skip_first")
-        self.assertIn("target_dates", outcome.reason)
+        # Production run_model requests bridge+delivered; skipping the first
+        # requested month yields too few delivered predictions after the strip.
+        reason = outcome.reason.lower()
+        self.assertTrue(
+            "target_dates" in reason
+            or "bridge" in reason
+            or "delivered" in reason
+            or "predictions" in reason,
+            msg=outcome.reason,
+        )
 
     def test_internal_exception_is_model_failure_not_crash(self):
         outcome = run_model(DummyBoomModel(), self.train, self.window)

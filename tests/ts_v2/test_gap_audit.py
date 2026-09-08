@@ -71,7 +71,7 @@ class TestAuditProductGaps(unittest.TestCase):
         self.assertEqual(row.n_demand_months, 1)
         self.assertIsNone(row.average_inter_demand_interval)
 
-    def test_calendar_extends_through_origin_minus_one(self):
+    def test_calendar_extends_through_last_complete_month(self):
         sales = _sales(
             [
                 ("SkuA", 140410, 10.0),
@@ -81,9 +81,10 @@ class TestAuditProductGaps(unittest.TestCase):
         )
         report = run_gap_audit(sales, origin=140501, include_month_detail=True)
         row = report.products.loc[report.products["product"] == "SkuA"].iloc[0]
-        self.assertEqual(int(row["calendar_end"]), 140412)
+        self.assertEqual(int(row["calendar_end"]), 140411)
         self.assertEqual(int(row["n_missing_months"]), 1)
         self.assertNotIn(140501, report.month_detail["date"].tolist())
+        self.assertNotIn(140412, report.month_detail["date"].tolist())
 
     def test_activity_start_trims_leading_months(self):
         sales = _sales(

@@ -3,9 +3,11 @@
 Principles:
 
 - Models receive sales in **raw units** (no MinMax / Yeo–Johnson / ADF).
-- Train on months strictly before the explicit forecast origin.
-- Do not silently drop the last warehouse month (no ``series[:-1]``).
-- Never fit transforms on post-origin rows (there are no such transforms).
+- Train on months with ``date <= window.training_end`` (production:
+  through ``last_complete_month``; screening: through ``origin - 1``).
+- Never include the delivered origin / bridge month in training when the
+  production contract sets ``current_partial_month``.
+- Never fit transforms on post-cutoff rows (there are no such transforms).
 - Aggregate duplicate product/month rows; enforce a monthly calendar grid.
 - Calendar gaps vs explicit zeros are tracked via ``is_missing_month``.
 """
@@ -52,17 +54,17 @@ def filter_training_frame(
     date_col: str = "date",
     config: Optional[TSForecastConfig] = None,
 ) -> pd.DataFrame:
-    """Keep rows with Shamsi ``date < forecast_origin``.
+    """Keep rows with Shamsi ``date <= training_end``.
 
-    The forecast-origin month never enters training. This is the only allowed
-    as-of cut; callers must not apply an extra last-month drop afterward.
+    Production windows exclude the partial/bridge month; screening windows
+    train through ``origin - 1``. Callers must not apply an extra drop.
     """
     window = _window_from(origin_or_window, config)
     if frame is None or frame.empty:
         return frame.iloc[0:0].copy() if frame is not None else pd.DataFrame()
     work = frame.copy()
     work[date_col] = work[date_col].map(lambda x: validate_shamsi_yyyymm(int(x)))
-    return work.loc[work[date_col] < window.forecast_origin].copy()
+    return work.loc[work[date_col] <= int(window.training_end)].copy()
 
 
 def filter_training_history(
@@ -71,14 +73,14 @@ def filter_training_history(
     *,
     config: Optional[TSForecastConfig] = None,
 ) -> pd.Series:
-    """Keep series points with index ``date < forecast_origin`` (Shamsi YYYYMM)."""
+    """Keep series points with index ``date <= training_end`` (Shamsi YYYYMM)."""
     window = _window_from(origin_or_window, config)
     if history is None or len(history) == 0:
         return pd.Series(dtype=float)
     idx = pd.Index([validate_shamsi_yyyymm(int(x)) for x in history.index], name=history.index.name)
     values = pd.to_numeric(history.to_numpy(), errors="coerce")
     out = pd.Series(values, index=idx, name=history.name)
-    out = out.loc[out.index < window.forecast_origin].sort_index()
+    out = out.loc[out.index <= int(window.training_end)].sort_index()
     return out
 
 
@@ -88,16 +90,21 @@ def assert_training_before_origin(
     *,
     config: Optional[TSForecastConfig] = None,
 ) -> None:
-    """Raise if any training index is at/after the forecast origin."""
+    """Raise if any training index is after ``training_end``.
+
+    Under the production contract this also forbids ``current_partial_month``
+    and the delivered origin from appearing in training history.
+    """
     window = _window_from(origin_or_window, config)
     if history is None or len(history) == 0:
         return
-    bad = [validate_shamsi_yyyymm(int(x)) for x in history.index if int(x) >= window.forecast_origin]
+    cutoff = int(window.training_end)
+    bad = [validate_shamsi_yyyymm(int(x)) for x in history.index if int(x) > cutoff]
     if bad:
         raise ValueError(
-            f"training history includes forecast_origin or later months "
-            f"(origin={window.forecast_origin}, bad={sorted(set(bad))}); "
-            "models must not see the origin month"
+            f"training history includes months after training_end "
+            f"(training_end={cutoff}, origin={window.forecast_origin}, "
+            f"bad={sorted(set(bad))}); models must not see the partial/origin months"
         )
 
 
@@ -195,9 +202,9 @@ def prepare_monthly_series(
 ) -> PreparedSeries:
     """Build a raw-unit monthly training series for ``product`` as-of an origin.
 
-    Steps (all exclusive of post-origin data):
+    Steps (all exclusive of months after ``training_end``):
 
-    1. Keep rows with ``date < forecast_origin``.
+    1. Keep rows with ``date <= training_end``.
     2. Aggregate duplicate product/month rows (sum).
     3. Optionally trim leading months before meaningful activity
        (``activity_start_min_sales``, V1-compatible default ``5``).

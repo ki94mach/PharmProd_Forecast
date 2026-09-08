@@ -12,7 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.ts_v2.dates import make_screening_forecast_window, target_month
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a5_bidirectional_mimo_lstm import (
     BidirectionalMimoLSTM,
@@ -76,7 +76,7 @@ class TestA5LeakageBeforeOrigin(unittest.TestCase):
 
     def test_window_end_dates_strictly_before_origin(self):
         origin = 140501
-        window = make_forecast_window(origin)
+        window = make_screening_forecast_window(origin)
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
         self.assertEqual(months[-1], window.training_end)
@@ -104,7 +104,7 @@ class TestA5LeakageBeforeOrigin(unittest.TestCase):
 
     def test_predict_lookback_latest_timestamp_before_origin(self):
         origin = 140501
-        window = make_forecast_window(origin)
+        window = make_screening_forecast_window(origin)
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
 
@@ -147,7 +147,7 @@ class TestA5EndToEnd(unittest.TestCase):
     def test_short_train_and_parameter_count(self):
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         model = BidirectionalMimoLSTM(
             default_a5_config(
                 max_epochs=3,

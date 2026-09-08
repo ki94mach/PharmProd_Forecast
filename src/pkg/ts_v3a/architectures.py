@@ -32,6 +32,15 @@ _TARGET_MODE: dict[ArchitectureName, TargetMode] = {
     ArchitectureName.A6_ATTENTION_BIDIRECTIONAL_LSTM: TargetMode.DIRECT_MIMO,
 }
 
+# A0/A1 share the V2 production time contract (bridge month + train through
+# last_complete). A2–A5 keep the historical screening contract.
+_PRODUCTION_TIME_CONTRACT: frozenset[ArchitectureName] = frozenset(
+    {
+        ArchitectureName.A0_LEGACY_ADAPTIVE_RECURSIVE_LSTM,
+        ArchitectureName.A1_SMALL_RECURSIVE_LSTM,
+    }
+)
+
 
 def coerce_architecture_name(name: str | ArchitectureName) -> ArchitectureName:
     """Resolve a string or enum to :class:`ArchitectureName`."""
@@ -47,3 +56,10 @@ def coerce_architecture_name(name: str | ArchitectureName) -> ArchitectureName:
 def target_mode_for(architecture_name: str | ArchitectureName) -> TargetMode:
     """Return RECURSIVE or DIRECT_MIMO for the given architecture."""
     return _TARGET_MODE[coerce_architecture_name(architecture_name)]
+
+
+def uses_production_time_contract(
+    architecture_name: str | ArchitectureName,
+) -> bool:
+    """True for A0/A1 (production bridge contract); False for A2–A5 screening."""
+    return coerce_architecture_name(architecture_name) in _PRODUCTION_TIME_CONTRACT

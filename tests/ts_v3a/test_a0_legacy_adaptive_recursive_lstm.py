@@ -12,6 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from pkg.benchmark.calendar import shamsi_add_months
 from pkg.ts_v2.dates import make_forecast_window, target_month
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a0_legacy_adaptive_recursive_lstm import (
@@ -128,8 +129,8 @@ class TestA0FoldIsolationFit(unittest.TestCase):
         n = 30
         months = [target_month(140201, i + 1) for i in range(n)]
         series = pd.Series(np.linspace(10.0, 100.0, n), index=months)
-        # Origin after last train month so len(train_series)==30 is the fold history.
-        window = make_forecast_window(target_month(months[-1], 1))
+        # Origin = last_complete + 2 so production training_end matches series end.
+        window = make_forecast_window(shamsi_add_months(months[-1], 2))
 
         model = LegacyAdaptiveRecursiveLSTM(
             default_a0_config(
@@ -159,7 +160,7 @@ class TestA0FoldIsolationFit(unittest.TestCase):
         n = 30
         months = [target_month(140201, i + 1) for i in range(n)]
         series = pd.Series(np.linspace(10.0, 100.0, n), index=months)
-        window = make_forecast_window(target_month(months[-1], 1))
+        window = make_forecast_window(shamsi_add_months(months[-1], 2))
 
         model = LegacyAdaptiveRecursiveLSTM(
             default_a0_config(batch_size=4)

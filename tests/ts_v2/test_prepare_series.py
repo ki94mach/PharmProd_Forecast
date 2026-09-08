@@ -33,54 +33,52 @@ class TestPrepareMonthlySeries(unittest.TestCase):
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
         self.assertEqual(float(prepared.values.loc[140410]), 15.0)
         self.assertEqual(float(prepared.values.loc[140411]), 20.0)
+        self.assertNotIn(140412, prepared.dates)
 
     def test_gaps_in_monthly_history_are_flagged(self):
         sales = _sales(
             [
-                ("SkuA", 140410, 10.0),
-                ("SkuA", 140412, 30.0),
+                ("SkuA", 140409, 10.0),
+                ("SkuA", 140411, 30.0),
             ]
         )
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
-        self.assertTrue(bool(prepared.is_missing_month.loc[140411]))
-        self.assertFalse(bool(prepared.is_missing_month.loc[140410]))
-        self.assertFalse(bool(prepared.is_missing_month.loc[140412]))
-        self.assertEqual(float(prepared.values.loc[140411]), 0.0)  # policy "zero"
+        self.assertTrue(bool(prepared.is_missing_month.loc[140410]))
+        self.assertFalse(bool(prepared.is_missing_month.loc[140409]))
+        self.assertFalse(bool(prepared.is_missing_month.loc[140411]))
+        self.assertEqual(float(prepared.values.loc[140410]), 0.0)  # policy "zero"
         self.assertGreaterEqual(prepared.n_gap_months, 1)
-        self.assertEqual(list(prepared.dates[:3]), [140410, 140411, 140412])
+        self.assertEqual(list(prepared.dates[:3]), [140409, 140410, 140411])
 
         missing_cfg = TSForecastConfig(
             activity_start_min_sales=None,
             missing_month_policy="missing",
         )
         as_nan = prepare_monthly_series(sales, "SkuA", 140501, config=missing_cfg)
-        self.assertTrue(pd.isna(as_nan.values.loc[140411]))
-        self.assertTrue(bool(as_nan.is_missing_month.loc[140411]))
-        self.assertEqual(float(as_nan.values.loc[140410]), 10.0)
+        self.assertTrue(pd.isna(as_nan.values.loc[140410]))
+        self.assertTrue(bool(as_nan.is_missing_month.loc[140410]))
+        self.assertEqual(float(as_nan.values.loc[140409]), 10.0)
 
     def test_explicit_zero_sales_are_observed_not_gaps(self):
         sales = _sales(
             [
-                ("SkuA", 140410, 10.0),
-                ("SkuA", 140411, 0.0),
-                ("SkuA", 140412, 30.0),
+                ("SkuA", 140409, 10.0),
+                ("SkuA", 140410, 0.0),
+                ("SkuA", 140411, 30.0),
             ]
         )
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
-        self.assertEqual(float(prepared.values.loc[140411]), 0.0)
-        self.assertFalse(bool(prepared.is_missing_month.loc[140411]))
-        self.assertNotEqual(
-            bool(prepared.is_missing_month.loc[140411]),
-            True,
-        )
+        self.assertEqual(float(prepared.values.loc[140410]), 0.0)
+        self.assertFalse(bool(prepared.is_missing_month.loc[140410]))
 
     def test_forecast_origin_filtering(self):
         sales = _sales(
             [
-                ("SkuA", 140411, 10.0),
-                ("SkuA", 140412, 20.0),
+                ("SkuA", 140410, 10.0),
+                ("SkuA", 140411, 20.0),
+                ("SkuA", 140412, 30.0),
                 ("SkuA", 140501, 999.0),
                 ("SkuA", 140502, 888.0),
             ]
@@ -88,26 +86,29 @@ class TestPrepareMonthlySeries(unittest.TestCase):
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
         self.assertEqual(prepared.forecast_origin, 140501)
-        self.assertEqual(prepared.last_training_month, 140412)
+        self.assertEqual(prepared.last_training_month, 140411)
+        self.assertNotIn(140412, prepared.dates)
         self.assertNotIn(140501, prepared.dates)
         self.assertNotIn(140502, prepared.dates)
-        self.assertTrue(all(d < 140501 for d in prepared.dates))
-        self.assertEqual(float(prepared.values.loc[140412]), 20.0)
+        self.assertTrue(all(d <= 140411 for d in prepared.dates))
+        self.assertEqual(float(prepared.values.loc[140411]), 20.0)
 
     def test_no_preprocessing_using_post_origin_observations(self):
         sales = _sales(
             [
-                ("SkuA", 140411, 10.0),
-                ("SkuA", 140412, 20.0),
+                ("SkuA", 140410, 10.0),
+                ("SkuA", 140411, 20.0),
+                ("SkuA", 140412, 30.0),
                 ("SkuA", 140501, 1_000_000.0),
             ]
         )
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
         assert_no_post_origin_leakage(sales, prepared)
-        # Raw units: origin-month 1e6 must not scale or shift training values.
-        self.assertEqual(float(prepared.values.loc[140411]), 10.0)
-        self.assertEqual(float(prepared.values.loc[140412]), 20.0)
+        # Raw units: partial/origin months must not enter training values.
+        self.assertEqual(float(prepared.values.loc[140410]), 10.0)
+        self.assertEqual(float(prepared.values.loc[140411]), 20.0)
+        self.assertNotIn(140412, prepared.dates)
         self.assertLessEqual(float(prepared.values.max()), 20.0)
 
     def test_activity_start_threshold_skips_tiny_leading_months(self):
@@ -122,6 +123,7 @@ class TestPrepareMonthlySeries(unittest.TestCase):
         default = prepare_monthly_series(sales, "SkuA", 140501)
         self.assertEqual(default.first_active_month, 140410)
         self.assertNotIn(140409, default.dates)
+        self.assertEqual(default.dates[-1], 140411)
 
         disabled = prepare_monthly_series(
             sales,
@@ -137,7 +139,7 @@ class TestPrepareMonthlySeries(unittest.TestCase):
         cfg = TSForecastConfig(activity_start_min_sales=None)
         prepared = prepare_monthly_series(sales, "SkuA", 140501, config=cfg)
         self.assertEqual(prepared.dates[0], 140410)
-        self.assertEqual(prepared.dates[-1], 140412)
+        self.assertEqual(prepared.dates[-1], 140411)
         self.assertEqual(prepared.n_observations, len(prepared.dates))
         self.assertEqual(prepared.n_observations, len(prepared.values))
 

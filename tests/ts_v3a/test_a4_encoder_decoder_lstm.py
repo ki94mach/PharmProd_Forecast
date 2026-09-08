@@ -12,7 +12,7 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from pkg.ts_v2.dates import make_forecast_window, target_month
+from pkg.ts_v2.dates import make_screening_forecast_window, target_month
 from pkg.ts_v3a.architectures import ArchitectureName, target_mode_for
 from pkg.ts_v3a.models.a4_encoder_decoder_lstm import (
     EncoderDecoderLSTM,
@@ -119,7 +119,7 @@ class TestA4PredictContract(unittest.TestCase):
     def test_horizon_alignment_and_no_future_access(self):
         months = [target_month(140201, i + 1) for i in range(40)]
         series = pd.Series(np.linspace(10.0, 100.0, 40), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         scaled_seq = np.arange(1, 16, dtype=float)
         fake = _Seq2SeqFakeModel(scaled_seq)
 
@@ -157,7 +157,7 @@ class TestA4PredictContract(unittest.TestCase):
     def test_fold_targets_before_origin(self):
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         fold, _ = prepare_neural_fold(
             series,
             forecast_origin=window.forecast_origin,
@@ -182,7 +182,7 @@ class TestA4EndToEnd(unittest.TestCase):
     def test_short_train_parameter_count(self):
         months = [target_month(140101, i + 1) for i in range(48)]
         series = pd.Series(np.linspace(10.0, 100.0, 48), index=months)
-        window = make_forecast_window(140501)
+        window = make_screening_forecast_window(140501)
         model = EncoderDecoderLSTM(
             default_a4_config(
                 max_epochs=3,

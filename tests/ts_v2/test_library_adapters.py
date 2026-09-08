@@ -65,7 +65,8 @@ class TestAutoARIMAAdapter(unittest.TestCase):
     def test_exactly_15_predictions_and_target_dates(self):
         window = _window_15()
         mock_model = MagicMock()
-        mock_model.predict.return_value = np.arange(15, dtype=float)
+        # Production run_model requests 16 internal steps; bridge is discarded.
+        mock_model.predict.return_value = np.arange(16, dtype=float)
 
         with patch("pkg.ts_v2.models.auto_arima._fit_auto_arima", return_value=mock_model):
             outcome = run_model(AutoARIMAModel(), _train(30), window)
@@ -76,27 +77,30 @@ class TestAutoARIMAAdapter(unittest.TestCase):
         self.assertEqual(outcome.target_dates, window.target_dates)
         self.assertEqual(outcome.target_dates[0], 140501)
         self.assertEqual(outcome.target_dates[-1], 140603)
-        mock_model.predict.assert_called_once_with(n_periods=15)
+        mock_model.predict.assert_called_once_with(n_periods=16)
+        self.assertEqual(outcome.predictions, tuple(float(i) for i in range(1, 16)))
 
-    def test_never_requests_sixteen_periods(self):
+    def test_requests_sixteen_internal_periods_delivers_fifteen(self):
         window = _window_15()
         mock_model = MagicMock()
-        mock_model.predict.return_value = np.ones(15)
+        mock_model.predict.return_value = np.ones(16)
 
         with patch("pkg.ts_v2.models.auto_arima._fit_auto_arima", return_value=mock_model):
-            run_model(AutoARIMAModel(), _train(30), window)
+            outcome = run_model(AutoARIMAModel(), _train(30), window)
 
         args, kwargs = mock_model.predict.call_args
         n_periods = kwargs.get("n_periods", args[0] if args else None)
-        self.assertEqual(n_periods, 15)
-        self.assertNotEqual(n_periods, 16)
+        self.assertEqual(n_periods, 16)
+        self.assertTrue(is_success(outcome))
+        assert isinstance(outcome, ForecastResult)
+        self.assertEqual(len(outcome.predictions), 15)
 
 
 class TestETSAdapter(unittest.TestCase):
     def test_exactly_15_predictions_and_target_dates(self):
         window = _window_15()
         mock_result = MagicMock()
-        mock_result.forecast.return_value = pd.Series(np.arange(15, dtype=float))
+        mock_result.forecast.return_value = pd.Series(np.arange(16, dtype=float))
         mock_ets = MagicMock()
         mock_ets.return_value.fit.return_value = mock_result
 
@@ -110,7 +114,7 @@ class TestETSAdapter(unittest.TestCase):
         assert isinstance(outcome, ForecastResult)
         self.assertEqual(len(outcome.predictions), 15)
         self.assertEqual(outcome.target_dates, window.target_dates)
-        mock_result.forecast.assert_called_once_with(steps=15)
+        mock_result.forecast.assert_called_once_with(steps=16)
 
         # Seasonal long history: seasonal="add" must be passed to ETSModel.
         call_kwargs = mock_ets.call_args.kwargs
@@ -120,7 +124,7 @@ class TestETSAdapter(unittest.TestCase):
     def test_short_history_omits_seasonal(self):
         window = _window_15()
         mock_result = MagicMock()
-        mock_result.forecast.return_value = pd.Series(np.ones(15))
+        mock_result.forecast.return_value = pd.Series(np.ones(16))
         mock_ets = MagicMock()
         mock_ets.return_value.fit.return_value = mock_result
 
@@ -132,7 +136,7 @@ class TestETSAdapter(unittest.TestCase):
 
         call_kwargs = mock_ets.call_args.kwargs
         self.assertNotIn("seasonal", call_kwargs)
-        mock_result.forecast.assert_called_once_with(steps=15)
+        mock_result.forecast.assert_called_once_with(steps=16)
 
 
 class TestProphetAdapter(unittest.TestCase):
@@ -176,9 +180,9 @@ class TestProphetAdapter(unittest.TestCase):
         last_target = shamsi_to_month_start_timestamp(140603)
         self.assertLessEqual(pd.Timestamp(future["ds"].max()), last_target)
         self.assertEqual(pd.Timestamp(future["ds"].max()), last_target)
-        # Regression: must not pad like V1 (history + 16 beyond targets).
+        # Production may request bridge + 15 delivered (=16) beyond history.
         n_hist = len(train_ds)
-        self.assertLessEqual(len(future), n_hist + 15)
+        self.assertLessEqual(len(future), n_hist + 16)
         # Prophet constructed with linear growth and fixed CPS.
         ctor_kwargs = mock_prophet_cls.call_args.kwargs
         self.assertEqual(ctor_kwargs.get("growth"), "linear")

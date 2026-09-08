@@ -5,37 +5,39 @@ Scaffold only: config, types, and module boundaries. Models and CLI wiring come 
 
 ## Principles
 
-1. **Explicit forecast origin** — callers pass the first forecast month (Shamsi `YYYYMM`). Training uses months strictly before that origin. Origin is never inferred as `max(history) + 1`.
-2. **No implicit last-month removal** — V1 drops `sale_series[:-1]` as an incomplete month. V2 does not silently discard the last available month; as-of cuts are explicit (`date < origin`).
-3. **No preprocessing leakage** — models see **raw sales units**. V2 does not apply MinMax, Yeo–Johnson, or ADF-triggered transforms (V1 fitted those, including on the incomplete last month). There is no global transform before backtest.
+1. **Explicit forecast start** — callers pass the first *delivered* forecast month (Shamsi `YYYYMM`). Origin is never inferred as `max(history) + 1`.
+2. **Production partial / bridge month** — `current_partial_month = forecast_start − 1` is excluded from training (`last_complete_month = forecast_start − 2`). Models predict `H+1` internal steps; `run_model` discards the bridge and delivers `H` horizons from `forecast_start`.
+3. **No preprocessing leakage** — models see **raw sales units**. V2 does not apply MinMax, Yeo–Johnson, or ADF-triggered transforms. There is no global transform before backtest.
 4. **Multi-origin / multi-horizon backtesting** — selection evaluates real forecast origins and horizons `1..H`, not a single scaled 1-step RMSE roll.
-5. **Final full-history refit** — after selection, the winning model is refit on all history before the production origin, then used for the `H`-step forecast (V1 reuses the last selection fit).
+5. **Final full-history refit** — after selection, the winning model is refit on all history through `last_complete_month`, then used for the production forecast.
 6. **Raw forecast output** — emit monthly point forecasts without V1 quarterly `redistribute_smoothing`. Downstream packaging may still round or clip via config.
 7. **V1 stays untouched** — do not migrate or mutate V1 modules, frozen benchmarks, or production CLI in this package’s early steps.
 
 ## Date contract
 
-CLI/business origin is Shamsi `YYYYMM` (e.g. `140501`).
+CLI/business start is Shamsi `YYYYMM` (e.g. `140501`).
 
-Use `make_forecast_window(140501)` → `ForecastWindow`:
+Use `make_forecast_window(140501)` → production `ForecastWindow`:
 
 | Field | Meaning |
 |-------|---------|
-| `forecast_origin` | First target month (`140501`) |
-| `training_end` | Last inclusive train month (`140412` = origin − 1) |
-| `target_dates` | Exactly `H` months: h1=`140501` … h15=`140603` |
+| `forecast_origin` | First *delivered* target (`140501` = `forecast_start`) |
+| `current_partial_month` | Bridge month (`140412` = start − 1) |
+| `training_end` | Last inclusive train month (`140411` = start − 2) |
+| `target_dates` | Exactly `H` delivered months: h1=`140501` … h15=`140603` |
+| `internal_target_dates` | Bridge + delivered (`H+1`) |
 | `horizons` | `(1, …, H)` |
 
-**Training rule:** `date < forecast_origin` only. No `series[:-1]`. Models do not decide to skip a month. Shamsi ↔ pandas `+62100` / `-62100` lives only in `dates.py`.
+**Training rule:** `date <= training_end`. Screening bake-offs for A2–A5 use `make_screening_forecast_window` (`training_end = origin − 1`, no bridge). Shamsi month math uses `shamsi_add_months` only; `+62100` / `-62100` lives only in `dates.py`.
 
 ## Series preparation
 
 `prepare_monthly_series` returns `PreparedSeries` (raw units):
 
 - sum duplicate product/month rows
-- truncate `date < forecast_origin`
+- truncate `date <= training_end`
 - optional **activity start**: first month with sales **> `activity_start_min_sales`** (default **5.0**, V1-compatible). V1’s docstring says “first non-zero sale” but the live code uses `sales > 5`, almost certainly to ignore tiny pre-launch / residual shipments. Set the option to `None` to disable.
-- contiguous monthly Shamsi index from `first_active_month` through `last_training_month` (`origin − 1`)
+- contiguous monthly Shamsi index from `first_active_month` through `last_training_month` (`training_end`)
 - `missing_month_policy`: `"zero"` (V1 `asfreq.fillna(0)` for **values**) or `"missing"` (NaN in values). **`is_missing_month` is always set** so calendar gaps are not conceptually identical to explicit observed zeros.
 
 ## Model interface

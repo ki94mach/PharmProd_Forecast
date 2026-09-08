@@ -32,9 +32,10 @@ def discover_origins(
 ) -> list[OriginCoverage]:
     """List backtest origins with explicit per-origin horizon coverage.
 
-    Training at origin ``O`` uses months ``date < O``. Targets are
-    ``O .. O+H-1``; only horizons whose ``target_date`` exists in
-    ``monthly_sales`` are evaluated (no fabricated actuals).
+    Training at origin ``O`` uses months ``date <= window.training_end``
+    (production: through ``O - 2``; screening windows are built separately).
+    Delivered targets are ``O .. O+H-1``; only horizons whose ``target_date``
+    exists in ``monthly_sales`` are evaluated (no fabricated actuals).
 
     When any origin supports the full ``forecast_horizon``, origins are
     sorted so full-coverage origins come first (preference, not exclusion).
@@ -66,7 +67,9 @@ def discover_origins(
     covers: list[OriginCoverage] = []
     for origin_ym in origin_candidates:
         window = make_forecast_window(origin_ym, config=cfg)
-        train_dates = [int(d) for d in sales.index if int(d) < window.forecast_origin]
+        train_dates = [
+            int(d) for d in sales.index if int(d) <= int(window.training_end)
+        ]
         if len(train_dates) < min_train:
             continue
 

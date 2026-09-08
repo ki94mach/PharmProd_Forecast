@@ -216,8 +216,8 @@ class TestOuterContract(unittest.TestCase):
             random_seeds=(41,),
             min_successful_seeds=1,
         )
-        # 12 train + 15 targets = 27 months from 140301 → origin 140401 has full H.
-        self.sales = _monthly_sales_frame("SKU1", 140301, 40, product_id=101)
+        # Production: train through origin-2; start early enough for >=12 train months.
+        self.sales = _monthly_sales_frame("SKU1", 140212, 50, product_id=101)
         self.origin = 140401
 
     def test_max_training_date_lt_outer_origin(self):
@@ -242,6 +242,9 @@ class TestOuterContract(unittest.TestCase):
         prepared = prepare_monthly_series(
             self.sales, "SKU1", self.origin, config=self.v2_cfg
         )
+        window = make_forecast_window(self.origin, config=self.v2_cfg)
+        self.assertEqual(max(prepared.dates), int(window.training_end))
+        self.assertNotIn(int(window.current_partial_month), prepared.dates)
         self.assertLess(max(prepared.dates), self.origin)
 
     def test_target_h1_equals_outer_origin(self):
@@ -314,7 +317,7 @@ class TestOuterLeakage(unittest.TestCase):
         )
         self.origin = 140401
         # Distinct huge post-origin actuals that would dominate a leaky scaler.
-        self.sales = _monthly_sales_frame("SKU1", 140301, 40, base=10.0, step=0.0)
+        self.sales = _monthly_sales_frame("SKU1", 140212, 50, base=10.0, step=0.0)
         post = self.sales["date"] >= self.origin
         self.sales.loc[post, "sales"] = 1_000_000.0
 
@@ -377,11 +380,11 @@ class TestA0FoldIsolation(unittest.TestCase):
     """Test 6: A0 at N=30 uses 25–36 tier even if full SKU later reaches N=60."""
 
     def test_a0_n30_tier_despite_later_n60_history(self):
-        # Full series length 60; at origin with exactly 30 pre-origin months.
+        # Full series length 60; choose origin so production last_complete leaves N=30.
         start = 140101
         sales = _monthly_sales_frame("A0SKU", start, 60, base=20.0, step=1.0)
-        # Month index 30 is the origin (0..29 train → N=30).
-        origin = int(sales.iloc[30]["date"])
+        # origin at index 31 → training through index 29 (origin-2) → N=30.
+        origin = int(sales.iloc[31]["date"])
         v2_cfg = TSForecastConfig(
             forecast_horizon=15,
             min_train_months=12,
@@ -456,7 +459,7 @@ class TestUnavailableFolds(unittest.TestCase):
     """Test 7: unavailable folds create no fake predictions."""
 
     def test_unavailable_folds_create_no_fake_predictions(self):
-        sales = _monthly_sales_frame("U", 140301, 40, base=10.0, step=1.0)
+        sales = _monthly_sales_frame("U", 140212, 50, base=10.0, step=1.0)
         v2_cfg = TSForecastConfig(
             forecast_horizon=15,
             min_train_months=12,
@@ -561,7 +564,7 @@ class TestOuterMetrics(unittest.TestCase):
 
     def test_metrics_from_raw_unit_forecasts(self):
         # actuals are exact base values; stub predicts 7.5 in raw units.
-        sales = _monthly_sales_frame("R", 140401, 12, base=123.45, step=0.0)
+        sales = _monthly_sales_frame("R", 140311, 20, base=123.45, step=0.0)
         with patch(
             "pkg.ts_v3a.backtest.create_neural_model",
             side_effect=_patch_factory(RecordingStubModel),

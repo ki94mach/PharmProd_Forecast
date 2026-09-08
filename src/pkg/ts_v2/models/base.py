@@ -4,8 +4,11 @@ Every candidate is called the same way by backtest and engine::
 
     outcome = run_model(model, train_series, window)
 
-``window.target_dates`` is authoritative. Models must not skip the first
-forecast month, alter dates, round, smooth by quarter, or apply ad-hoc bias.
+Delivered ``window.target_dates`` are authoritative after ``run_model`` strips
+any production bridge step. Models must not alter delivered dates, round,
+smooth by quarter, or apply ad-hoc bias. Under the production contract,
+``run_model`` requests internal bridge + delivered months and discards the
+bridge prediction centrally.
 """
 from __future__ import annotations
 
@@ -156,21 +159,63 @@ def run_model(
 ) -> ModelOutcome:
     """Identical call path for backtest and engine.
 
+    Under the production contract (``current_partial_month`` set), models
+    predict the internal bridge + delivered months (``H+1``), then the bridge
+    prediction is discarded before contract validation.
+
     On contract violations or unexpected exceptions, returns :class:`ModelFailure`
     instead of aborting the rest of the SKU's candidate set.
     """
+    from pkg.ts_v2.dates import map_internal_predictions_to_delivered
+
     name = getattr(model, "name", type(model).__name__)
-    horizon = len(window.horizons)
+    delivered_horizon = len(window.horizons)
     try:
         model.fit(train_series)
-        raw = model.predict(horizon, window.target_dates)
+        if window.current_partial_month is not None:
+            internal_dates = window.internal_target_dates
+            raw = model.predict(len(internal_dates), internal_dates)
+            if not isinstance(raw, ForecastResult):
+                raise ModelContractError(
+                    f"predict() must return ForecastResult, got {type(raw).__name__}",
+                    model_name=name,
+                )
+            delivered_preds = map_internal_predictions_to_delivered(
+                raw.predictions, delivered_horizon=delivered_horizon
+            )
+            lower = None
+            upper = None
+            if raw.lower is not None:
+                lower = map_internal_predictions_to_delivered(
+                    raw.lower, delivered_horizon=delivered_horizon
+                )
+            if raw.upper is not None:
+                upper = map_internal_predictions_to_delivered(
+                    raw.upper, delivered_horizon=delivered_horizon
+                )
+            stripped = ForecastResult(
+                model_name=raw.model_name,
+                predictions=delivered_preds,
+                target_dates=tuple(int(d) for d in window.target_dates),
+                horizons=tuple(int(h) for h in window.horizons),
+                metadata=dict(raw.metadata) if raw.metadata else {},
+                lower=lower,
+                upper=upper,
+            )
+            return validate_forecast_result(
+                stripped,
+                target_dates=window.target_dates,
+                horizon=delivered_horizon,
+            )
+
+        raw = model.predict(delivered_horizon, window.target_dates)
         if not isinstance(raw, ForecastResult):
             raise ModelContractError(
                 f"predict() must return ForecastResult, got {type(raw).__name__}",
                 model_name=name,
             )
         return validate_forecast_result(
-            raw, target_dates=window.target_dates, horizon=horizon
+            raw, target_dates=window.target_dates, horizon=delivered_horizon
         )
     except ModelFailureError as exc:
         return exc.to_failure(default_name=name)
