@@ -11,7 +11,7 @@ Usage::
         --origins 140401,140501 \\
         --architectures a0,a1,a2,a3,a4,a5 \\
         --seeds 41,42,43 \\
-        --output data/ts_v3a/screening
+        --output src/data/ts_v3a/screening
 """
 from __future__ import annotations
 
@@ -25,13 +25,23 @@ import pandas as pd
 from pkg.ts_v2.config import DEFAULT_CONFIG as V2_DEFAULT_CONFIG
 from pkg.ts_v2.config import TSForecastConfig
 from pkg.ts_v3a.architectures import ArchitectureName, coerce_architecture_name
-from pkg.ts_v3a.backtest import STATUS_OK, NeuralOuterBacktestResult, run_outer_backtest
+from pkg.ts_v3a.backtest import (
+    STATUS_OK,
+    NeuralOuterBacktestResult,
+    assemble_neural_backtest_result,
+    backtest_product_architectures,
+)
 from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig
 from pkg.ts_v3a.model_factory import IMPLEMENTED_ARCHITECTURES
 from pkg.ts_v3a.persistence import (
+    begin_screening_experiment,
     default_screening_root,
-    persist_completed_screening_experiment,
+    finalize_screening_experiment,
+    incomplete_experiment_dir,
+    list_completed_products,
+    load_incomplete_screening_result,
     screening_config_hash,
+    write_screening_checkpoint,
 )
 
 # CLI-only short aliases (library coerce_architecture_name stays strict).
@@ -231,6 +241,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resolve inputs and print config_hash; do not train or persist",
     )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume an incomplete experiment with the same --experiment-id "
+            "(skips products already checkpointed after each SKU)"
+        ),
+    )
     return p
 
 
@@ -350,13 +368,14 @@ def run_screen(args: argparse.Namespace) -> int:
         nonnegative_forecasts=bool(V2_DEFAULT_CONFIG.nonnegative_forecasts),
     )
     output_root = Path(args.output) if args.output is not None else default_screening_root()
+    product_universe_id = "cli_smoke"
     cfg_hash = screening_config_hash(
         neural_config=neural_cfg,
         v2_config=v2_cfg,
         architectures=arch_names,
         seeds=seeds,
         origins=origins,
-        product_universe_id="cli_smoke",
+        product_universe_id=product_universe_id,
         min_successful_seeds=int(neural_cfg.min_successful_seeds),
     )
 
@@ -376,30 +395,119 @@ def run_screen(args: argparse.Namespace) -> int:
     sales = load_screening_sales(sales_parquet=args.sales_parquet)
     sales = filter_products(sales, products)
 
-    result = run_outer_backtest(
-        sales,
-        products,
-        architectures=architectures,
-        seeds=seeds,
-        config=neural_cfg,
-        v2_config=v2_cfg,
-        explicit_origins=origins,
-        min_successful_seeds=int(neural_cfg.min_successful_seeds),
-    )
+    resume = bool(getattr(args, "resume", False))
+    if args.experiment_id and not resume:
+        inc = incomplete_experiment_dir(output_root, args.experiment_id)
+        if (inc / "checkpoint.json").is_file():
+            resume = True
+            print(
+                f"auto_resume=1 incomplete checkpoint found at {inc}",
+                flush=True,
+            )
 
-    print_fold_runtime_summary(result.fold_metadata)
-
-    experiment_dir = persist_completed_screening_experiment(
-        result,
+    checkpoint = begin_screening_experiment(
         neural_config=neural_cfg,
         v2_config=v2_cfg,
         architectures=arch_names,
         seeds=seeds,
         origins=origins,
-        product_universe_id="cli_smoke",
+        product_universe_id=product_universe_id,
         min_successful_seeds=int(neural_cfg.min_successful_seeds),
         base_dir=output_root,
         experiment_id=args.experiment_id,
+        resume=resume,
+    )
+    print(
+        f"experiment_id={checkpoint.experiment_id} "
+        f"incomplete_dir={checkpoint.experiment_dir} resume={resume}",
+        flush=True,
+    )
+
+    done = set(list_completed_products(checkpoint.experiment_dir)) if resume else set()
+    pred_parts: list[pd.DataFrame] = []
+    meta_parts: list[pd.DataFrame] = []
+    if resume and done:
+        prior = load_incomplete_screening_result(checkpoint.experiment_dir)
+        if prior.predictions is not None and not prior.predictions.empty:
+            pred_parts.append(prior.predictions)
+        if prior.fold_metadata is not None and not prior.fold_metadata.empty:
+            meta_parts.append(prior.fold_metadata)
+        print(f"resumed_products={sorted(done)}", flush=True)
+
+    remaining = [p for p in products if p not in done]
+    print(
+        f"products_total={len(products)} already_done={len(done)} "
+        f"remaining={len(remaining)}",
+        flush=True,
+    )
+
+    completed = list(done)
+    for i, product in enumerate(remaining, start=1):
+        print(
+            f"product_begin {i}/{len(remaining)} product={product!r}",
+            flush=True,
+        )
+        partial = backtest_product_architectures(
+            sales,
+            product,
+            architectures=architectures,
+            seeds=seeds,
+            config=neural_cfg,
+            v2_config=v2_cfg,
+            explicit_origins=origins,
+            min_successful_seeds=int(neural_cfg.min_successful_seeds),
+            progress_prefix=f"[{i}/{len(remaining)} {product}]",
+        )
+        if partial.predictions is not None and not partial.predictions.empty:
+            pred_parts.append(partial.predictions)
+        if partial.fold_metadata is not None and not partial.fold_metadata.empty:
+            meta_parts.append(partial.fold_metadata)
+        completed.append(product)
+
+        preds = (
+            pd.concat(pred_parts, ignore_index=True) if pred_parts else pd.DataFrame()
+        )
+        fold = (
+            pd.concat(meta_parts, ignore_index=True) if meta_parts else pd.DataFrame()
+        )
+        cumulative = assemble_neural_backtest_result(
+            predictions=preds,
+            fold_metadata=fold,
+            seeds=seeds,
+            architectures=architectures,
+            products=completed,
+            min_successful_seeds=int(neural_cfg.min_successful_seeds),
+            config=neural_cfg,
+            v2_config=v2_cfg,
+        )
+        write_screening_checkpoint(
+            checkpoint,
+            cumulative,
+            completed_products=completed,
+        )
+        print(
+            f"checkpoint_saved product={product!r} "
+            f"completed={len(completed)}/{len(products)} "
+            f"dir={checkpoint.experiment_dir}",
+            flush=True,
+        )
+
+    preds = pd.concat(pred_parts, ignore_index=True) if pred_parts else pd.DataFrame()
+    fold = pd.concat(meta_parts, ignore_index=True) if meta_parts else pd.DataFrame()
+    result = assemble_neural_backtest_result(
+        predictions=preds,
+        fold_metadata=fold,
+        seeds=seeds,
+        architectures=architectures,
+        products=products,
+        min_successful_seeds=int(neural_cfg.min_successful_seeds),
+        config=neural_cfg,
+        v2_config=v2_cfg,
+    )
+    print("backtest_finished; printing fold summary and finalizing", flush=True)
+    print_fold_runtime_summary(result.fold_metadata)
+    experiment_dir = finalize_screening_experiment(
+        checkpoint, result, base_dir=output_root
     )
     print_completion_summary(result, experiment_dir)
     return 0

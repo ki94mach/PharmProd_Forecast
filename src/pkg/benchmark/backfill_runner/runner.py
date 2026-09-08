@@ -604,7 +604,7 @@ def run_backfill(
     Parallelism is only at the SKU-vintage job level (``workers``). Model
     selection inside an engine must not spawn additional job pools.
 
-    Artifacts land under ``data/backfills/{experiment_id}/{engine}/`` and are
+    Artifacts land under ``src/data/backfill/{experiment_id}/{engine}/`` and are
     never mixed with production forecast CSV exports.
     """
     workers_n = max(1, int(workers))

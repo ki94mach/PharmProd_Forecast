@@ -1,0 +1,11 @@
+---
+description: Canonical data root is src/data/; use data-layout skill for path map
+alwaysApply: true
+---
+
+# Data directory
+
+- Canonical artifact root: `src/data/` (gitignored).
+- Before looking for or writing backfill / V3A screening / research results / benchmarks, read `.cursor/skills/data-layout/SKILL.md`.
+- Do not add new durable outputs under repo-root `data/`.
+- Never mutate `src/data/benchmarks/` after freeze.

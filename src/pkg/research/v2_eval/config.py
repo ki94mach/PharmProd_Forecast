@@ -125,11 +125,9 @@ def resolve_experiment_dir(
     experiment_id: str,
     engine: str,
 ) -> Path:
-    """Locate the backfill experiment directory.
+    """Locate the backfill experiment directory under ``src/data/backfill``.
 
-    ``store.default_backfill_root`` writes to ``data/backfills`` but this host's
-    completed run lives under ``data/backfill``. Both are accepted; the first
-    existing candidate wins.
+    Also accepts legacy plural ``src/data/backfills`` if present.
     """
     candidates = [
         src_root / "data" / "backfill" / experiment_id / engine,

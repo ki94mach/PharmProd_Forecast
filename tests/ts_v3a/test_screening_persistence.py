@@ -113,6 +113,8 @@ def _sample_result() -> NeuralOuterBacktestResult:
                 "validation_start": 140301,
                 "validation_end": 140312,
                 "runtime_seconds": 0.01,
+                "scaler_mean": 10.0,
+                "scaler_scale": 2.0,
                 "status": STATUS_OK,
                 "unavailable_reason": None,
                 "error_type": None,
@@ -139,6 +141,8 @@ def _sample_result() -> NeuralOuterBacktestResult:
                 "validation_start": 140301,
                 "validation_end": 140312,
                 "runtime_seconds": 0.01,
+                "scaler_mean": 10.0,
+                "scaler_scale": 2.0,
                 "status": STATUS_OK,
                 "unavailable_reason": None,
                 "error_type": None,
@@ -165,6 +169,8 @@ def _sample_result() -> NeuralOuterBacktestResult:
                 "validation_start": None,
                 "validation_end": None,
                 "runtime_seconds": 0.0,
+                "scaler_mean": None,
+                "scaler_scale": None,
                 "status": STATUS_ERROR,
                 "unavailable_reason": None,
                 "error_type": "RuntimeError",
@@ -407,6 +413,10 @@ class TestRoundTrip(unittest.TestCase):
         self.assertEqual(manifest["status"], "complete")
         self.assertEqual(manifest["v3a_version"], "v3a")
         self.assertIn("config_hash", manifest)
+        self.assertFalse(
+            (path / "checkpoint.json").exists(),
+            "completed experiments must not retain incomplete checkpoint.json",
+        )
         self.assertEqual(manifest["config_hash"], kwargs and screening_config_hash(
             neural_config=kwargs["neural_config"],
             v2_config=kwargs["v2_config"],
@@ -471,6 +481,60 @@ class TestIncompleteResume(unittest.TestCase):
 
         with self.assertRaises(ExperimentCheckpointError):
             begin_screening_experiment(**kwargs)  # exists, no resume
+
+    def test_per_product_checkpoint_lists_completed_products(self):
+        from pkg.ts_v3a.persistence import (
+            list_completed_products,
+            load_incomplete_screening_result,
+        )
+
+        base = Path(tempfile.mkdtemp())
+        result = _sample_result()
+        kwargs = _base_kwargs(base, experiment_id="20260101T000000Z_sku")
+        checkpoint = begin_screening_experiment(**kwargs)
+        write_screening_checkpoint(
+            checkpoint, result, completed_products=["Recigen"]
+        )
+        self.assertEqual(
+            list_completed_products(checkpoint.experiment_dir), ["Recigen"]
+        )
+        loaded = load_incomplete_screening_result(checkpoint.experiment_dir)
+        self.assertFalse(loaded.predictions.empty)
+        self.assertEqual(
+            loaded.predictions["product"].astype(str).unique().tolist(),
+            ["SKU1"],
+        )
+        # Second SKU append simulation: overwrite cumulative artifacts.
+        result2 = _sample_result()
+        result2.predictions = result2.predictions.copy()
+        result2.predictions["product"] = "SKU2"
+        result2.fold_metadata = result2.fold_metadata.copy()
+        result2.fold_metadata["product"] = "SKU2"
+        combined_preds = pd.concat(
+            [result.predictions, result2.predictions], ignore_index=True
+        )
+        combined_fold = pd.concat(
+            [result.fold_metadata, result2.fold_metadata], ignore_index=True
+        )
+        result_combined = NeuralOuterBacktestResult(
+            predictions=combined_preds,
+            fold_metadata=combined_fold,
+            metrics=result.metrics,
+            ensemble_predictions=result.ensemble_predictions,
+            ensemble_origin_status=result.ensemble_origin_status,
+            seed_metrics=result.seed_metrics,
+            ensemble_metrics=result.ensemble_metrics,
+            stability=result.stability,
+        )
+        write_screening_checkpoint(
+            checkpoint,
+            result_combined,
+            completed_products=["Recigen", "SKU2"],
+        )
+        self.assertEqual(
+            list_completed_products(checkpoint.experiment_dir),
+            ["Recigen", "SKU2"],
+        )
 
 
 if __name__ == "__main__":

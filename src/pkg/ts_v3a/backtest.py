@@ -29,7 +29,7 @@ from pkg.ts_v2.config import TSForecastConfig
 from pkg.ts_v2.data import prepare_monthly_series, product_monthly_sales
 from pkg.ts_v2.dates import validate_shamsi_yyyymm
 from pkg.ts_v2.types import PreparedSeries
-from pkg.ts_v3a.architectures import ArchitectureName
+from pkg.ts_v3a.architectures import ArchitectureName, coerce_architecture_name
 from pkg.ts_v3a.config import DEFAULT_CONFIG, NeuralExperimentConfig
 from pkg.ts_v3a.eligibility import IneligibleForTrainingError
 from pkg.ts_v3a.metrics import (
@@ -77,6 +77,8 @@ FOLD_METADATA_COLUMNS = (
     "validation_start",
     "validation_end",
     "runtime_seconds",
+    "scaler_mean",
+    "scaler_scale",
     "status",
     "unavailable_reason",
     "error_type",
@@ -158,6 +160,7 @@ def _metadata_from_train(
     lookback = params.get("lookback")
     hidden = params.get("hidden_units", params.get("l1"))
     second = params.get("second_hidden_units", params.get("l2"))
+    scaler = dict(meta.scaler_params or {})
     return {
         "product_id": product_id,
         "product": product,
@@ -179,6 +182,8 @@ def _metadata_from_train(
         "validation_start": meta.validation_start,
         "validation_end": meta.validation_end,
         "runtime_seconds": float(runtime_seconds),
+        "scaler_mean": scaler.get("mean"),
+        "scaler_scale": scaler.get("scale"),
         "status": STATUS_OK,
         "unavailable_reason": None,
         "error_type": None,
@@ -224,6 +229,8 @@ def _unavailable_metadata(
         "validation_start": None,
         "validation_end": None,
         "runtime_seconds": float(runtime_seconds),
+        "scaler_mean": None,
+        "scaler_scale": None,
         "status": status,
         "unavailable_reason": unavailable_reason,
         "error_type": error_type,
@@ -321,6 +328,35 @@ def _assemble_evaluation(
         seed_metrics=seed_metrics,
         ensemble_metrics=ensemble_metrics,
         stability=stability,
+    )
+
+
+def assemble_neural_backtest_result(
+    *,
+    predictions: pd.DataFrame,
+    fold_metadata: pd.DataFrame,
+    seeds: Sequence[int],
+    architectures: Sequence[Union[str, ArchitectureName]],
+    products: Sequence[str],
+    min_successful_seeds: int,
+    config: Optional[NeuralExperimentConfig] = None,
+    v2_config: Optional[TSForecastConfig] = None,
+) -> NeuralOuterBacktestResult:
+    """Public helper to rebuild ensemble/metrics tables from cumulative OOF rows."""
+    cfg = config or DEFAULT_CONFIG
+    v2_cfg = v2_config or V2_DEFAULT_CONFIG
+    arch_names = [coerce_architecture_name(a).value for a in architectures]
+    return _assemble_evaluation(
+        predictions=predictions if predictions is not None else _empty_predictions(),
+        fold_metadata=(
+            fold_metadata if fold_metadata is not None else _empty_fold_metadata()
+        ),
+        seed_list=tuple(int(s) for s in seeds),
+        arch_names=arch_names,
+        products=[str(p) for p in products],
+        min_successful_seeds=int(min_successful_seeds),
+        forecast_horizon=int(v2_cfg.forecast_horizon),
+        v2_cfg=v2_cfg,
     )
 
 
@@ -441,6 +477,7 @@ def backtest_product_architectures(
     date_col: str = "date",
     sales_col: str = "sales",
     product_id_col: Optional[str] = "product_id",
+    progress_prefix: str = "",
 ) -> NeuralOuterBacktestResult:
     """Expanding outer CV for one SKU across architectures and seeds.
 
@@ -506,6 +543,14 @@ def backtest_product_architectures(
                 )
                 pred_rows.extend(fold_preds)
                 meta_rows.append(fold_meta)
+                if progress_prefix:
+                    rt = fold_meta.get("runtime_seconds")
+                    print(
+                        f"{progress_prefix} origin={cover.window.forecast_origin} "
+                        f"arch={architecture.value} seed={seed} "
+                        f"status={fold_meta.get('status')} runtime_s={rt}",
+                        flush=True,
+                    )
 
     predictions = (
         pd.DataFrame(pred_rows, columns=list(PREDICTION_COLUMNS))
@@ -574,8 +619,24 @@ def run_outer_backtest(
     product_list = [str(p) for p in products]
     all_pred: list[pd.DataFrame] = []
     all_meta: list[pd.DataFrame] = []
+    n_products = len(product_list)
+    n_arch = len(arch_list)
+    n_seeds = len(seed_list)
+    n_origins = len(tuple(explicit_origins)) if explicit_origins is not None else None
+    planned = (
+        n_products * n_arch * n_seeds * int(n_origins)
+        if n_origins is not None
+        else None
+    )
+    fold_i = 0
+    print(
+        f"backtest_start products={n_products} arch={n_arch} seeds={n_seeds} "
+        f"origins={n_origins} planned_folds={planned}",
+        flush=True,
+    )
 
-    for product in product_list:
+    for pi, product in enumerate(product_list, start=1):
+        print(f"backtest_product_begin {pi}/{n_products} product={product!r}", flush=True)
         result = backtest_product_architectures(
             sales,
             product,
@@ -589,11 +650,21 @@ def run_outer_backtest(
             date_col=date_col,
             sales_col=sales_col,
             product_id_col=product_id_col,
+            progress_prefix=f"[{pi}/{n_products} {product}]",
+        )
+        n_folds = 0 if result.fold_metadata.empty else len(result.fold_metadata)
+        fold_i += n_folds
+        print(
+            f"backtest_product_done {pi}/{n_products} product={product!r} "
+            f"folds={n_folds} cumulative_folds={fold_i}",
+            flush=True,
         )
         if not result.predictions.empty:
             all_pred.append(result.predictions)
         if not result.fold_metadata.empty:
             all_meta.append(result.fold_metadata)
+
+    print(f"backtest_assemble folds={fold_i}", flush=True)
 
     predictions = (
         pd.concat(all_pred, ignore_index=True) if all_pred else _empty_predictions()
@@ -620,6 +691,7 @@ __all__ = [
     "STATUS_OK",
     "STATUS_UNAVAILABLE",
     "NeuralOuterBacktestResult",
+    "assemble_neural_backtest_result",
     "backtest_product_architectures",
     "run_outer_backtest",
 ]

@@ -5,7 +5,7 @@ SKU-vintage jobs may run concurrently via ``--workers`` (default 1).
 
 Artifacts::
 
-    data/backfills/{experiment_id}/{engine}/
+    src/data/backfill/{experiment_id}/{engine}/
         manifest.json
         state.sqlite
         forecasts/

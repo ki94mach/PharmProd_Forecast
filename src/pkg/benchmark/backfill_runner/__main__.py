@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Historical forecast backfill orchestrator with durable SQLite "
             "checkpoints, immutable experiment manifests, and an exclusive run lock. "
-            "Writes under data/backfills/{experiment_id}/{engine}/ — not production CSVs."
+            "Writes under src/data/backfill/{experiment_id}/{engine}/ — not production CSVs."
         )
     )
     p.add_argument(

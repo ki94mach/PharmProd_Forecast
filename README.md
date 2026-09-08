@@ -48,16 +48,21 @@ Edit **`src/.env`** (canonical location; see [.env.example](.env.example)). Keep
 
 ### Data files (not in git)
 
-Create or copy `src/data/`:
+**Canonical root:** `src/data/` (see `.cursor/skills/data-layout/SKILL.md` for the full map).
 
 ```
 src/data/
-  results/<quarter>/          # Output CSV + Excel (created by the tool)
-  pipeline/<quarter>/           # Optional: <quarter>_pipeline.xlsx
-  benchmarks/v1/                # Frozen research panels (python -m pkg.benchmark.freeze)
-  credentials.json              # Optional: Google service account (Sheets upload)
+  benchmarks/v1/              # Frozen research panels (python -m pkg.benchmark.freeze)
+  backfill/{experiment}/{eng}/  # Historical TS backfill jobs (backfill_runner)
+  ts_v3a/screening/{id}/      # V3A neural screening (immutable experiments)
+  results/{family|quarter}/   # Research family outputs + V1 quarterly CSVs
+  results_v2/{quarter}/{run}/ # Standalone V2 run persistence
+  external/{family}/          # Workbooks / maps for feature families
+  pipeline/<quarter>/         # Optional: <quarter>_pipeline.xlsx
+  credentials.json            # Optional: Google service account (Sheets upload)
 ```
 
+Do not write new artifacts under repo-root `data/` (legacy stray only).
 Share sample quarter folders and templates with your colleague outside the repo.
 
 ### Google Sheets (optional)
@@ -207,7 +212,7 @@ Forecast/
       excelmanager.py          # Excel formatting & protection
       utils.py                 # Paths, pivot, department mapping
       google_sheet.py          # Optional Sheets upload
-    data/                  # Gitignored — results, pipeline, benchmarks/v1, credentials
+    data/                  # Gitignored canonical tree: backfill, ts_v3a, results, benchmarks, …
 ```
 
 ## Handoff checklist

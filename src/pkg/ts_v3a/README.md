@@ -64,11 +64,16 @@ seed-ensemble forecasts (not row-weighted MAE).
 
 Immutable screening outputs land under:
 
-`data/ts_v3a/screening/{experiment_id}/`
+`src/data/ts_v3a/screening/{experiment_id}/`
 
 with `manifest.json`, seed OOF parquet, fold metadata, architecture /
 horizon / seed metrics CSVs, and `failures.csv`. Incomplete work uses
-`data/ts_v3a/screening/.incomplete/{experiment_id}/` then promotes on finalize.
+`src/data/ts_v3a/screening/.incomplete/{experiment_id}/` then promotes on finalize.
+
+After each SKU finishes, the CLI writes a recoverable checkpoint
+(`checkpoint.json` + cumulative parquets/CSVs) under `.incomplete/`. Re-run
+with the same `--experiment-id` and `--resume` (or let auto-resume detect an
+existing incomplete checkpoint) to skip finished products.
 
 A deterministic `config_hash` covers scientific settings only. Completed
 experiments refuse overwrite; incompatible hashes raise
@@ -83,14 +88,16 @@ python -m pkg.ts_v3a.screen \
   --origins 140401,140501 \
   --architectures a0,a1,a2,a3,a4,a5 \
   --seeds 41,42,43 \
-  --output data/ts_v3a/screening
+  --output src/data/ts_v3a/screening
 ```
 
 Runs a small product×origin set through A0–A5 under the same V2/V3A contract,
-prints a per-fold runtime table, and persists immutable screening artifacts.
-Short aliases `a0`–`a5` are accepted. Does **not** select a winning architecture.
+prints a per-fold runtime table, checkpoints after each product, and persists
+immutable screening artifacts on completion. Short aliases `a0`–`a5` are
+accepted. Does **not** select a winning architecture.
 Use `--dry-run` to resolve inputs and print `config_hash` without training.
 Optional `--max-epochs` / `--early-stopping-patience` bound smoke runtime.
+Use `--resume` with the same `--experiment-id` after a crash or kill.
 
 ## Training infrastructure
 
@@ -100,9 +107,22 @@ train/validation for early stopping, sample eligibility gates, a shared
 `NeuralTrainer`, deterministic seed helpers, and training metadata.
 
 **Implemented:** A0–A5, outer expanding CV with multi-seed ensemble evaluation,
-immutable screening persistence (`V3A_VERSION = "v3a"`), smoke/screening CLI.
+immutable screening persistence (`V3A_VERSION = "v3a"`), smoke/screening CLI,
+offline analysis (`python -m pkg.ts_v3a.analysis`).
 **Not implemented yet:** A6 graph, architecture selection, full-history refit,
 production/backfill integration.
+
+### Offline analysis
+
+```bash
+python -m pkg.ts_v3a.analysis build-panel --target-n 20
+python -m pkg.ts_v3a.analysis smoke-metrics --experiment-id <id> --output ...
+python -m pkg.ts_v3a.analysis recigen --experiment-id <id> --output ...
+python -m pkg.ts_v3a.analysis report --experiment-id <id>
+```
+
+Panel products: `src/pkg/benchmark/universes/v3a_architecture_validation_products.csv`
+(MVP subset; frozen `src/data/benchmarks/v1/raw/sales.parquet` only).
 
 ## Architecture candidates
 

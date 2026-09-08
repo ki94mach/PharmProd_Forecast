@@ -2,7 +2,7 @@
 
 Layout (isolated from production forecast CSVs)::
 
-    data/backfills/{experiment_id}/{engine}/
+    src/data/backfill/{experiment_id}/{engine}/
         manifest.json
         state.sqlite
         run.lock
@@ -74,14 +74,15 @@ def atomic_write_csv(path: Path, frame: pd.DataFrame) -> None:
 
 
 def default_backfill_root() -> Path:
-    """Historical backfill root — not production forecast export paths."""
-    root = Path(__file__).resolve().parents[3] / "data" / "backfills"
+    """Canonical ``src/data/backfill`` — not production forecast export paths."""
+    # src/pkg/benchmark/backfill_runner/store.py -> parents[3] = src/
+    root = Path(__file__).resolve().parents[3] / "data" / "backfill"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 class BackfillStore:
-    """Per-experiment / per-engine artifact tree under ``data/backfills``."""
+    """Per-experiment / per-engine artifact tree under ``src/data/backfill``."""
 
     def __init__(self, experiment_dir: Path, engine: str):
         self.experiment_dir = Path(experiment_dir)

@@ -71,7 +71,7 @@ def make_experiment_id(
 
     ``engine`` is accepted for backward compatibility and ignored.
     """
-    del engine  # layout: data/backfills/{experiment_id}/{engine}/
+    del engine  # layout: src/data/backfill/{experiment_id}/{engine}/
     # Local import avoids an import cycle with manifest.py.
     from pkg.benchmark.backfill_runner.manifest import (
         make_experiment_id as _make_experiment_id,

@@ -2,7 +2,7 @@
 
 Layout (not production/backfill outputs)::
 
-    data/ts_v3a/screening/{experiment_id}/
+    src/data/ts_v3a/screening/{experiment_id}/
         manifest.json
         oof_predictions.parquet
         fold_metadata.parquet
@@ -14,7 +14,7 @@ Layout (not production/backfill outputs)::
 
 Incomplete / checkpoint experiments live under::
 
-    data/ts_v3a/screening/.incomplete/{experiment_id}/
+    src/data/ts_v3a/screening/.incomplete/{experiment_id}/
 
 Completed experiments are never overwritten or appended to with a different
 configuration. ``config_hash`` covers scientific settings only.
@@ -105,9 +105,9 @@ class ExperimentCheckpointError(ExperimentPersistenceError):
 
 
 def default_screening_root() -> Path:
-    """Repository ``data/ts_v3a/screening`` (created on demand)."""
-    # src/pkg/ts_v3a/persistence.py -> parents[3] = repo root
-    root = Path(__file__).resolve().parents[3] / "data" / "ts_v3a" / "screening"
+    """Canonical ``src/data/ts_v3a/screening`` (created on demand)."""
+    # src/pkg/ts_v3a/persistence.py -> parents[2] = src/
+    root = Path(__file__).resolve().parents[2] / "data" / "ts_v3a" / "screening"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -669,6 +669,8 @@ def begin_screening_experiment(
 def write_screening_checkpoint(
     checkpoint: ScreeningExperimentCheckpoint,
     result: NeuralOuterBacktestResult,
+    *,
+    completed_products: Optional[Sequence[str]] = None,
 ) -> None:
     """Write screening artifacts into the incomplete experiment directory."""
     if checkpoint.is_complete:
@@ -702,6 +704,75 @@ def write_screening_checkpoint(
         git_commit=get_git_commit(),
     )
     _write_json(checkpoint.experiment_dir / MANIFEST_FILENAME, manifest)
+
+    # Progress marker for per-SKU resume (also mirrors fold_metadata products).
+    checkpoint_path = checkpoint.experiment_dir / CHECKPOINT_FILENAME
+    stored = _read_json_if_exists(checkpoint_path)
+    if not stored:
+        stored = {
+            "experiment_id": checkpoint.experiment_id,
+            "config_hash": checkpoint.config_hash,
+            "created_at": checkpoint.created_at,
+            "status": INCOMPLETE_STATUS,
+            "v3a_version": V3A_VERSION,
+        }
+    if completed_products is not None:
+        stored["completed_products"] = [str(p) for p in completed_products]
+    elif result.fold_metadata is not None and not result.fold_metadata.empty:
+        stored["completed_products"] = sorted(
+            result.fold_metadata["product"].astype(str).unique().tolist()
+        )
+    stored["status"] = INCOMPLETE_STATUS
+    stored["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_json(checkpoint_path, stored)
+
+
+def list_completed_products(experiment_dir: Path) -> list[str]:
+    """Products already checkpointed under an incomplete experiment directory."""
+    exp = Path(experiment_dir)
+    stored = _read_json_if_exists(exp / CHECKPOINT_FILENAME)
+    raw = stored.get("completed_products")
+    if isinstance(raw, list) and raw:
+        return [str(p) for p in raw]
+    fold_path = exp / FOLD_METADATA_NAME
+    if fold_path.is_file():
+        fold = pd.read_parquet(fold_path)
+        if not fold.empty and "product" in fold.columns:
+            return sorted(fold["product"].astype(str).unique().tolist())
+    return []
+
+
+def load_incomplete_screening_result(
+    experiment_dir: Path,
+) -> NeuralOuterBacktestResult:
+    """Reload a partial NeuralOuterBacktestResult from an incomplete checkpoint."""
+    exp = Path(experiment_dir)
+    oof_path = exp / OOF_PREDICTIONS_NAME
+    fold_path = exp / FOLD_METADATA_NAME
+    if not oof_path.is_file() or not fold_path.is_file():
+        return NeuralOuterBacktestResult(
+            predictions=pd.DataFrame(),
+            fold_metadata=pd.DataFrame(),
+            metrics=pd.DataFrame(),
+            ensemble_predictions=pd.DataFrame(),
+            ensemble_origin_status=pd.DataFrame(),
+            seed_metrics=pd.DataFrame(),
+            ensemble_metrics=pd.DataFrame(),
+            stability=pd.DataFrame(),
+        )
+    preds = pd.read_parquet(oof_path)
+    fold = pd.read_parquet(fold_path)
+    # Metrics CSVs are optional for resume; reassemble happens after next product.
+    return NeuralOuterBacktestResult(
+        predictions=preds,
+        fold_metadata=fold,
+        metrics=pd.DataFrame(),
+        ensemble_predictions=pd.DataFrame(),
+        ensemble_origin_status=pd.DataFrame(),
+        seed_metrics=pd.DataFrame(),
+        ensemble_metrics=pd.DataFrame(),
+        stability=pd.DataFrame(),
+    )
 
 
 def finalize_screening_experiment(
@@ -738,6 +809,10 @@ def finalize_screening_experiment(
     )
     _write_json(checkpoint.experiment_dir / MANIFEST_FILENAME, manifest)
     (checkpoint.experiment_dir / COMPLETE_MARKER).write_text("", encoding="utf-8")
+    # Resume checkpoints apply only under .incomplete/; drop stale incomplete marker.
+    checkpoint_path = checkpoint.experiment_dir / CHECKPOINT_FILENAME
+    if checkpoint_path.is_file():
+        checkpoint_path.unlink()
 
     complete_dir.parent.mkdir(parents=True, exist_ok=True)
     os.replace(checkpoint.experiment_dir, complete_dir)
@@ -845,6 +920,8 @@ __all__ = [
     "get_git_commit",
     "incomplete_experiment_dir",
     "is_complete_experiment",
+    "list_completed_products",
+    "load_incomplete_screening_result",
     "load_screening_experiment",
     "new_experiment_id",
     "persist_completed_screening_experiment",

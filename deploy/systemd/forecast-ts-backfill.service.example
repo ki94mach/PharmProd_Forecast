@@ -4,7 +4,7 @@
 #   App:     /opt/app/Forecast
 #   Python:  /opt/app/Forecast/.venv/bin/python
 #   Secrets: /opt/app/Forecast/src/.env   (SQL_PROFILE=server)
-#   State:   /opt/app/Forecast/src/data/backfills/...
+#   State:   /opt/app/Forecast/src/data/backfill/...
 #   OS user: root (no dedicated forecast account)
 #
 # Install / refresh on the server:

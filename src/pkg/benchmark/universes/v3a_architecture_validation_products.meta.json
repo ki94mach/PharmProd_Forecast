@@ -1,0 +1,13 @@
+{
+  "name": "v3a_architecture_validation_products",
+  "n_products": 25,
+  "sales_source": "src/data/benchmarks/v1/raw/sales.parquet",
+  "origins": [
+    140104,
+    140201,
+    140301,
+    140402
+  ],
+  "parent_universe": "mvp_products",
+  "logical_product_key": "ProductTitleEN (column product)"
+}

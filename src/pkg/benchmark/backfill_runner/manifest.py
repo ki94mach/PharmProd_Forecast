@@ -1,6 +1,6 @@
 """Immutable experiment-level metadata for historical backfills.
 
-Persists ``manifest.json`` under ``data/backfills/{experiment_id}/{engine}/``.
+Persists ``manifest.json`` under ``src/data/backfill/{experiment_id}/{engine}/``.
 The scientific ``config_hash`` excludes runtime provenance (timestamps, host,
 package versions, worker count) so resume works across machines; those fields
 are still recorded in the manifest for auditability.
@@ -390,7 +390,7 @@ def build_experiment_manifest(
             )
         ),
         "output_layout": {
-            "root_relative": f"data/backfills/{experiment_id}/{engine}/",
+            "root_relative": f"src/data/backfill/{experiment_id}/{engine}/",
             "manifest": MANIFEST_FILENAME,
             "state_db": "state.sqlite",
             "forecasts": "forecasts/",
