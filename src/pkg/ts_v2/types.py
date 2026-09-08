@@ -124,7 +124,8 @@ class PreparedSeries:
         zero_month_proportion: Share of months with sales ``<= 0`` (NaN ignored).
         average_inter_demand_interval: Mean gap (in months) between consecutive
             positive-demand months; ``None`` if fewer than two demand events.
-            Diagnostic only — does not auto-route to Croston/TSB.
+            Used by V2.1 intermittency eligibility for Croston/TSB; ignored for
+            routing under historical V2 (``intermittent_model_names=()``).
         n_demand_months: Count of months with sales ``> 0``.
     """
 
@@ -246,6 +247,8 @@ class ProductSelectionResult:
     unavailable: Mapping[str, str]
     metric: str
     tie_break_applied: bool = False
+    candidate_eligibility: Mapping[str, Any] = field(default_factory=dict)
+    fallback_reason: Optional[str] = None
 
     @property
     def best_model_name(self) -> str:

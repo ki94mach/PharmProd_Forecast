@@ -32,10 +32,12 @@ def _register_builtins() -> None:
     from pkg.benchmark.backfill_runner.engines.dummy import DummyForecastEngine
     from pkg.benchmark.backfill_runner.engines.v1_adapter import V1ForecastEngine
     from pkg.benchmark.backfill_runner.engines.v2_engine import V2ForecastEngine
+    from pkg.benchmark.backfill_runner.engines.v21_engine import V21ForecastEngine
 
     register_engine("dummy", DummyForecastEngine)
     register_engine("v1", V1ForecastEngine)
     register_engine("v2", V2ForecastEngine)
+    register_engine("v2.1", V21ForecastEngine)
 
 
 _register_builtins()

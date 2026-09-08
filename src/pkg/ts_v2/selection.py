@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
+from pkg.ts_v2.eligibility import CandidateEligibility, has_intermittent_gate
 from pkg.ts_v2.types import BacktestResult, ForecastOrigin, ProductSelectionResult, SelectionResult
 
 
@@ -172,11 +173,13 @@ def select_product_model(
     *,
     config: Optional[TSForecastConfig] = None,
     candidate_models: Optional[Sequence[str]] = None,
+    candidate_eligibility: Optional[Mapping[str, CandidateEligibility]] = None,
 ) -> ProductSelectionResult:
     """Select the best candidate for one SKU from backtest output."""
     cfg = config or DEFAULT_CONFIG
     product_s = str(product)
     candidates = tuple(candidate_models) if candidate_models is not None else cfg.candidate_models
+    eligibility = dict(candidate_eligibility or {})
 
     eligible_scores: dict[str, float] = {}
     unavailable: dict[str, str] = {}
@@ -186,22 +189,28 @@ def select_product_model(
     tie_break = False
 
     for model in candidates:
-        row = _metrics_row(backtest.metrics, product=product_s, model=str(model))
+        model_s = str(model)
+        elig = eligibility.get(model_s)
+        if elig is not None and not elig.eligible:
+            unavailable[model_s] = elig.reason or "not_intermittent"
+            continue
+
+        row = _metrics_row(backtest.metrics, product=product_s, model=model_s)
         if row is None:
-            fail_reason = _failure_reasons(backtest.failures, product=product_s, model=str(model))
-            unavailable[str(model)] = fail_reason or "no backtest predictions"
+            fail_reason = _failure_reasons(backtest.failures, product=product_s, model=model_s)
+            unavailable[model_s] = fail_reason or "no backtest predictions"
             continue
 
         ok, reason = _eligible_for_selection(row, config=cfg)
         if not ok:
-            fail_reason = _failure_reasons(backtest.failures, product=product_s, model=str(model))
+            fail_reason = _failure_reasons(backtest.failures, product=product_s, model=model_s)
             if fail_reason:
                 reason = f"{reason}; {fail_reason}" if reason else fail_reason
-            unavailable[str(model)] = reason
+            unavailable[model_s] = reason
             continue
 
         score = float(row["selection_mae"])
-        eligible_scores[str(model)] = score
+        eligible_scores[model_s] = score
 
     if not eligible_scores:
         reasons = "; ".join(f"{m}: {r}" for m, r in unavailable.items()) or "no eligible models"
@@ -225,6 +234,16 @@ def select_product_model(
     if not isinstance(eval_horizons, tuple):
         eval_horizons = tuple(int(h) for h in eval_horizons)
 
+    fallback_reason: Optional[str] = None
+    if has_intermittent_gate(cfg) and eligibility:
+        excluded = [
+            name
+            for name in cfg.intermittent_model_names
+            if name in eligibility and not eligibility[name].eligible
+        ]
+        if excluded:
+            fallback_reason = "intermittent_models_excluded"
+
     return ProductSelectionResult(
         product=product_s,
         selected_model=winner_name,
@@ -236,6 +255,8 @@ def select_product_model(
         unavailable=dict(unavailable),
         metric=cfg.selection_metric,
         tie_break_applied=tie_break,
+        candidate_eligibility=eligibility,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -245,6 +266,9 @@ def select_models(
     *,
     config: Optional[TSForecastConfig] = None,
     candidate_models: Optional[Sequence[str]] = None,
+    eligibility_by_product: Optional[
+        Mapping[str, Mapping[str, CandidateEligibility]]
+    ] = None,
 ) -> dict[str, ProductSelectionResult]:
     """Select a model for each SKU present in the backtest metrics table."""
     cfg = config or DEFAULT_CONFIG
@@ -255,6 +279,7 @@ def select_models(
     else:
         product_list = [str(p) for p in products]
 
+    elig_map = eligibility_by_product or {}
     out: dict[str, ProductSelectionResult] = {}
     for product in product_list:
         out[product] = select_product_model(
@@ -262,6 +287,7 @@ def select_models(
             product,
             config=cfg,
             candidate_models=candidate_models,
+            candidate_eligibility=elig_map.get(product),
         )
     return out
 
@@ -284,6 +310,7 @@ def selection_results_to_frame(
             "evaluated_horizons": r.evaluated_horizons,
             "metric": r.metric,
             "tie_break_applied": r.tie_break_applied,
+            "fallback_reason": r.fallback_reason,
             "candidate_scores": dict(r.candidate_scores),
             "unavailable": dict(r.unavailable),
         }

@@ -21,6 +21,7 @@ from pkg.ts_v2.backtest import run_backtest
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
 from pkg.ts_v2.data import assert_training_before_origin, prepare_monthly_series
 from pkg.ts_v2.dates import make_forecast_window, parse_origin
+from pkg.ts_v2.eligibility import build_candidate_eligibility, has_intermittent_gate
 from pkg.ts_v2.ensemble import (
     STRATEGY_BEST_SINGLE,
     build_ensemble_predictions,
@@ -353,7 +354,28 @@ def forecast_with_backtest(
     # Do not compare ``id()`` after deletion: CPython may recycle those ids.
     del cv_models
 
-    selections = select_models(backtest, product_list, config=cfg)
+    eligibility_by_product: dict = {}
+    if has_intermittent_gate(cfg):
+        for product in product_list:
+            prepared = prepare_monthly_series(
+                sales,
+                product,
+                final_origin,
+                config=cfg,
+                product_col=product_col,
+                date_col=date_col,
+                sales_col=sales_col,
+            )
+            eligibility_by_product[product] = build_candidate_eligibility(
+                prepared, cfg
+            )
+
+    selections = select_models(
+        backtest,
+        product_list,
+        config=cfg,
+        eligibility_by_product=eligibility_by_product or None,
+    )
 
     # 3–6. Fresh production refit per SKU (always via ``_fresh_model`` / registry).
     final_map: dict[str, ProductFinalForecast] = {}
@@ -422,3 +444,10 @@ def forecast_products(
 def default_engine_config() -> TSForecastConfig:
     """Return the frozen default V2 config (copy-safe via frozen dataclass)."""
     return DEFAULT_CONFIG
+
+
+def default_engine_config_v21() -> TSForecastConfig:
+    """Return the frozen default V2.1 config (intermittency gating enabled)."""
+    from pkg.ts_v2.config import DEFAULT_CONFIG_V21
+
+    return DEFAULT_CONFIG_V21

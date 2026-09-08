@@ -58,7 +58,9 @@ outcome = run_model(model, train_series, window)
 Register factories on `pkg.ts_v2.models.REGISTRY` and list names in `TSForecastConfig.candidate_models`.
 
 Intermittent candidates `croston_sba` and `tsb` compete in backtesting like other models;
-`PreparedSeries` exposes `zero_month_proportion` / `average_inter_demand_interval` as diagnostics only (no auto-routing yet).
+`PreparedSeries` exposes `zero_month_proportion` / `average_inter_demand_interval`.
+V2 leaves them as diagnostics only; V2.1 uses them to gate `croston_sba` / `tsb`
+(see `docs/ts_v21_intermittent_eligibility.md`).
 
 ## Layout
 

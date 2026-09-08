@@ -8,7 +8,7 @@ import pandas as pd
 
 
 class IntermittencyStats(NamedTuple):
-    """ADI / zero-share diagnostics (no model routing)."""
+    """ADI / zero-share diagnostics (V2.1 uses these for intermittent routing)."""
 
     zero_month_proportion: Optional[float]
     average_inter_demand_interval: Optional[float]

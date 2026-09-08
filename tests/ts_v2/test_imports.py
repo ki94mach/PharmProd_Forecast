@@ -94,6 +94,9 @@ class TestTsV2Config(unittest.TestCase):
         self.assertIn("prophet", DEFAULT_CONFIG.selection_simplicity_order)
         self.assertEqual(DEFAULT_CONFIG.selection_strategy, "best_model")
         self.assertEqual(DEFAULT_CONFIG.ensemble_top_k, 3)
+        self.assertEqual(DEFAULT_CONFIG.intermittent_model_names, ())
+        self.assertEqual(DEFAULT_CONFIG.intermittent_min_zero_fraction, 0.10)
+        self.assertEqual(DEFAULT_CONFIG.intermittent_min_adi, 1.32)
         self.assertEqual(
             DEFAULT_CONFIG.candidate_models,
             (

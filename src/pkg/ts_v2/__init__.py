@@ -6,7 +6,7 @@ here; historical benchmark CSVs depend on the existing engine.
 """
 from __future__ import annotations
 
-from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig, use_seasonal
+from pkg.ts_v2.config import DEFAULT_CONFIG, DEFAULT_CONFIG_V21, TSForecastConfig, use_seasonal
 from pkg.ts_v2.data import prepare_monthly_series
 from pkg.ts_v2.dates import make_forecast_window, make_screening_forecast_window
 from pkg.ts_v2.models import run_model
@@ -14,6 +14,7 @@ from pkg.ts_v2.types import ForecastOrigin, ForecastResult, ForecastWindow, Prep
 
 __all__ = [
     "DEFAULT_CONFIG",
+    "DEFAULT_CONFIG_V21",
     "TSForecastConfig",
     "ForecastOrigin",
     "ForecastResult",

@@ -1,4 +1,4 @@
-"""Immutable V2 forecast-run persistence.
+"""Immutable V2 / V2.1 forecast-run persistence.
 
 Layout (separate from V1 ``src/data/results/``)::
 
@@ -7,9 +7,16 @@ Layout (separate from V1 ``src/data/results/``)::
         run_metadata.json
         backtest_scores.csv
 
+    src/data/results_v2_1/{qrt}/{run_id}/
+        forecast.csv
+        run_metadata.json
+        backtest_scores.csv
+        candidate_eligibility.csv
+        selection.csv
+
 Incomplete/checkpoint runs live under::
 
-    src/data/results_v2/{qrt}/.incomplete/{run_id}/
+    src/data/results_v2{,_1}/{qrt}/.incomplete/{run_id}/
 
 Completed runs are never overwritten or appended to.
 """
@@ -27,10 +34,12 @@ from typing import Any, Mapping, Optional
 
 import pandas as pd
 
-from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
+from pkg.ts_v2.config import DEFAULT_CONFIG, DEFAULT_CONFIG_V21, TSForecastConfig
+from pkg.ts_v2.eligibility import CandidateEligibility
 from pkg.ts_v2.types import EngineResult, ProductFinalForecast
 
 TS_VERSION = "v2"
+TS_VERSION_V21 = "v2.1"
 COMPLETE_STATUS = "complete"
 INCOMPLETE_STATUS = "incomplete"
 CHECKPOINT_FILENAME = "checkpoint.json"
@@ -51,6 +60,28 @@ FORECAST_CSV_COLUMNS = (
 FORECAST_CSV_NAME = "forecast.csv"
 METADATA_JSON_NAME = "run_metadata.json"
 BACKTEST_SCORES_CSV_NAME = "backtest_scores.csv"
+CANDIDATE_ELIGIBILITY_CSV_NAME = "candidate_eligibility.csv"
+SELECTION_CSV_NAME = "selection.csv"
+
+ELIGIBILITY_CSV_COLUMNS = (
+    "run_id",
+    "product",
+    "model",
+    "eligible",
+    "reason",
+    "zero_month_proportion",
+    "adi",
+)
+
+SELECTION_CSV_COLUMNS = (
+    "run_id",
+    "product",
+    "selected_model",
+    "selection_mae",
+    "tie_break_applied",
+    "fallback_reason",
+    "unavailable",
+)
 
 
 class RunPersistenceError(Exception):
@@ -70,6 +101,20 @@ def default_results_v2_root() -> Path:
     root = Path(__file__).resolve().parents[2] / "data" / "results_v2"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def default_results_v21_root() -> Path:
+    """Repository ``src/data/results_v2_1`` (created on demand)."""
+    root = Path(__file__).resolve().parents[2] / "data" / "results_v2_1"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def default_results_root_for_version(ts_version: str) -> Path:
+    """Resolve standalone persistence root for ``v2`` or ``v2.1``."""
+    if str(ts_version) == TS_VERSION_V21:
+        return default_results_v21_root()
+    return default_results_v2_root()
 
 
 def quarter_from_origin(forecast_origin: int) -> str:
@@ -241,11 +286,12 @@ def build_run_metadata(
     status: str,
     git_commit: Optional[str] = None,
     config_hash_value: Optional[str] = None,
+    ts_version: str = TS_VERSION,
 ) -> dict[str, Any]:
     """Metadata written to ``run_metadata.json``."""
     return {
         "run_id": str(run_id),
-        "ts_version": TS_VERSION,
+        "ts_version": str(ts_version),
         "forecast_origin": int(forecast_origin),
         "quarter": str(quarter),
         "created_at": str(created_at),
@@ -260,6 +306,72 @@ def build_run_metadata(
     }
 
 
+def build_candidate_eligibility_dataframe(
+    engine_result: EngineResult,
+    *,
+    run_id: str,
+) -> pd.DataFrame:
+    """Flatten per-product / model eligibility for V2.1 persistence."""
+    rows: list[dict[str, Any]] = []
+    for product in sorted(engine_result.selections.keys()):
+        selection = engine_result.selections[product]
+        eligibility = selection.candidate_eligibility or {}
+        for model in sorted(eligibility.keys()):
+            elig = eligibility[model]
+            if isinstance(elig, CandidateEligibility):
+                rows.append(
+                    {
+                        "run_id": str(run_id),
+                        "product": str(product),
+                        "model": str(model),
+                        "eligible": bool(elig.eligible),
+                        "reason": str(elig.reason),
+                        "zero_month_proportion": elig.zero_month_proportion,
+                        "adi": elig.adi,
+                    }
+                )
+            elif isinstance(elig, Mapping):
+                rows.append(
+                    {
+                        "run_id": str(run_id),
+                        "product": str(product),
+                        "model": str(model),
+                        "eligible": bool(elig.get("eligible", False)),
+                        "reason": str(elig.get("reason", "")),
+                        "zero_month_proportion": elig.get("zero_month_proportion"),
+                        "adi": elig.get("adi"),
+                    }
+                )
+    if not rows:
+        return pd.DataFrame(columns=list(ELIGIBILITY_CSV_COLUMNS))
+    return pd.DataFrame(rows, columns=list(ELIGIBILITY_CSV_COLUMNS))
+
+
+def build_selection_dataframe(
+    engine_result: EngineResult,
+    *,
+    run_id: str,
+) -> pd.DataFrame:
+    """Flatten per-product selection outcomes for V2.1 persistence."""
+    rows: list[dict[str, Any]] = []
+    for product in sorted(engine_result.selections.keys()):
+        selection = engine_result.selections[product]
+        rows.append(
+            {
+                "run_id": str(run_id),
+                "product": str(product),
+                "selected_model": str(selection.selected_model),
+                "selection_mae": float(selection.selection_mae),
+                "tie_break_applied": bool(selection.tie_break_applied),
+                "fallback_reason": selection.fallback_reason,
+                "unavailable": json.dumps(dict(selection.unavailable), sort_keys=True),
+            }
+        )
+    if not rows:
+        return pd.DataFrame(columns=list(SELECTION_CSV_COLUMNS))
+    return pd.DataFrame(rows, columns=list(SELECTION_CSV_COLUMNS))
+
+
 @dataclass(frozen=True)
 class V2RunCheckpoint:
     """In-progress run; must match ``config_hash`` on resume."""
@@ -271,6 +383,7 @@ class V2RunCheckpoint:
     created_at: str
     run_dir: Path
     config: TSForecastConfig
+    ts_version: str = TS_VERSION
 
     @property
     def is_complete(self) -> bool:
@@ -285,10 +398,16 @@ def begin_v2_run(
     run_id: Optional[str] = None,
     created_at: Optional[datetime] = None,
     resume: bool = False,
+    ts_version: str = TS_VERSION,
 ) -> V2RunCheckpoint:
     """Start or resume an incomplete checkpoint run."""
     cfg = config or DEFAULT_CONFIG
-    root = Path(base_dir) if base_dir is not None else default_results_v2_root()
+    version = str(ts_version)
+    root = (
+        Path(base_dir)
+        if base_dir is not None
+        else default_results_root_for_version(version)
+    )
     origin = int(forecast_origin)
     qrt = quarter_from_origin(origin)
     rid = run_id or new_run_id(created_at=created_at)
@@ -328,6 +447,7 @@ def begin_v2_run(
             created_at=str(stored.get("created_at", created_iso)),
             run_dir=inc_dir,
             config=cfg,
+            ts_version=str(stored.get("ts_version", version)),
         )
 
     if inc_dir.exists() and any(inc_dir.iterdir()):
@@ -342,6 +462,7 @@ def begin_v2_run(
         "config_hash": cfg_hash,
         "created_at": created_iso,
         "status": INCOMPLETE_STATUS,
+        "ts_version": version,
     }
     _write_json(checkpoint_path, checkpoint)
     return V2RunCheckpoint(
@@ -352,6 +473,28 @@ def begin_v2_run(
         created_at=created_iso,
         run_dir=inc_dir,
         config=cfg,
+        ts_version=version,
+    )
+
+
+def begin_v21_run(
+    forecast_origin: int,
+    config: Optional[TSForecastConfig] = None,
+    *,
+    base_dir: Optional[Path] = None,
+    run_id: Optional[str] = None,
+    created_at: Optional[datetime] = None,
+    resume: bool = False,
+) -> V2RunCheckpoint:
+    """Start or resume a V2.1 run under ``results_v2_1``."""
+    return begin_v2_run(
+        forecast_origin,
+        config or DEFAULT_CONFIG_V21,
+        base_dir=base_dir,
+        run_id=run_id,
+        created_at=created_at,
+        resume=resume,
+        ts_version=TS_VERSION_V21,
     )
 
 
@@ -389,12 +532,21 @@ def write_checkpoint_artifacts(
         status=INCOMPLETE_STATUS,
         git_commit=get_git_commit(),
         config_hash_value=checkpoint.config_hash,
+        ts_version=checkpoint.ts_version,
     )
 
     run_dir = checkpoint.run_dir
     forecast_df.to_csv(run_dir / FORECAST_CSV_NAME, index=False)
     scores_df.to_csv(run_dir / BACKTEST_SCORES_CSV_NAME, index=False)
     _write_json(run_dir / METADATA_JSON_NAME, metadata)
+
+    if checkpoint.ts_version == TS_VERSION_V21:
+        build_candidate_eligibility_dataframe(
+            engine_result, run_id=checkpoint.run_id
+        ).to_csv(run_dir / CANDIDATE_ELIGIBILITY_CSV_NAME, index=False)
+        build_selection_dataframe(
+            engine_result, run_id=checkpoint.run_id
+        ).to_csv(run_dir / SELECTION_CSV_NAME, index=False)
 
 
 def finalize_v2_run(
@@ -433,6 +585,7 @@ def finalize_v2_run(
         status=COMPLETE_STATUS,
         git_commit=get_git_commit(),
         config_hash_value=checkpoint.config_hash,
+        ts_version=checkpoint.ts_version,
     )
     _write_json(checkpoint.run_dir / METADATA_JSON_NAME, metadata)
     (checkpoint.run_dir / COMPLETE_MARKER).write_text("", encoding="utf-8")
@@ -451,6 +604,7 @@ def persist_completed_run(
     run_id: Optional[str] = None,
     product_titles: Optional[Mapping[str, str]] = None,
     created_at: Optional[datetime] = None,
+    ts_version: str = TS_VERSION,
 ) -> Path:
     """Begin, write, and finalize a V2 run in one step."""
     cfg = config or DEFAULT_CONFIG
@@ -460,12 +614,36 @@ def persist_completed_run(
         base_dir=base_dir,
         run_id=run_id,
         created_at=created_at,
+        ts_version=ts_version,
     )
     return finalize_v2_run(
         checkpoint,
         engine_result,
         product_titles=product_titles,
         base_dir=base_dir,
+    )
+
+
+def persist_completed_v21_run(
+    engine_result: EngineResult,
+    forecast_origin: int,
+    *,
+    config: Optional[TSForecastConfig] = None,
+    base_dir: Optional[Path] = None,
+    run_id: Optional[str] = None,
+    product_titles: Optional[Mapping[str, str]] = None,
+    created_at: Optional[datetime] = None,
+) -> Path:
+    """Begin, write, and finalize a V2.1 run under ``results_v2_1``."""
+    return persist_completed_run(
+        engine_result,
+        forecast_origin,
+        config=config or DEFAULT_CONFIG_V21,
+        base_dir=base_dir,
+        run_id=run_id,
+        product_titles=product_titles,
+        created_at=created_at,
+        ts_version=TS_VERSION_V21,
     )
 
 

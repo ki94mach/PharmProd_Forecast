@@ -54,6 +54,12 @@ class TSForecastConfig:
         selection_strategy: Forecast strategy for production (analysis compares
             all options; default remains ``best_model`` until empirically validated).
         ensemble_top_k: Number of models combined in top-k ensemble strategies.
+        intermittent_model_names: Models gated behind intermittency eligibility
+            (empty for historical V2 — all candidates compete).
+        intermittent_min_zero_fraction: Minimum zero-month share to admit
+            intermittent models (OR with ADI rule).
+        intermittent_min_adi: Minimum ADI (exclusive) to admit intermittent
+            models (Syntetos–Boylan cutoff is 1.32).
 
     Activity threshold (V1 compatibility)
     ------------------------------------
@@ -105,9 +111,19 @@ class TSForecastConfig:
     )
     selection_strategy: SelectionStrategy = "best_model"
     ensemble_top_k: int = 3
+    intermittent_model_names: tuple[str, ...] = ()
+    intermittent_min_zero_fraction: float = 0.10
+    intermittent_min_adi: float = 1.32
 
 
 DEFAULT_CONFIG = TSForecastConfig()
+
+# V2.1: same candidates as V2, with Croston-SBA / TSB intermittency gating.
+DEFAULT_CONFIG_V21 = TSForecastConfig(
+    intermittent_model_names=("croston_sba", "tsb"),
+    intermittent_min_zero_fraction=0.10,
+    intermittent_min_adi=1.32,
+)
 
 
 def use_seasonal(n: int, config: Optional[TSForecastConfig] = None) -> bool:

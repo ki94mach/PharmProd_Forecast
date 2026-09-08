@@ -18,6 +18,7 @@ from pkg.ts_v2.backtest_origins import (
 from pkg.ts_v2.config import DEFAULT_CONFIG, TSForecastConfig
 from pkg.ts_v2.data import prepare_monthly_series, product_monthly_sales
 from pkg.ts_v2.dates import make_forecast_window, parse_origin, validate_shamsi_yyyymm
+from pkg.ts_v2.eligibility import eligibility_for_model, has_intermittent_gate
 from pkg.ts_v2.metrics import metrics_summary_row
 from pkg.ts_v2.models.base import ForecastModel, is_failure, is_success, run_model
 from pkg.ts_v2.models.registry import models_from_config
@@ -274,6 +275,19 @@ def backtest_product(
         evaluable_h = {int(h) for h in cover.evaluable_horizons}
 
         for model in models:
+            if has_intermittent_gate(cfg):
+                elig = eligibility_for_model(model.name, prepared, cfg)
+                if not elig.eligible:
+                    fail_rows.append(
+                        {
+                            "product": product,
+                            "model": str(model.name),
+                            "origin": origin_key,
+                            "reason": elig.reason,
+                            "error_type": "NotIntermittent",
+                        }
+                    )
+                    continue
             # Full production contract for models; score only months with actuals.
             outcome = run_model(model, prepared.values, full_win)
             if is_failure(outcome):

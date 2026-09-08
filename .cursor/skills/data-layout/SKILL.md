@@ -5,7 +5,7 @@ description: >-
   for backfill artifacts, V3A screening runs, research results, frozen
   benchmarks, external sources, results_v2, or deciding where to write new
   experiment outputs. Also use when unifying paths, fixing dual data roots, or
-  answering “where is the X file?”.
+  answering “where is the X file?”. Also covers results_v2_1 / backfill v2.1.
 ---
 
 # Data layout (`src/data/`)
@@ -15,7 +15,8 @@ repo-root `data/` — that tree is legacy/stray only.
 
 When locating or writing data files, prefer this map over guessing. Package
 code defaults should resolve under `src/data/` via helpers such as
-`default_screening_root()`, `default_backfill_root()`, `default_results_v2_root()`.
+`default_screening_root()`, `default_backfill_root()`, `default_results_v2_root()`,
+`default_results_v21_root()`.
 
 ## Quick map
 
@@ -30,6 +31,7 @@ code defaults should resolve under `src/data/` via helpers such as
 | V2-vs-legacy eval | `src/data/results/ts_v2_backfill_eval/` | `python -m pkg.research.evaluate_v2_backfill` |
 | V1 quarterly forecast CSVs | `src/data/results/{quarter}/` | production / legacy export |
 | Standalone V2 run persistence | `src/data/results_v2/{quarter}/{run_id}/` | `pkg.ts_v2.persistence` |
+| Standalone V2.1 run persistence | `src/data/results_v2_1/{quarter}/{run_id}/` | `pkg.ts_v2.persistence` (`ts_version=v2.1`) |
 | External workbooks / maps | `src/data/external/{family}/` | manual / prepare steps |
 | Pipeline scratch | `src/data/pipeline/` | pipeline helpers |
 | Sales scratch | `src/data/sales/` | ad-hoc |
@@ -60,6 +62,14 @@ Narrative docs for families live in `docs/{family}_*.md` (often local-only;
 
 Join keys vs V3A: `product`, `forecast_origin` (= V3A `origin`), `horizon`,
 `target_date`. Columns include `forecast`, `raw_forecast`, `model`, `engine=v2`.
+
+**V2.1 backfill (intermittency-gated Croston/TSB):**
+
+`src/data/backfill/{experiment_id}/v2.1/forecasts/{quarter}__{product}/forecast.csv`
+
+Engine name `v2.1`; standalone analysis runs also use
+`src/data/results_v2_1/{quarter}/{run_id}/` (adds `candidate_eligibility.csv`,
+`selection.csv`). Do not overwrite historical `…/v2/` artifacts.
 
 **V3A architecture validation experiment:**
 
