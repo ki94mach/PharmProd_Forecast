@@ -16,7 +16,7 @@ repo-root `data/` — that tree is legacy/stray only.
 When locating or writing data files, prefer this map over guessing. Package
 code defaults should resolve under `src/data/` via helpers such as
 `default_screening_root()`, `default_backfill_root()`, `default_results_v2_root()`,
-`default_results_v21_root()`.
+`default_results_v21_root()`. Unified server jobs use `src/data/forecast_jobs/`.
 
 ## Quick map
 
@@ -32,6 +32,7 @@ code defaults should resolve under `src/data/` via helpers such as
 | V1 quarterly forecast CSVs | `src/data/results/{quarter}/` | production / legacy export |
 | Standalone V2 run persistence | `src/data/results_v2/{quarter}/{run_id}/` | `pkg.ts_v2.persistence` |
 | Standalone V2.1 run persistence | `src/data/results_v2_1/{quarter}/{run_id}/` | `pkg.ts_v2.persistence` (`ts_version=v2.1`) |
+| Unified V2.1/A0/A1 server jobs | `src/data/forecast_jobs/{run_id}/` | `python -m pkg.forecast_jobs` |
 | External workbooks / maps | `src/data/external/{family}/` | manual / prepare steps |
 | Pipeline scratch | `src/data/pipeline/` | pipeline helpers |
 | Sales scratch | `src/data/sales/` | ad-hoc |
@@ -70,6 +71,14 @@ Join keys vs V3A: `product`, `forecast_origin` (= V3A `origin`), `horizon`,
 Engine name `v2.1`; standalone analysis runs also use
 `src/data/results_v2_1/{quarter}/{run_id}/` (adds `candidate_eligibility.csv`,
 `selection.csv`). Do not overwrite historical `…/v2/` artifacts.
+
+**Unified V2.1 / A0 / A1 server jobs:**
+
+`src/data/forecast_jobs/{run_id}/` via `python -m pkg.forecast_jobs --config …`
+
+Example config: `configs/forecast_jobs/example_v21_a0_a1.yaml`. Sales input must be
+the frozen parquet (`src/data/benchmarks/v1/raw/sales.parquet`); snapshot
+metadata is recorded in `input_snapshot.json`.
 
 **V3A architecture validation experiment:**
 

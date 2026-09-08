@@ -1,0 +1,54 @@
+schema_version: "1"
+
+run:
+  # Omit run_id to auto-generate; set explicitly for resume on the server.
+  run_id: null
+  output_dir: src/data/forecast_jobs
+
+cohort:
+  universe: v3a_architecture_validation_products
+  # Optional subset filter (must be members of the universe when universe is set):
+  # products: [Recigen, ProductB]
+
+origins:
+  - 140104
+  - 140201
+  - 140301
+  - 140402
+
+architectures:
+  - v2.1
+  - a0
+  - a1
+
+seeds:
+  - 41
+  - 42
+  - 43
+
+horizon: 15
+
+cutoff_policy:
+  name: production  # train through last_complete (= origin - 2)
+
+sales:
+  path: src/data/benchmarks/v1/raw/sales.parquet
+  read_only: true
+  schema:
+    columns: [product, date, sales]
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  # Pin after first validated dry-run (optional). Mismatch aborts execution.
+  expected:
+    content_sha256: null
+    n_rows: null
+    size_bytes: null
+    mtime_ns: null
+
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 1
