@@ -189,6 +189,8 @@ Production TS (ARIMA / ETS / Prophet / LSTM per SKU), CLI modes, and how CSVs be
 
 Historical V1/V2 SKU×vintage backfills (checkpoints, `--resume`, systemd/tmux) are documented in [`docs/ts_backfill_server.md`](docs/ts_backfill_server.md). Entry points: `python -m pkg.benchmark.backfill_runner`, `scripts/run_ts_backfill.sh`, and `deploy/systemd/forecast-ts-backfill.service.example`.
 
+V2.1 / A0 / A1 server jobs (`pharma-ts@.service`, journald, resume) are documented in [`docs/forecast_jobs_systemd.md`](docs/forecast_jobs_systemd.md). Entry points: `python -m pkg.forecast_jobs`, `scripts/run_forecast_jobs.sh`, and `deploy/systemd/pharma-ts@.service`.
+
 ## Project layout
 
 ```
@@ -199,8 +201,11 @@ Forecast/
   .env.example
   scripts/
     run_ts_backfill.sh   # Server wrapper (conda + thread caps + logs + --resume)
+    run_forecast_jobs.sh # Server wrapper for V2.1/A0/A1 (pharma-ts@)
   deploy/systemd/
     forecast-ts-backfill.service.example
+    pharma-ts@.service
+    pharma-ts.secrets.env.example
   src/
     main.py              # CLI entry point
     pkg/

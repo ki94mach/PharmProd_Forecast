@@ -1,0 +1,85 @@
+# Pharma TS forecast jobs — systemd template unit for op-minos-srv
+#
+# Host layout (same conventions as forecast-ts-backfill):
+#   App:     /opt/app/Forecast
+#   Python:  /opt/app/Forecast/.venv/bin/python
+#   Secrets: /etc/pharma-ts/secrets.env  (chmod 600; optional CUDA_VISIBLE_DEVICES)
+#   Config:  /opt/app/Forecast/configs/forecast_jobs/%i.yaml
+#   State:   /opt/app/Forecast/src/data/forecast_jobs/%i/
+#   OS user: root
+#
+# Instance name = config stem, e.g.:
+#   systemctl start pharma-ts@v21_a0_a1.service
+#   → configs/forecast_jobs/v21_a0_a1.yaml , run_id=v21_a0_a1
+#
+# Install:
+#   sudo cp /opt/app/Forecast/deploy/systemd/pharma-ts@.service \
+#     /etc/systemd/system/pharma-ts@.service
+#   sudo systemctl daemon-reload
+#
+# See docs/forecast_jobs_systemd.md for start / status / log / stop / resume.
+
+[Unit]
+Description=Pharma TS forecast jobs (%i)
+Documentation=file:/opt/app/Forecast/docs/forecast_jobs_systemd.md
+After=network-online.target
+Wants=network-online.target
+
+# Only one pharma-ts@ instance at a time (prevents concurrent GPU jobs).
+Conflicts=pharma-ts@.service
+
+# Prevent repeated restart loops after fatal failures.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+
+User=root
+Group=root
+WorkingDirectory=/opt/app/Forecast
+
+# Numerical libraries: avoid nested thread storms.
+Environment="OMP_NUM_THREADS=1"
+Environment="OPENBLAS_NUM_THREADS=1"
+Environment="MKL_NUM_THREADS=1"
+Environment="NUMEXPR_NUM_THREADS=1"
+Environment="VECLIB_MAXIMUM_THREADS=1"
+Environment="BLIS_NUM_THREADS=1"
+Environment="PYTHONHASHSEED=0"
+
+# Pip-only server: absolute venv python + import path.
+Environment="FORECAST_PYTHON=/opt/app/Forecast/.venv/bin/python"
+Environment="PYTHONPATH=/opt/app/Forecast/src"
+
+# Instance-specific YAML and run directory identity.
+Environment="FORECAST_JOBS_CONFIG=/opt/app/Forecast/configs/forecast_jobs/%i.yaml"
+Environment="FORECAST_JOBS_RUN_ID=%i"
+
+# Secrets / optional CUDA pin — never put passwords in this unit file.
+# Missing file is ignored (-); create with chmod 600 (see secrets.env.example).
+EnvironmentFile=-/etc/pharma-ts/secrets.env
+
+ExecStart=/opt/app/Forecast/scripts/run_forecast_jobs.sh
+
+Nice=10
+
+# Exit 0 = clean success / status / dry-run.
+# Exit 1 = orchestration finished with one or more FAILED jobs (not a crash).
+SuccessExitStatus=0 1
+Restart=on-failure
+RestartSec=30
+
+# Graceful stop: SIGTERM → runner finishes/aborts starting new jobs; checkpoints remain.
+KillSignal=SIGTERM
+TimeoutStopSec=3600
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pharma-ts-%i
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -235,5 +235,90 @@ class TestRunnerResumeAndSignals(unittest.TestCase):
                 fingerprint_sales_parquet(path)
 
 
+class TestV21CompatibleNeuralOutputs(unittest.TestCase):
+    def test_neural_frame_maps_origin_prediction_to_v21_keys(self):
+        from pkg.benchmark.backfill_runner.types import EngineJobRequest
+        from pkg.forecast_jobs.engines import (
+            V21_COMPAT_FORECAST_COLUMNS,
+            neural_predictions_to_v21_frame,
+        )
+
+        preds = pd.DataFrame(
+            [
+                {
+                    "product_id": 1,
+                    "product": "SKU_A",
+                    "architecture": "small_recursive_lstm",
+                    "seed": 41,
+                    "origin": 140501,
+                    "target_date": 140501,
+                    "horizon": 1,
+                    "actual": 10.0,
+                    "prediction": 11.5,
+                    "prediction_kind": "seed",
+                },
+                {
+                    "product_id": 1,
+                    "product": "SKU_A",
+                    "architecture": "small_recursive_lstm",
+                    "seed": 41,
+                    "origin": 140501,
+                    "target_date": 140502,
+                    "horizon": 2,
+                    "actual": 12.0,
+                    "prediction": 12.5,
+                    "prediction_kind": "seed",
+                },
+            ]
+        )
+        request = EngineJobRequest(
+            engine="a1",
+            product="SKU_A",
+            quarter="1405Q1",
+            forecast_origin=140501,
+            horizon=15,
+            target_dates=tuple(range(140501, 140516)),
+            training_sales=pd.DataFrame(columns=["product", "date", "sales"]),
+        )
+        frame = neural_predictions_to_v21_frame(
+            preds,
+            request=request,
+            architecture="a1",
+            seed=41,
+            model_name="small_recursive_lstm:seed41",
+        )
+        for col in V21_COMPAT_FORECAST_COLUMNS:
+            self.assertIn(col, frame.columns)
+        self.assertNotIn("origin", frame.columns)
+        self.assertNotIn("prediction", frame.columns)
+        self.assertEqual(frame.iloc[0]["forecast_origin"], 140501)
+        self.assertAlmostEqual(float(frame.iloc[0]["forecast"]), 11.5)
+        self.assertAlmostEqual(float(frame.iloc[0]["raw_forecast"]), 11.5)
+        self.assertEqual(frame.iloc[0]["engine"], "a1")
+        self.assertEqual(frame.iloc[0]["model"], "small_recursive_lstm:seed41")
+        self.assertEqual(frame.iloc[0]["quarter"], "1405Q1")
+        # Join with a V2.1-shaped frame on the shared keys.
+        v21 = pd.DataFrame(
+            [
+                {
+                    "product": "SKU_A",
+                    "quarter": "1405Q1",
+                    "forecast_origin": 140501,
+                    "target_date": 140501,
+                    "horizon": 1,
+                    "forecast": 9.0,
+                    "raw_forecast": 9.0,
+                    "model": "naive",
+                    "engine": "v2.1",
+                }
+            ]
+        )
+        keys = ["product", "forecast_origin", "horizon", "target_date"]
+        merged = v21.merge(frame, on=keys, suffixes=("_v21", "_a1"))
+        self.assertEqual(len(merged), 1)
+        self.assertAlmostEqual(float(merged.iloc[0]["forecast_v21"]), 9.0)
+        self.assertAlmostEqual(float(merged.iloc[0]["forecast_a1"]), 11.5)
+
+
 if __name__ == "__main__":
     unittest.main()

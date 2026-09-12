@@ -1,7 +1,7 @@
 """Architecture adapters for V2.1 / A0 / A1 forecast_jobs."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 
@@ -21,10 +21,95 @@ _ARCH_ALIAS = {
     "a1": ArchitectureName.A1_SMALL_RECURSIVE_LSTM,
 }
 
+# Shared join contract with V2.1 / backfill ``forecast.csv`` rows.
+V21_COMPAT_FORECAST_COLUMNS = (
+    "product",
+    "quarter",
+    "forecast_origin",
+    "target_date",
+    "horizon",
+    "forecast",
+    "raw_forecast",
+    "model",
+    "engine",
+)
+
+# Optional neural diagnostics kept after the V2.1 join keys (do not rename joins).
+_NEURAL_EXTRA_COLUMNS = (
+    "architecture",
+    "seed",
+    "actual",
+    "prediction_kind",
+    "product_id",
+)
+
 
 def target_dates_for_origin(forecast_origin: int, horizon: int) -> tuple[int, ...]:
     origin = int(forecast_origin)
     return tuple(shamsi_add_months(origin, i) for i in range(int(horizon)))
+
+
+def neural_predictions_to_v21_frame(
+    preds: pd.DataFrame,
+    *,
+    request: EngineJobRequest,
+    architecture: str,
+    seed: int,
+    model_name: str,
+) -> pd.DataFrame:
+    """Map screening-style OOF columns onto the V2.1 join contract.
+
+    Renames ``origin`` → ``forecast_origin`` and ``prediction`` → ``forecast``,
+    sets ``raw_forecast`` equal to the delivered forecast when no separate raw
+    series exists, and drops the old alias columns so joins stay unambiguous.
+    """
+    if preds is None or preds.empty:
+        return pd.DataFrame(columns=list(V21_COMPAT_FORECAST_COLUMNS))
+
+    work = preds.copy()
+    if "forecast_origin" not in work.columns:
+        if "origin" not in work.columns:
+            raise ValueError("neural predictions missing origin/forecast_origin")
+        work["forecast_origin"] = pd.to_numeric(work["origin"], errors="coerce").astype(
+            int
+        )
+    else:
+        work["forecast_origin"] = pd.to_numeric(
+            work["forecast_origin"], errors="coerce"
+        ).astype(int)
+
+    if "forecast" not in work.columns:
+        if "prediction" not in work.columns:
+            raise ValueError("neural predictions missing prediction/forecast")
+        work["forecast"] = pd.to_numeric(work["prediction"], errors="coerce")
+    else:
+        work["forecast"] = pd.to_numeric(work["forecast"], errors="coerce")
+
+    if "raw_forecast" not in work.columns:
+        work["raw_forecast"] = work["forecast"]
+    else:
+        work["raw_forecast"] = pd.to_numeric(work["raw_forecast"], errors="coerce")
+
+    if "product" in work.columns:
+        work["product"] = work["product"].astype(str)
+    else:
+        work["product"] = str(request.product)
+    work["quarter"] = str(request.quarter)
+    work["engine"] = str(architecture).lower()
+    work["model"] = str(model_name)
+    work["target_date"] = pd.to_numeric(work["target_date"], errors="coerce").astype(int)
+    work["horizon"] = pd.to_numeric(work["horizon"], errors="coerce").astype(int)
+    if "seed" not in work.columns:
+        work["seed"] = int(seed)
+
+    # Drop screening aliases so consumers cannot join on the wrong name.
+    drop_cols = [c for c in ("origin", "prediction") if c in work.columns]
+    if drop_cols:
+        work = work.drop(columns=drop_cols)
+
+    extras = [c for c in _NEURAL_EXTRA_COLUMNS if c in work.columns]
+    ordered: Sequence[str] = list(V21_COMPAT_FORECAST_COLUMNS) + extras
+    return work.loc[:, list(ordered)].copy()
 
 
 def run_v21_job(request: EngineJobRequest) -> EngineJobResult:
@@ -88,7 +173,7 @@ def run_v21_job(request: EngineJobRequest) -> EngineJobResult:
             quarter=request.quarter,
             forecast_origin=request.forecast_origin,
             selected_model=str(final.selected_model),
-            forecasts=pd.DataFrame(rows),
+            forecasts=pd.DataFrame(rows, columns=list(V21_COMPAT_FORECAST_COLUMNS)),
             extras=extras,
         )
     except Exception as exc:  # noqa: BLE001 — per-job isolation
@@ -113,6 +198,7 @@ def run_neural_job(
 
     Uses ``full_sales`` (still truncated by the runner cutoff) so neural
     prepare can see the production/screening contract history it needs.
+    Persisted ``forecast.csv`` uses the V2.1 join column names.
     """
     try:
         arch = _ARCH_ALIAS.get(str(architecture).lower())
@@ -140,12 +226,14 @@ def run_neural_job(
                 error_type="EmptyPredictions",
                 extras={"architecture": arch.value, "seed": int(seed)},
             )
-        frame = preds.copy()
-        frame["engine"] = str(architecture)
-        frame["quarter"] = request.quarter
-        if "seed" not in frame.columns:
-            frame["seed"] = int(seed)
         model_name = f"{arch.value}:seed{int(seed)}"
+        frame = neural_predictions_to_v21_frame(
+            preds,
+            request=request,
+            architecture=str(architecture),
+            seed=int(seed),
+            model_name=model_name,
+        )
         return EngineJobResult(
             success=True,
             product=request.product,
