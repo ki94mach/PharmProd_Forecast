@@ -1,0 +1,50 @@
+schema_version: "1"
+
+run:
+  run_id: archval25_v21_a0_a1
+  output_dir: /opt/app/Forecast/src/data/forecast_jobs
+
+cohort:
+  universe: v3a_architecture_validation_products
+
+origins:
+  - 140104
+  - 140201
+  - 140301
+  - 140402
+
+architectures:
+  - v2.1
+  - a0
+  - a1
+
+seeds:
+  - 41
+  - 42
+  - 43
+
+horizon: 15
+
+cutoff_policy:
+  name: production
+
+sales:
+  path: /opt/app/Forecast/src/data/benchmarks/v1/raw/sales.parquet
+  read_only: true
+  schema:
+    columns: [product, date, sales]
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    content_sha256: null
+    n_rows: null
+    size_bytes: null
+    mtime_ns: null
+
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 1

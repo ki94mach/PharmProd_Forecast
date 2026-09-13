@@ -223,11 +223,21 @@ def run_forecast_jobs(
             start_s = _utc_stamp()
             try:
                 request, sales_cut = _build_request(config, job, sales_df)
+                # V2.1 trains on production-cut rows (request.training_sales).
+                # A0/A1 still enforce train-through-last_complete inside
+                # prepare_monthly_series / ForecastWindow, but need the fuller
+                # panel so discover_origins can see matured target actuals
+                # (production cutoff alone ends at O-2 and drops the origin).
+                neural_sales = (
+                    sales_df
+                    if str(job.architecture).lower() in {"a0", "a1"}
+                    else sales_cut
+                )
                 result = executor(
                     architecture=job.architecture,
                     request=request,
                     seed=job.seed,
-                    sales_for_neural=sales_cut,
+                    sales_for_neural=neural_sales,
                 )
             except Exception as exc:  # noqa: BLE001
                 result = EngineJobResult(

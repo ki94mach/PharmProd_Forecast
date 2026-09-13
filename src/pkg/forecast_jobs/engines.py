@@ -196,8 +196,9 @@ def run_neural_job(
 ) -> EngineJobResult:
     """Run one A0/A1 product × origin × seed outer-backtest job.
 
-    Uses ``full_sales`` (still truncated by the runner cutoff) so neural
-    prepare can see the production/screening contract history it needs.
+    ``full_sales`` should be the panel available for origin discovery / actuals
+    (typically the frozen sales frame). Training still ends at
+    ``last_complete`` via the production ``ForecastWindow`` inside prepare.
     Persisted ``forecast.csv`` uses the V2.1 join column names.
     """
     try:

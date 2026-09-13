@@ -81,10 +81,13 @@ def discover_origins(
                 eval_dates.append(t)
                 eval_horizons.append(int(horizon))
 
-        if not eval_dates:
+        # Auto-discovered origins need at least one scored actual. Explicit
+        # origins (forecast_jobs delivery) are kept even when no target actuals
+        # exist yet; callers may still emit all horizons downstream.
+        if not eval_dates and explicit_origins is None:
             continue
 
-        max_h = int(max(eval_horizons))
+        max_h = int(max(eval_horizons)) if eval_horizons else 0
         covers.append(
             OriginCoverage(
                 origin=parse_origin(window.forecast_origin),

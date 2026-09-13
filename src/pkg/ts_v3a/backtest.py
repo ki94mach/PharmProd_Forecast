@@ -424,12 +424,15 @@ def _run_one_fold(
         )
 
         pred_rows: list[dict[str, Any]] = []
+        # Screening scores only months with actuals. When an explicit origin has
+        # no evaluable actuals yet (live delivery), emit the full H-step forecast.
+        emit_h = evaluable_h if evaluable_h else {int(h) for h in outcome.horizons}
         for h, target, pred in zip(
             outcome.horizons,
             outcome.target_dates,
             outcome.predictions,
         ):
-            if int(h) not in evaluable_h:
+            if int(h) not in emit_h:
                 continue
             pred_rows.append(
                 {
