@@ -47,4 +47,6 @@ execution:
   resume: true
   retry_failed: false
   force_job: false
-  workers: 1
+  # Process pool = one OS process per in-flight job (uses many cores).
+  workers: 12
+  pool: processes

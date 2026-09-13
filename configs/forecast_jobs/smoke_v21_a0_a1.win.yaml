@@ -51,4 +51,4 @@ execution:
   resume: true
   retry_failed: false
   force_job: false
-  workers: 1
+  workers: 8

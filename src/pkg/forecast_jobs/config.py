@@ -67,6 +67,8 @@ class ExecutionConfig:
     retry_failed: bool = False
     force_job: bool = False
     workers: int = 1
+    # threads: shared process (GIL-limited). processes: true multi-core (preferred on big VPS).
+    pool: str = "processes"
 
 
 @dataclass(frozen=True)
@@ -340,11 +342,15 @@ def parse_job_config(
     exec_raw = data.get("execution") or {}
     if not isinstance(exec_raw, Mapping):
         raise JobConfigError("execution must be a mapping")
+    pool = str(exec_raw.get("pool", "processes")).strip().lower()
+    if pool not in {"threads", "processes"}:
+        raise JobConfigError("execution.pool must be 'threads' or 'processes'")
     execution = ExecutionConfig(
         resume=bool(exec_raw.get("resume", True)),
         retry_failed=bool(exec_raw.get("retry_failed", False)),
         force_job=bool(exec_raw.get("force_job", False)),
         workers=max(1, int(exec_raw.get("workers", 1))),
+        pool=pool,
     )
 
     horizon = int(data.get("horizon", 15))
@@ -422,5 +428,6 @@ def config_to_dict(config: JobRunConfig) -> dict[str, Any]:
             "retry_failed": config.execution.retry_failed,
             "force_job": config.execution.force_job,
             "workers": config.execution.workers,
+            "pool": config.execution.pool,
         },
     }

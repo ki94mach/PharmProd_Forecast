@@ -15,9 +15,7 @@ param(
 
   [string]$RunId,
 
-  [string]$ForecastRoot = $(if ($env:FORECAST_ROOT) { $env:FORECAST_ROOT } else {
-    (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-  }),
+  [string]$ForecastRoot,
 
   [string]$Python,
 
@@ -32,38 +30,56 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $ForecastRoot) {
+  if ($env:FORECAST_ROOT) {
+    $ForecastRoot = $env:FORECAST_ROOT
+  } else {
+    $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $ForecastRoot = (Resolve-Path (Join-Path $here '..')).Path
+  }
+}
 Set-Location $ForecastRoot
 
 function Resolve-ForecastPython {
   param([string]$Explicit)
   if ($Explicit) {
-    if (-not (Test-Path $Explicit)) { throw "FORECAST_PYTHON not found: $Explicit" }
-    return (Resolve-Path $Explicit).Path
+    if (-not (Test-Path -LiteralPath $Explicit)) { throw "FORECAST_PYTHON not found: $Explicit" }
+    return (Resolve-Path -LiteralPath $Explicit).Path
   }
-  if ($env:FORECAST_PYTHON -and (Test-Path $env:FORECAST_PYTHON)) {
-    return (Resolve-Path $env:FORECAST_PYTHON).Path
+  if ($env:FORECAST_PYTHON -and (Test-Path -LiteralPath $env:FORECAST_PYTHON)) {
+    return (Resolve-Path -LiteralPath $env:FORECAST_PYTHON).Path
   }
-  $condaCandidates = @(
-    (Get-Command conda -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
-    "$env:USERPROFILE\miniconda3\Scripts\conda.exe",
-    "$env:USERPROFILE\Miniconda3\Scripts\conda.exe",
-    'C:\ProgramData\miniconda3\Scripts\conda.exe',
-    'C:\ProgramData\Miniconda3\Scripts\conda.exe'
-  ) | Where-Object { $_ -and (Test-Path $_) }
-  foreach ($conda in $condaCandidates) {
-    $out = & $conda run -n forecast python -c "import sys; print(sys.executable)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $out) {
-      $p = ($out | Select-Object -Last 1).Trim()
-      if (Test-Path $p) { return $p }
+
+  # Prefer direct env python.exe (avoid `conda run` — its stderr trips ErrorActionPreference=Stop).
+  $direct = @(
+    "$env:LOCALAPPDATA\anaconda3\envs\forecast\python.exe",
+    "$env:USERPROFILE\anaconda3\envs\forecast\python.exe",
+    "$env:LOCALAPPDATA\miniconda3\envs\forecast\python.exe",
+    "$env:USERPROFILE\miniconda3\envs\forecast\python.exe",
+    "$env:USERPROFILE\Miniconda3\envs\forecast\python.exe",
+    'C:\ProgramData\anaconda3\envs\forecast\python.exe',
+    'C:\ProgramData\miniconda3\envs\forecast\python.exe'
+  )
+  foreach ($candidate in $direct) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+      return (Resolve-Path -LiteralPath $candidate).Path
     }
   }
+
   foreach ($rel in @('.venv\Scripts\python.exe', 'venv\Scripts\python.exe')) {
     $candidate = Join-Path $ForecastRoot $rel
-    if (Test-Path $candidate) { return (Resolve-Path $candidate).Path }
+    if (Test-Path -LiteralPath $candidate) { return (Resolve-Path -LiteralPath $candidate).Path }
   }
-  $pathPy = Get-Command python -ErrorAction SilentlyContinue
-  if ($pathPy) { return $pathPy.Source }
-  throw 'No Python found. Run deploy\windows\Setup-Forecast.ps1 or set FORECAST_PYTHON.'
+
+  # Last resort: PATH python, but skip Windows PyManager if possible
+  $all = @(Get-Command python -All -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
+  foreach ($p in $all) {
+    if ($p -and ($p -notmatch 'PyManager') -and (Test-Path -LiteralPath $p)) {
+      return $p
+    }
+  }
+  throw 'No forecast Python found. Set FORECAST_PYTHON to ...\envs\forecast\python.exe'
 }
 
 # Absolute config path

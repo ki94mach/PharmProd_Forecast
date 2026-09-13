@@ -90,6 +90,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 ),
                 force_job=config.execution.force_job,
                 workers=config.execution.workers,
+                pool=config.execution.pool,
             ),
         )
 

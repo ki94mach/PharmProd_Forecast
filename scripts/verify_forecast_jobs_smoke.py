@@ -16,15 +16,23 @@ from pkg.ts_v2.dates import resolve_production_time_contract
 RUN_ID = "smoke_v21_a0_a1"
 
 
-def _default_run_root() -> Path:
+def _repo_root() -> Path:
     env_root = (os.environ.get("FORECAST_ROOT") or "").strip()
     if env_root:
-        return Path(env_root) / "src" / "data" / "forecast_jobs" / RUN_ID
-    # Linux server default; Windows uses FORECAST_ROOT or CWD-relative.
-    linux = Path("/opt/app/Forecast/src/data/forecast_jobs") / RUN_ID
+        return Path(env_root)
+    linux = Path("/opt/app/Forecast")
     if linux.is_dir():
         return linux
-    return Path("src/data/forecast_jobs") / RUN_ID
+    # scripts/ -> repo root
+    return Path(__file__).resolve().parents[1]
+
+
+def _default_run_root() -> Path:
+    return _repo_root() / "src" / "data" / "forecast_jobs" / RUN_ID
+
+
+def _sales_parquet() -> Path:
+    return _repo_root() / "src" / "data" / "benchmarks" / "v1" / "raw" / "sales.parquet"
 
 
 RUN_ROOT = _default_run_root()
@@ -105,7 +113,10 @@ def check_cutoff_leakage(frames: dict[str, pd.DataFrame]) -> None:
     contract = resolve_production_time_contract(ORIGIN, delivered_horizon=HORIZON)
     partial = int(contract.current_partial_month)
     last_complete = int(contract.last_complete_month)
-    sales = pd.read_parquet("/opt/app/Forecast/src/data/benchmarks/v1/raw/sales.parquet")
+    sales_path = _sales_parquet()
+    if not sales_path.is_file():
+        _fail(f"sales parquet not found: {sales_path}")
+    sales = pd.read_parquet(sales_path)
     # Re-derive training end used by production cutoff
     for eng, df in frames.items():
         if (df["forecast_origin"] != ORIGIN).any():

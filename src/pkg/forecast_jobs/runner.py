@@ -1,6 +1,8 @@
 """Orchestrate resumable forecast_jobs runs (V2.1 / A0 / A1)."""
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +16,7 @@ from pkg.benchmark.backfill_runner.state import (
     compute_config_hash,
     resolve_git_commit,
 )
+from pkg.benchmark.backfill_runner.threads import apply_inner_thread_limits
 from pkg.benchmark.backfill_runner.types import EngineJobRequest, EngineJobResult
 from pkg.forecast_jobs.config import JobConfigError, JobRunConfig
 from pkg.forecast_jobs.cutoff import apply_cutoff_policy
@@ -36,6 +39,37 @@ from pkg.forecast_jobs.store import (
 )
 
 JobExecutor = Callable[..., EngineJobResult]
+
+
+class _NeverStop:
+    """Stand-in shutdown flag for process-pool workers (signals stay in parent)."""
+
+    def should_stop(self) -> bool:
+        return False
+
+
+def _mp_run_one_job(
+    config: JobRunConfig,
+    job: PlannedJob,
+    sales_df: pd.DataFrame,
+    cfg_hash: str,
+    git_commit: Optional[str],
+) -> str:
+    """Picklable process-pool entrypoint (module-level for Windows spawn)."""
+    # Cap nested BLAS/OMP inside each worker process.
+    apply_inner_thread_limits(workers=2)
+    state = JobStateStore(run_dir(config.output_dir, config.run_id))
+    return _run_one_planned_job(
+        config=config,
+        job=job,
+        sales_df=sales_df,
+        state=state,
+        cfg_hash=cfg_hash,
+        git_commit=git_commit,
+        executor=execute_architecture_job,
+        shutdown=_NeverStop(),  # type: ignore[arg-type]
+        print_lock=threading.Lock(),
+    )
 
 
 @dataclass
@@ -143,6 +177,127 @@ def _build_request(
     return request, truncated
 
 
+def _run_one_planned_job(
+    *,
+    config: JobRunConfig,
+    job: PlannedJob,
+    sales_df: pd.DataFrame,
+    state: JobStateStore,
+    cfg_hash: str,
+    git_commit: Optional[str],
+    executor: JobExecutor,
+    shutdown: ShutdownCoordinator,
+    print_lock: threading.Lock,
+) -> str:
+    """Claim + fit one job. Returns success|failed|skipped|stopped."""
+    if shutdown.should_stop():
+        return "stopped"
+
+    claimed = state.try_claim_job(job.identity, git_commit=git_commit)
+    if claimed is None:
+        return "skipped"
+
+    start_s = _utc_stamp()
+    try:
+        request, sales_cut = _build_request(config, job, sales_df)
+        # V2.1 trains on production-cut rows (request.training_sales).
+        # A0/A1 still enforce train-through-last_complete inside
+        # prepare_monthly_series / ForecastWindow, but need the fuller
+        # panel so discover_origins can see matured target actuals
+        # (production cutoff alone ends at O-2 and drops the origin).
+        neural_sales = (
+            sales_df
+            if str(job.architecture).lower() in {"a0", "a1"}
+            else sales_cut
+        )
+        result = executor(
+            architecture=job.architecture,
+            request=request,
+            seed=job.seed,
+            sales_for_neural=neural_sales,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result = EngineJobResult(
+            success=False,
+            product=job.product,
+            quarter=job.quarter,
+            forecast_origin=job.origin,
+            error_message=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+    end_s = _utc_stamp()
+    runtime_seconds = 0.0
+    try:
+        t0 = datetime.strptime(start_s, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+        t1 = datetime.strptime(end_s, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+        runtime_seconds = max(0.0, (t1 - t0).total_seconds())
+    except ValueError:
+        pass
+    log_payload = {
+        "job_id": job.identity.job_id,
+        "run_id": config.run_id,
+        "architecture": job.architecture,
+        "config_hash": cfg_hash,
+        "quarter": job.quarter,
+        "forecast_origin": job.origin,
+        "product": job.product,
+        "seed": job.seed,
+        "started_at": start_s,
+        "finished_at": end_s,
+        "runtime_seconds": runtime_seconds,
+        "success": bool(result.success),
+        "selected_model": result.selected_model,
+        "error_type": result.error_type,
+        "error_message": result.error_message,
+        "git_commit": git_commit,
+    }
+    out_dir = persist_job_result(
+        run_dir(config.output_dir, config.run_id),
+        job.identity,
+        result,
+        log_payload=log_payload,
+    )
+    if result.success:
+        state.mark_success(
+            job.identity,
+            output_path=str(out_dir),
+            selected_model=result.selected_model,
+            started_at=start_s,
+            finished_at=end_s,
+            runtime_seconds=runtime_seconds,
+            git_commit=git_commit,
+        )
+        with print_lock:
+            print(
+                f"[SUCCESS] arch={job.architecture} origin={job.origin} "
+                f"product={job.product} seed={job.seed} model={result.selected_model}"
+            )
+        return "success"
+
+    state.mark_failed(
+        job.identity,
+        error_type=result.error_type or "Error",
+        error_message=result.error_message or "unknown",
+        started_at=start_s,
+        finished_at=end_s,
+        runtime_seconds=runtime_seconds,
+        git_commit=git_commit,
+        output_path=str(out_dir),
+    )
+    with print_lock:
+        print(
+            f"[FAILED] arch={job.architecture} origin={job.origin} "
+            f"product={job.product} seed={job.seed} "
+            f"err={result.error_message}"
+        )
+    return "failed"
+
+
 def run_forecast_jobs(
     config: JobRunConfig,
     *,
@@ -155,6 +310,11 @@ def run_forecast_jobs(
 
     ``dry_run`` validates snapshot + writes plan artifacts without fitting.
     ``execute`` runs pending jobs. Passing neither is treated as dry_run.
+
+    Parallelism is job-level only (``execution.workers``). Use
+    ``execution.pool: processes`` (default) for true multi-core on large hosts;
+    ``threads`` keeps a single process (GIL-limited, lower RAM).
+    Nested BLAS/OMP threads stay capped when workers > 1.
     """
     if not dry_run and not execute:
         dry_run = True
@@ -184,6 +344,14 @@ def run_forecast_jobs(
             dry_run=True,
         )
 
+    workers_n = max(1, int(config.execution.workers))
+    pool_mode = str(getattr(config.execution, "pool", "processes") or "processes").lower()
+    # Custom executors (unit tests) cannot cross process boundaries.
+    if job_executor is not None and pool_mode == "processes" and workers_n > 1:
+        pool_mode = "threads"
+    thread_config = apply_inner_thread_limits(workers=workers_n)
+    print(f"workers={workers_n} pool={pool_mode} thread_config={thread_config}")
+
     lock = RunLock(root)
     shutdown = ShutdownCoordinator()
     succeeded = 0
@@ -193,6 +361,7 @@ def run_forecast_jobs(
     executor = job_executor or (
         lambda **kwargs: execute_architecture_job(**kwargs)
     )
+    print_lock = threading.Lock()
 
     try:
         lock.acquire()
@@ -210,111 +379,72 @@ def run_forecast_jobs(
             ensure_jobs=True,
         )
 
-        for job in plan.jobs:
-            if shutdown.should_stop():
-                stopped_early = True
-                stop_reason = shutdown.reason
-                break
-
-            claimed = state.try_claim_job(job.identity, git_commit=git_commit)
-            if claimed is None:
-                continue
-
-            start_s = _utc_stamp()
-            try:
-                request, sales_cut = _build_request(config, job, sales_df)
-                # V2.1 trains on production-cut rows (request.training_sales).
-                # A0/A1 still enforce train-through-last_complete inside
-                # prepare_monthly_series / ForecastWindow, but need the fuller
-                # panel so discover_origins can see matured target actuals
-                # (production cutoff alone ends at O-2 and drops the origin).
-                neural_sales = (
-                    sales_df
-                    if str(job.architecture).lower() in {"a0", "a1"}
-                    else sales_cut
-                )
-                result = executor(
-                    architecture=job.architecture,
-                    request=request,
-                    seed=job.seed,
-                    sales_for_neural=neural_sales,
-                )
-            except Exception as exc:  # noqa: BLE001
-                result = EngineJobResult(
-                    success=False,
-                    product=job.product,
-                    quarter=job.quarter,
-                    forecast_origin=job.origin,
-                    error_message=str(exc),
-                    error_type=type(exc).__name__,
-                )
-
-            end_s = _utc_stamp()
-            # Approximate duration from ISO stamps is unnecessary; use 0.0 when unknown.
-            runtime_seconds = 0.0
-            try:
-                t0 = datetime.strptime(start_s, "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=timezone.utc
-                )
-                t1 = datetime.strptime(end_s, "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=timezone.utc
-                )
-                runtime_seconds = max(0.0, (t1 - t0).total_seconds())
-            except ValueError:
-                pass
-            log_payload = {
-                "job_id": job.identity.job_id,
-                "run_id": config.run_id,
-                "architecture": job.architecture,
-                "config_hash": cfg_hash,
-                "quarter": job.quarter,
-                "forecast_origin": job.origin,
-                "product": job.product,
-                "seed": job.seed,
-                "started_at": start_s,
-                "finished_at": end_s,
-                "runtime_seconds": runtime_seconds,
-                "success": bool(result.success),
-                "selected_model": result.selected_model,
-                "error_type": result.error_type,
-                "error_message": result.error_message,
-                "git_commit": git_commit,
-            }
-            out_dir = persist_job_result(
-                root, job.identity, result, log_payload=log_payload
+        def _one_thread(job: PlannedJob) -> str:
+            return _run_one_planned_job(
+                config=config,
+                job=job,
+                sales_df=sales_df,
+                state=state,
+                cfg_hash=cfg_hash,
+                git_commit=git_commit,
+                executor=executor,
+                shutdown=shutdown,
+                print_lock=print_lock,
             )
-            if result.success:
-                state.mark_success(
-                    job.identity,
-                    output_path=str(out_dir),
-                    selected_model=result.selected_model,
-                    started_at=start_s,
-                    finished_at=end_s,
-                    runtime_seconds=runtime_seconds,
-                    git_commit=git_commit,
-                )
-                succeeded += 1
-                print(
-                    f"[SUCCESS] arch={job.architecture} origin={job.origin} "
-                    f"product={job.product} seed={job.seed} model={result.selected_model}"
-                )
-            else:
-                state.mark_failed(
-                    job.identity,
-                    error_type=result.error_type or "Error",
-                    error_message=result.error_message or "unknown",
-                    started_at=start_s,
-                    finished_at=end_s,
-                    runtime_seconds=runtime_seconds,
-                    git_commit=git_commit,
-                    output_path=str(out_dir),
-                )
-                failed += 1
-                print(
-                    f"[FAILED] arch={job.architecture} origin={job.origin} "
-                    f"product={job.product} seed={job.seed} "
-                    f"err={result.error_message}"
-                )
+
+        outcomes: list[str] = []
+        if workers_n == 1:
+            for job in plan.jobs:
+                if shutdown.should_stop():
+                    stopped_early = True
+                    stop_reason = shutdown.reason
+                    break
+                outcomes.append(_one_thread(job))
+        elif pool_mode == "processes":
+            # True multi-core: one OS process per in-flight job.
+            with ProcessPoolExecutor(max_workers=workers_n) as pool:
+                futures = []
+                for job in plan.jobs:
+                    if shutdown.should_stop():
+                        stopped_early = True
+                        stop_reason = shutdown.reason
+                        break
+                    futures.append(
+                        pool.submit(
+                            _mp_run_one_job,
+                            config,
+                            job,
+                            sales_df,
+                            cfg_hash,
+                            git_commit,
+                        )
+                    )
+                for fut in as_completed(futures):
+                    outcomes.append(fut.result())
+                    if shutdown.should_stop():
+                        stopped_early = True
+                        stop_reason = shutdown.reason
+                        break
+        else:
+            with ThreadPoolExecutor(max_workers=workers_n) as pool:
+                futures = []
+                for job in plan.jobs:
+                    if shutdown.should_stop():
+                        stopped_early = True
+                        stop_reason = shutdown.reason
+                        break
+                    futures.append(pool.submit(_one_thread, job))
+                for fut in as_completed(futures):
+                    outcomes.append(fut.result())
+                    if shutdown.should_stop():
+                        stopped_early = True
+                        stop_reason = shutdown.reason
+
+        succeeded = sum(1 for o in outcomes if o == "success")
+        failed = sum(1 for o in outcomes if o == "failed")
+        if any(o == "stopped" for o in outcomes):
+            stopped_early = True
+            stop_reason = stop_reason or shutdown.reason or "shutdown"
 
         status = "stopped" if stopped_early else "complete"
         write_manifest(
