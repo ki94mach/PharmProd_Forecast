@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -13,7 +14,20 @@ from pkg.benchmark.calendar import shamsi_add_months
 from pkg.ts_v2.dates import resolve_production_time_contract
 
 RUN_ID = "smoke_v21_a0_a1"
-RUN_ROOT = Path("/opt/app/Forecast/src/data/forecast_jobs") / RUN_ID
+
+
+def _default_run_root() -> Path:
+    env_root = (os.environ.get("FORECAST_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root) / "src" / "data" / "forecast_jobs" / RUN_ID
+    # Linux server default; Windows uses FORECAST_ROOT or CWD-relative.
+    linux = Path("/opt/app/Forecast/src/data/forecast_jobs") / RUN_ID
+    if linux.is_dir():
+        return linux
+    return Path("src/data/forecast_jobs") / RUN_ID
+
+
+RUN_ROOT = _default_run_root()
 ORIGIN = 140402
 HORIZON = 15
 PRODUCTS = [
