@@ -15,8 +15,14 @@ JOB_PENDING = "PENDING"
 JOB_RUNNING = "RUNNING"
 JOB_SUCCESS = "SUCCESS"
 JOB_FAILED = "FAILED"
+# Expected data/eligibility gap with an explicit fallback forecast delivered.
+JOB_INELIGIBLE = "INELIGIBLE"
 
-JOB_STATUSES = frozenset({JOB_PENDING, JOB_RUNNING, JOB_SUCCESS, JOB_FAILED})
+JOB_STATUSES = frozenset(
+    {JOB_PENDING, JOB_RUNNING, JOB_SUCCESS, JOB_FAILED, JOB_INELIGIBLE}
+)
+# Terminal statuses that deliver artifacts and are skipped on resume.
+JOB_TERMINAL_OK = frozenset({JOB_SUCCESS, JOB_INELIGIBLE})
 
 LOCK_FILENAME = "run.lock"
 DB_FILENAME = "state.sqlite"
@@ -445,9 +451,10 @@ class JobStateStore:
             ).fetchone()
             if row is None:
                 raise BackfillStateError(f"unknown job_id={identity.job_id}")
-            if row["status"] == JOB_SUCCESS:
+            if row["status"] in JOB_TERMINAL_OK:
                 raise BackfillStateError(
-                    f"SUCCESS job is immutable without --force-job: {identity.slug}"
+                    f"{row['status']} job is immutable without --force-job: "
+                    f"{identity.slug}"
                 )
             attempt = int(row["attempt_count"]) + 1
             conn.execute(
@@ -573,6 +580,60 @@ class JobStateStore:
             ).fetchone()
             return self._row_to_record(row)
 
+    def mark_ineligible(
+        self,
+        identity: JobIdentity,
+        *,
+        output_path: str,
+        selected_model: Optional[str],
+        error_type: Optional[str],
+        error_message: Optional[str],
+        started_at: str,
+        finished_at: str,
+        runtime_seconds: float,
+        git_commit: str,
+    ) -> JobRecord:
+        """Mark expected ineligibility with delivered fallback forecasts.
+
+        ``error_type`` / ``error_message`` store the ineligibility reason
+        (preserved for triage); they are not execution failures.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE jobs SET
+                    status = ?,
+                    finished_at = ?,
+                    runtime_seconds = ?,
+                    error_type = ?,
+                    error_message = ?,
+                    output_path = ?,
+                    selected_model = ?,
+                    started_at = COALESCE(started_at, ?),
+                    git_commit = ?,
+                    updated_at = ?
+                WHERE job_id = ?
+                """,
+                (
+                    JOB_INELIGIBLE,
+                    finished_at,
+                    float(runtime_seconds),
+                    error_type,
+                    error_message,
+                    output_path,
+                    selected_model,
+                    started_at,
+                    git_commit,
+                    finished_at,
+                    identity.job_id,
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?", (identity.job_id,)
+            ).fetchone()
+            return self._row_to_record(row)
+
     def mark_failed(
         self,
         identity: JobIdentity,
@@ -625,7 +686,7 @@ class JobStateStore:
         *,
         git_commit: str,
     ) -> JobRecord:
-        """Force SUCCESS/FAILED/RUNNING back to PENDING for recompute."""
+        """Force SUCCESS/INELIGIBLE/FAILED/RUNNING back to PENDING for recompute."""
         now = _utc_stamp()
         with self._connect() as conn:
             conn.execute(
@@ -687,7 +748,7 @@ def should_run_job(
     """Decide whether a job should execute under the current CLI flags."""
     if force_job:
         return True
-    if record.status == JOB_SUCCESS:
+    if record.status in JOB_TERMINAL_OK:
         return False
     if record.status == JOB_FAILED:
         return bool(retry_failed or not resume)

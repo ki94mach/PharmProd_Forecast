@@ -320,5 +320,74 @@ class TestV21CompatibleNeuralOutputs(unittest.TestCase):
         self.assertAlmostEqual(float(merged.iloc[0]["forecast_a1"]), 11.5)
 
 
+class TestIneligibleFallback(unittest.TestCase):
+    def test_naive_last_value_never_invents_zero(self):
+        from pkg.benchmark.backfill_runner.types import EngineJobRequest
+        from pkg.forecast_jobs.engines import (
+            _ineligible_result,
+            last_training_value,
+        )
+
+        request = EngineJobRequest(
+            engine="a1",
+            product="SKU_A",
+            quarter="1401Q2",
+            forecast_origin=140104,
+            horizon=3,
+            target_dates=(140104, 140105, 140106),
+            training_sales=pd.DataFrame(
+                {
+                    "product": ["SKU_A", "SKU_A"],
+                    "date": [140101, 140102],
+                    "sales": [12.0, 15.0],
+                }
+            ),
+            meta={"fallback_policy": "naive_last_value", "fallback_version": "v1"},
+        )
+        self.assertEqual(last_training_value(request.training_sales, "SKU_A"), 15.0)
+        result = _ineligible_result(
+            request,
+            engine="a1",
+            reason_code="neural_short_history_ineligible",
+            reason_detail="short history",
+            error_type="ExpectedIneligible",
+            seed=41,
+            architecture="a1",
+        )
+        self.assertTrue(result.success)
+        self.assertTrue(result.ineligible)
+        self.assertEqual(result.selected_model, "naive_last_value")
+        self.assertIsNotNone(result.forecasts)
+        assert result.forecasts is not None
+        self.assertEqual(list(result.forecasts["forecast"]), [15.0, 15.0, 15.0])
+        self.assertIn("fallback_reason", result.extras)
+
+    def test_empty_training_fails_closed_not_zero(self):
+        from pkg.benchmark.backfill_runner.types import EngineJobRequest
+        from pkg.forecast_jobs.engines import _ineligible_result
+
+        request = EngineJobRequest(
+            engine="v2.1",
+            product="SKU_A",
+            quarter="1401Q2",
+            forecast_origin=140104,
+            horizon=2,
+            target_dates=(140104, 140105),
+            training_sales=pd.DataFrame(columns=["product", "date", "sales"]),
+            meta={"fallback_policy": "naive_last_value", "fallback_version": "v1"},
+        )
+        result = _ineligible_result(
+            request,
+            engine="v2.1",
+            reason_code="v21_no_eligible_models",
+            reason_detail="no eligible models",
+            error_type="ExpectedIneligible",
+        )
+        self.assertFalse(result.success)
+        self.assertFalse(result.ineligible)
+        self.assertEqual(result.error_type, "FallbackUnavailable")
+        self.assertIn("refusing zero fill", result.error_message or "")
+
+
 if __name__ == "__main__":
     unittest.main()

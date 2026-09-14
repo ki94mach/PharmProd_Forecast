@@ -84,6 +84,7 @@ class RunSummary:
     stopped_early: bool
     stop_reason: Optional[str]
     dry_run: bool
+    ineligible: int = 0
 
 
 def _utc_stamp() -> str:
@@ -172,7 +173,12 @@ def _build_request(
         horizon=int(config.horizon),
         target_dates=targets,
         training_sales=product_sales,
-        meta={"seed": job.seed, "cutoff_policy": config.cutoff_policy.name},
+        meta={
+            "seed": job.seed,
+            "cutoff_policy": config.cutoff_policy.name,
+            "fallback_policy": config.fallback.policy,
+            "fallback_version": config.fallback.version,
+        },
     )
     return request, truncated
 
@@ -251,6 +257,7 @@ def _run_one_planned_job(
         "finished_at": end_s,
         "runtime_seconds": runtime_seconds,
         "success": bool(result.success),
+        "ineligible": bool(getattr(result, "ineligible", False)),
         "selected_model": result.selected_model,
         "error_type": result.error_type,
         "error_message": result.error_message,
@@ -262,6 +269,29 @@ def _run_one_planned_job(
         result,
         log_payload=log_payload,
     )
+    if getattr(result, "ineligible", False) and result.success:
+        state.mark_ineligible(
+            job.identity,
+            output_path=str(out_dir),
+            selected_model=result.selected_model,
+            error_type=result.error_type,
+            error_message=result.error_message,
+            started_at=start_s,
+            finished_at=end_s,
+            runtime_seconds=runtime_seconds,
+            git_commit=git_commit,
+        )
+        reason = ""
+        if result.extras:
+            reason = str(result.extras.get("fallback_reason") or "")
+        with print_lock:
+            print(
+                f"[INELIGIBLE] arch={job.architecture} origin={job.origin} "
+                f"product={job.product} seed={job.seed} "
+                f"fallback={result.selected_model} reason={reason or result.error_message}"
+            )
+        return "ineligible"
+
     if result.success:
         state.mark_success(
             job.identity,
@@ -342,6 +372,7 @@ def run_forecast_jobs(
             stopped_early=False,
             stop_reason=None,
             dry_run=True,
+            ineligible=0,
         )
 
     workers_n = max(1, int(config.execution.workers))
@@ -356,6 +387,7 @@ def run_forecast_jobs(
     shutdown = ShutdownCoordinator()
     succeeded = 0
     failed = 0
+    ineligible = 0
     stopped_early = False
     stop_reason: Optional[str] = None
     executor = job_executor or (
@@ -441,6 +473,7 @@ def run_forecast_jobs(
                         stop_reason = shutdown.reason
 
         succeeded = sum(1 for o in outcomes if o == "success")
+        ineligible = sum(1 for o in outcomes if o == "ineligible")
         failed = sum(1 for o in outcomes if o == "failed")
         if any(o == "stopped" for o in outcomes):
             stopped_early = True
@@ -474,6 +507,7 @@ def run_forecast_jobs(
         stopped_early=stopped_early,
         stop_reason=stop_reason,
         dry_run=False,
+        ineligible=ineligible,
     )
 
 
@@ -491,6 +525,9 @@ def print_status(config: JobRunConfig) -> int:
     print(f"config_hash={man.get('config_hash')}")
     print(f"status={man.get('status')}")
     print(
-        " ".join(f"{k}={counts.get(k, 0)}" for k in ("PENDING", "RUNNING", "SUCCESS", "FAILED"))
+        " ".join(
+            f"{k}={counts.get(k, 0)}"
+            for k in ("PENDING", "RUNNING", "SUCCESS", "INELIGIBLE", "FAILED")
+        )
     )
     return 0

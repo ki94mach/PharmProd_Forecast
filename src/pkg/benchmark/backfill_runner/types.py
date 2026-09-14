@@ -37,7 +37,12 @@ class EngineJobRequest:
 
 @dataclass(frozen=True)
 class EngineJobResult:
-    """Normalized engine output for one product × vintage."""
+    """Normalized engine output for one product × vintage.
+
+    ``success`` means a forecast frame was delivered. When ``ineligible`` is
+    also True, the forecasts come from an explicit fallback (never a silent
+    zero fill) and the runner records status ``INELIGIBLE`` with the reason.
+    """
 
     success: bool
     product: str
@@ -48,6 +53,7 @@ class EngineJobResult:
     error_message: Optional[str] = None
     error_type: Optional[str] = None
     extras: Mapping[str, Any] = field(default_factory=dict)
+    ineligible: bool = False
 
 
 @dataclass(frozen=True)

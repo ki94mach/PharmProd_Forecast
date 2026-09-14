@@ -1,8 +1,9 @@
 """Architecture adapters for V2.1 / A0 / A1 forecast_jobs."""
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 from pkg.benchmark.backfill_runner.types import EngineJobRequest, EngineJobResult
@@ -11,7 +12,10 @@ from pkg.ts_v2.config import DEFAULT_CONFIG_V21
 from pkg.ts_v2.dates import parse_origin
 from pkg.ts_v2.engine import forecast_products
 from pkg.ts_v3a.architectures import ArchitectureName
-from pkg.ts_v3a.backtest import backtest_product_architectures
+from pkg.ts_v3a.backtest import (
+    STATUS_UNAVAILABLE,
+    backtest_product_architectures,
+)
 from pkg.ts_v3a.config import DEFAULT_CONFIG as NEURAL_DEFAULT
 from pkg.ts_v3a.screen import parse_architecture_aliases
 
@@ -42,6 +46,15 @@ _NEURAL_EXTRA_COLUMNS = (
     "prediction_kind",
     "product_id",
 )
+
+FALLBACK_MODEL = "naive_last_value"
+FALLBACK_POLICY_NONE = "none"
+FALLBACK_POLICY_NAIVE = "naive_last_value"
+
+# Ineligibility reason codes (stable for triage / eval versioning).
+REASON_V21_NO_ELIGIBLE_MODELS = "v21_no_eligible_models"
+REASON_NEURAL_SHORT_HISTORY = "neural_short_history_ineligible"
+REASON_NEURAL_EMPTY_PREDICTIONS = "neural_empty_predictions_ineligible"
 
 
 def target_dates_for_origin(forecast_origin: int, horizon: int) -> tuple[int, ...]:
@@ -112,6 +125,187 @@ def neural_predictions_to_v21_frame(
     return work.loc[:, list(ordered)].copy()
 
 
+def _fallback_policy(meta: Mapping[str, Any]) -> str:
+    raw = str(meta.get("fallback_policy", FALLBACK_POLICY_NAIVE)).strip().lower()
+    return raw or FALLBACK_POLICY_NAIVE
+
+
+def _fallback_version(meta: Mapping[str, Any]) -> str:
+    return str(meta.get("fallback_version", "v1")).strip() or "v1"
+
+
+def last_training_value(training_sales: pd.DataFrame, product: str) -> Optional[float]:
+    """Return the last finite training sales value, or None if unavailable.
+
+    Never invents a value: missing / non-finite history yields None (caller must
+    fail rather than substitute zero for a missing forecast).
+    """
+    if training_sales is None or training_sales.empty:
+        return None
+    work = training_sales.copy()
+    if "product" in work.columns:
+        work = work.loc[work["product"].astype(str) == str(product)]
+    if work.empty or "sales" not in work.columns or "date" not in work.columns:
+        return None
+    work = work.sort_values("date")
+    values = pd.to_numeric(work["sales"], errors="coerce").to_numpy(dtype=float)
+    finite_idx = np.flatnonzero(np.isfinite(values))
+    if finite_idx.size == 0:
+        return None
+    return float(values[int(finite_idx[-1])])
+
+
+def build_naive_last_value_forecasts(
+    request: EngineJobRequest,
+    *,
+    engine: str,
+    last_value: float,
+    seed: Optional[int] = None,
+    architecture: Optional[str] = None,
+) -> pd.DataFrame:
+    """Repeat the last observed training value across all target horizons."""
+    rows = []
+    for i, target in enumerate(request.target_dates, start=1):
+        row: dict[str, Any] = {
+            "product": str(request.product),
+            "quarter": str(request.quarter),
+            "forecast_origin": int(request.forecast_origin),
+            "target_date": int(target),
+            "horizon": int(i),
+            "forecast": float(last_value),
+            "raw_forecast": float(last_value),
+            "model": FALLBACK_MODEL,
+            "engine": str(engine).lower(),
+        }
+        if architecture is not None:
+            row["architecture"] = str(architecture)
+        if seed is not None:
+            row["seed"] = int(seed)
+        rows.append(row)
+    cols = list(V21_COMPAT_FORECAST_COLUMNS)
+    if architecture is not None:
+        cols = cols + ["architecture"]
+    if seed is not None:
+        cols = cols + (["seed"] if "seed" not in cols else [])
+    return pd.DataFrame(rows, columns=cols)
+
+
+def _ineligible_result(
+    request: EngineJobRequest,
+    *,
+    engine: str,
+    reason_code: str,
+    reason_detail: str,
+    error_type: str,
+    seed: Optional[int] = None,
+    architecture: Optional[str] = None,
+    extra: Optional[Mapping[str, Any]] = None,
+) -> EngineJobResult:
+    """Build INELIGIBLE + explicit naive-last-value fallback, or FAILED if none."""
+    policy = _fallback_policy(request.meta)
+    version = _fallback_version(request.meta)
+    base_extras: dict[str, Any] = {
+        "ineligible": True,
+        "ineligibility_reason": reason_code,
+        "ineligibility_detail": reason_detail,
+        "fallback_policy": policy,
+        "fallback_version": version,
+        "fallback_reason": f"{reason_code}|policy={policy}|version={version}",
+    }
+    if architecture is not None:
+        base_extras["architecture"] = architecture
+    if seed is not None:
+        base_extras["seed"] = int(seed)
+    if extra:
+        base_extras.update(dict(extra))
+
+    if policy == FALLBACK_POLICY_NONE:
+        return EngineJobResult(
+            success=False,
+            product=request.product,
+            quarter=request.quarter,
+            forecast_origin=request.forecast_origin,
+            error_message=reason_detail,
+            error_type=error_type,
+            extras=base_extras,
+            ineligible=False,
+        )
+
+    if policy != FALLBACK_POLICY_NAIVE:
+        return EngineJobResult(
+            success=False,
+            product=request.product,
+            quarter=request.quarter,
+            forecast_origin=request.forecast_origin,
+            error_message=f"unsupported fallback_policy {policy!r}",
+            error_type="UnsupportedFallbackPolicy",
+            extras=base_extras,
+        )
+
+    last = last_training_value(request.training_sales, request.product)
+    if last is None:
+        return EngineJobResult(
+            success=False,
+            product=request.product,
+            quarter=request.quarter,
+            forecast_origin=request.forecast_origin,
+            error_message=(
+                f"{reason_detail}; cannot apply {FALLBACK_MODEL} "
+                "(no finite training sales — refusing zero fill)"
+            ),
+            error_type="FallbackUnavailable",
+            extras=base_extras,
+        )
+
+    forecasts = build_naive_last_value_forecasts(
+        request,
+        engine=engine,
+        last_value=last,
+        seed=seed,
+        architecture=architecture,
+    )
+    base_extras["fallback_last_value"] = float(last)
+    base_extras["fallback_model"] = FALLBACK_MODEL
+    return EngineJobResult(
+        success=True,
+        product=request.product,
+        quarter=request.quarter,
+        forecast_origin=request.forecast_origin,
+        selected_model=FALLBACK_MODEL,
+        forecasts=forecasts,
+        error_message=reason_detail,
+        error_type=error_type,
+        extras=base_extras,
+        ineligible=True,
+    )
+
+
+def _is_v21_no_eligible(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "no eligible models for selection" in msg or "insufficient origins" in msg
+
+
+def _neural_unavailable_reason(fold_metadata: Optional[pd.DataFrame]) -> Optional[str]:
+    if fold_metadata is None or fold_metadata.empty:
+        return None
+    if "status" not in fold_metadata.columns:
+        return None
+    unavailable = fold_metadata.loc[
+        fold_metadata["status"].astype(str) == STATUS_UNAVAILABLE
+    ]
+    if unavailable.empty:
+        return None
+    if "unavailable_reason" in unavailable.columns:
+        reasons = [
+            str(r)
+            for r in unavailable["unavailable_reason"].dropna().unique().tolist()
+            if str(r).strip()
+        ]
+        if reasons:
+            return "; ".join(reasons)
+    return "insufficient_history"
+
+
 def run_v21_job(request: EngineJobRequest) -> EngineJobResult:
     """Run one V2.1 product × origin job via ``DEFAULT_CONFIG_V21``."""
     try:
@@ -177,6 +371,14 @@ def run_v21_job(request: EngineJobRequest) -> EngineJobResult:
             extras=extras,
         )
     except Exception as exc:  # noqa: BLE001 — per-job isolation
+        if _is_v21_no_eligible(exc):
+            return _ineligible_result(
+                request,
+                engine="v2.1",
+                reason_code=REASON_V21_NO_ELIGIBLE_MODELS,
+                reason_detail=str(exc),
+                error_type="ExpectedIneligible",
+            )
         return EngineJobResult(
             success=False,
             product=request.product,
@@ -218,14 +420,25 @@ def run_neural_job(
         )
         preds = result.predictions
         if preds is None or preds.empty:
-            return EngineJobResult(
-                success=False,
-                product=request.product,
-                quarter=request.quarter,
-                forecast_origin=request.forecast_origin,
-                error_message="neural backtest returned no predictions",
-                error_type="EmptyPredictions",
-                extras={"architecture": arch.value, "seed": int(seed)},
+            unavailable = _neural_unavailable_reason(result.fold_metadata)
+            reason_code = (
+                REASON_NEURAL_SHORT_HISTORY
+                if unavailable
+                else REASON_NEURAL_EMPTY_PREDICTIONS
+            )
+            detail = (
+                f"neural backtest returned no predictions"
+                + (f" ({unavailable})" if unavailable else "")
+            )
+            return _ineligible_result(
+                request,
+                engine=str(architecture).lower(),
+                reason_code=reason_code,
+                reason_detail=detail,
+                error_type="ExpectedIneligible",
+                seed=int(seed),
+                architecture=arch.value,
+                extra={"empty_predictions": True},
             )
         model_name = f"{arch.value}:seed{int(seed)}"
         frame = neural_predictions_to_v21_frame(
@@ -249,6 +462,23 @@ def run_neural_job(
             },
         )
     except Exception as exc:  # noqa: BLE001
+        # Eligibility exceptions from prepare/lookback → expected ineligible.
+        name = type(exc).__name__
+        msg = str(exc).lower()
+        if name in {
+            "IneligibleForTraining",
+            "InsufficientHistoryError",
+            "ModelUnavailableError",
+        } or "insufficient" in msg:
+            return _ineligible_result(
+                request,
+                engine=str(architecture).lower(),
+                reason_code=REASON_NEURAL_SHORT_HISTORY,
+                reason_detail=str(exc),
+                error_type="ExpectedIneligible",
+                seed=int(seed),
+                architecture=str(architecture).lower(),
+            )
         return EngineJobResult(
             success=False,
             product=request.product,

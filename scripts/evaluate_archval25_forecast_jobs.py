@@ -2,6 +2,7 @@
 """Evaluate archval25 forecast_jobs panel: V2.1 vs A0 vs A1 (matched rows)."""
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 from pathlib import Path
@@ -12,7 +13,7 @@ import pandas as pd
 from pkg.benchmark.evaluate import wmape as portfolio_wmape_pct
 
 REPO = Path(__file__).resolve().parents[1]
-EXPORT = (
+DEFAULT_EXPORT = (
     REPO
     / "src"
     / "data"
@@ -20,7 +21,7 @@ EXPORT = (
     / "ts_v3a_architecture_validation"
     / "archval25_export"
 )
-OUT = (
+DEFAULT_OUT = (
     REPO
     / "src"
     / "data"
@@ -186,10 +187,36 @@ def triple_matched(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def main() -> int:
-    OUT.mkdir(parents=True, exist_ok=True)
-    panel_path = EXPORT / "forecasts_panel.parquet"
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--export-dir",
+        type=Path,
+        default=DEFAULT_EXPORT,
+        help="Directory with forecasts_panel.parquet (+ optional state.sqlite)",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="Output directory for metrics / report (must not overwrite originals unless intended)",
+    )
+    p.add_argument(
+        "--findings",
+        type=Path,
+        default=None,
+        help="Optional findings markdown path (default: only for original export)",
+    )
+    args = p.parse_args()
+    export_dir = Path(args.export_dir)
+    out_dir = Path(args.out_dir)
+    findings_path = args.findings
+    if findings_path is None and export_dir.resolve() == DEFAULT_EXPORT.resolve():
+        findings_path = FINDINGS
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    panel_path = export_dir / "forecasts_panel.parquet"
     if not panel_path.is_file():
-        panel_path = EXPORT / "forecasts_panel.csv"
+        panel_path = export_dir / "forecasts_panel.csv"
     panel = pd.read_parquet(panel_path) if panel_path.suffix == ".parquet" else pd.read_csv(panel_path)
     panel["product"] = panel["product"].astype(str)
     for c in ("forecast_origin", "target_date", "horizon"):
@@ -218,9 +245,10 @@ def main() -> int:
         frames[eng] = sub
 
     # Job status
-    db = EXPORT / "state.sqlite"
+    db = export_dir / "state.sqlite"
     status_counts = {}
     failed_note = ""
+    reclass_path = export_dir / "status_reclassification.json"
     if db.is_file():
         conn = sqlite3.connect(db)
         status_counts = dict(conn.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status"))
@@ -231,6 +259,10 @@ def main() -> int:
         )
         conn.close()
         failed_note = ", ".join(f"{e}={n}" for e, n in failed)
+    elif reclass_path.is_file():
+        reclass = json.loads(reclass_path.read_text(encoding="utf-8"))
+        status_counts = dict(reclass.get("effective_status_view") or {})
+        failed_note = "reclassified from source FAILED via fallback_v1"
 
     # Unmatched (all available rows with actuals)
     summary_rows = [metrics_for(frames[e].dropna(subset=["actual", "forecast"]), e) for e in ENGINES]
@@ -287,12 +319,12 @@ def main() -> int:
     n_triple = int(len(wide))
 
     # Persist tables
-    summary.to_csv(OUT / "engine_summary_all_rows.csv", index=False)
-    matched_df.to_csv(OUT / "engine_summary_matched.csv", index=False)
-    paired_df.to_csv(OUT / "paired_comparisons_matched.csv", index=False)
-    by_origin.to_csv(OUT / "by_origin_matched.csv", index=False)
-    coverage.to_csv(OUT / "coverage.csv", index=False)
-    wide.to_parquet(OUT / "triple_matched_wide.parquet", index=False)
+    summary.to_csv(out_dir / "engine_summary_all_rows.csv", index=False)
+    matched_df.to_csv(out_dir / "engine_summary_matched.csv", index=False)
+    paired_df.to_csv(out_dir / "paired_comparisons_matched.csv", index=False)
+    by_origin.to_csv(out_dir / "by_origin_matched.csv", index=False)
+    coverage.to_csv(out_dir / "coverage.csv", index=False)
+    wide.to_parquet(out_dir / "triple_matched_wide.parquet", index=False)
 
     # Recommendation
     best = matched_df.sort_values("portfolio_wmape_pct").iloc[0]
@@ -300,17 +332,18 @@ def main() -> int:
     p_a0_a1 = paired_df.loc[(paired_df.left == "a0") & (paired_df.right == "a1")].iloc[0]
 
     findings_excerpt = ""
-    if FINDINGS.is_file():
-        findings_excerpt = FINDINGS.read_text(encoding="utf-8").strip()
+    if findings_path is not None and Path(findings_path).is_file():
+        findings_excerpt = Path(findings_path).read_text(encoding="utf-8").strip()
 
+    run_label = export_dir.name
     report = f"""# Archval25 production-cutoff evaluation (V2.1 vs A0 vs A1)
 
-- Run: `archval25_v21_a0_a1` (Windows VPS)
+- Export: `{run_label}`
 - Contract: production cutoff (train through last complete = origin−2); deliver 15 horizons from origin
-- Panel: `{EXPORT.as_posix()}/forecasts_panel.*`
+- Panel: `{export_dir.as_posix()}/forecasts_panel.*`
 - Job status: {status_counts or "n/a"}{f" (failed by engine: {failed_note})" if failed_note else ""}
 - Neural A0/A1: seed-ensemble = mean of available seeds (41/42/43)
-- Analysis out: `{OUT.as_posix()}`
+- Analysis out: `{out_dir.as_posix()}`
 
 ## Coverage
 
@@ -362,13 +395,16 @@ Prior screening (`report.md`, experiment `20260908T103000Z_archval`) compared A0
 - Keep documenting origin-`140104` short-SKU A1 ineligibility (and Xacrel V2.1) as coverage gaps, not model crashes.
 """
 
-    report_path = OUT / "report.md"
+    report_path = out_dir / "report.md"
     report_path.write_text(report, encoding="utf-8")
-    # Also refresh a concise docs pointer (gitignored docs ok)
-    docs = REPO / "docs" / "archval25_v21_a0_a1_eval.md"
+    # Pointer doc: original tree only for default out; otherwise versioned doc name.
+    if out_dir.resolve() == DEFAULT_OUT.resolve():
+        docs = REPO / "docs" / "archval25_v21_a0_a1_eval.md"
+    else:
+        docs = REPO / "docs" / f"{out_dir.name}_eval.md"
     docs.parent.mkdir(parents=True, exist_ok=True)
     docs.write_text(
-        f"# Archval25 V2.1 / A0 / A1 evaluation\n\n"
+        f"# {out_dir.name} — V2.1 / A0 / A1 evaluation\n\n"
         f"Full report: [`{report_path.as_posix()}`]({report_path.as_posix()}).\n\n"
         f"Matched cells: {n_triple}. Best WMAPE: {best['engine']} "
         f"({best['portfolio_wmape_pct']:.2f}%).\n",

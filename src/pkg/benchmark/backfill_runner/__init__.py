@@ -41,6 +41,7 @@ from pkg.benchmark.backfill_runner.runner import (
 )
 from pkg.benchmark.backfill_runner.state import (
     JOB_FAILED,
+    JOB_INELIGIBLE,
     JOB_PENDING,
     JOB_RUNNING,
     JOB_SUCCESS,
@@ -66,6 +67,7 @@ __all__ = [
     "ExperimentManifestError",
     "ForecastEngine",
     "JOB_FAILED",
+    "JOB_INELIGIBLE",
     "JOB_PENDING",
     "JOB_RUNNING",
     "JOB_SUCCESS",

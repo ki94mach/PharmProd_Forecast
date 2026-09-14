@@ -9,6 +9,7 @@ from typing import Any, Mapping, Optional, Sequence
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"1"})
 SUPPORTED_ARCHITECTURES = frozenset({"v2.1", "a0", "a1"})
 SUPPORTED_CUTOFF_POLICIES = frozenset({"production", "origin_exclusive"})
+SUPPORTED_FALLBACK_POLICIES = frozenset({"naive_last_value", "none"})
 
 DEFAULT_SALES_COLUMNS = ("product", "date", "sales")
 DEFAULT_SALES_DTYPES = {
@@ -72,6 +73,19 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True)
+class FallbackConfig:
+    """Explicit forecast fallback when a job is expected-ineligible.
+
+    ``naive_last_value`` repeats the last finite training sales observation
+    across horizons. Never invents zeros for missing history (policy fails
+    closed instead). Version bumps when the fallback rule changes predictions.
+    """
+
+    policy: str = "naive_last_value"
+    version: str = "v1"
+
+
+@dataclass(frozen=True)
 class JobRunConfig:
     """Resolved configuration for one forecast_jobs run."""
 
@@ -86,6 +100,7 @@ class JobRunConfig:
     cutoff_policy: CutoffPolicyConfig
     horizon: int = 15
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    fallback: FallbackConfig = field(default_factory=FallbackConfig)
     source_path: Optional[Path] = None
     raw: Mapping[str, Any] = field(default_factory=dict)
 
@@ -102,6 +117,10 @@ class JobRunConfig:
             "seeds": list(self.seeds),
             "horizon": int(self.horizon),
             "cutoff_policy": {"name": self.cutoff_policy.name},
+            "fallback": {
+                "policy": self.fallback.policy,
+                "version": self.fallback.version,
+            },
             "sales": {
                 "path": _normalize_path_str(self.sales.path),
                 "schema": {
@@ -353,6 +372,22 @@ def parse_job_config(
         pool=pool,
     )
 
+    fb_raw = data.get("fallback") or {}
+    if isinstance(fb_raw, str):
+        fb_policy = fb_raw.strip().lower()
+        fb_version = "v1"
+    elif isinstance(fb_raw, Mapping):
+        fb_policy = str(fb_raw.get("policy", "naive_last_value")).strip().lower()
+        fb_version = str(fb_raw.get("version", "v1")).strip() or "v1"
+    else:
+        raise JobConfigError("fallback must be a string or mapping")
+    if fb_policy not in SUPPORTED_FALLBACK_POLICIES:
+        raise JobConfigError(
+            f"unsupported fallback.policy {fb_policy!r}; "
+            f"allowed: {sorted(SUPPORTED_FALLBACK_POLICIES)}"
+        )
+    fallback = FallbackConfig(policy=fb_policy, version=fb_version)
+
     horizon = int(data.get("horizon", 15))
     if horizon <= 0:
         raise JobConfigError("horizon must be positive")
@@ -372,6 +407,7 @@ def parse_job_config(
         cutoff_policy=CutoffPolicyConfig(name=cutoff_name),
         horizon=horizon,
         execution=execution,
+        fallback=fallback,
         source_path=source_path,
         raw=dict(data),
     )
@@ -409,6 +445,10 @@ def config_to_dict(config: JobRunConfig) -> dict[str, Any]:
         "seeds": list(config.seeds),
         "horizon": config.horizon,
         "cutoff_policy": {"name": config.cutoff_policy.name},
+        "fallback": {
+            "policy": config.fallback.policy,
+            "version": config.fallback.version,
+        },
         "sales": {
             "path": _normalize_path_str(config.sales.path),
             "read_only": config.sales.read_only,

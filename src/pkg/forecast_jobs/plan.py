@@ -118,7 +118,10 @@ def build_job_plan(
                     )
                     if state is not None and ensure_jobs:
                         record = state.ensure_job(identity, git_commit=git_commit)
-                        if config.execution.force_job and record.status == "SUCCESS":
+                        if config.execution.force_job and record.status in {
+                            "SUCCESS",
+                            "INELIGIBLE",
+                        }:
                             record = state.reset_for_force(
                                 identity, git_commit=git_commit
                             )
@@ -129,7 +132,7 @@ def build_job_plan(
                             force_job=config.execution.force_job,
                         ):
                             jobs.append(planned)
-                        elif record.status == "SUCCESS":
+                        elif record.status in {"SUCCESS", "INELIGIBLE"}:
                             n_done += 1
                     else:
                         jobs.append(planned)

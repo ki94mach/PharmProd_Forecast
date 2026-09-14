@@ -68,7 +68,26 @@ def main() -> int:
             """
         )
     )
+    ineligible = list(
+        conn.execute(
+            """
+            SELECT job_id, engine_version, quarter, forecast_origin, product_id,
+                   error_type, error_message, selected_model, runtime_seconds, output_path
+            FROM jobs
+            WHERE status = 'INELIGIBLE'
+            ORDER BY engine_version, product_id, forecast_origin
+            """
+        )
+    )
     print(f"failed_jobs={len(failed)}")
+    print(f"ineligible_jobs={len(ineligible)}")
+    if ineligible:
+        print("\n=== INELIGIBLE (expected; fallback delivered) ===")
+        by_reason = Counter(_normalize_error(r["error_message"]) for r in ineligible)
+        for msg, n in by_reason.most_common():
+            print(f"  {n:4d}  {msg}")
+        by_model = Counter((r["selected_model"] or "?") for r in ineligible)
+        print("fallback_models=" + ", ".join(f"{k}={v}" for k, v in by_model.items()))
     if not failed:
         return 0
 

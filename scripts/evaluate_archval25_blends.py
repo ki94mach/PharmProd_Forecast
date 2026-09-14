@@ -6,6 +6,7 @@ do not remove valid V2.1+A0 rows. No refits; no weight optimization.
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ import pandas as pd
 from pkg.benchmark.evaluate import wmape as portfolio_wmape_pct
 
 REPO = Path(__file__).resolve().parents[1]
-EXPORT = (
+DEFAULT_EXPORT = (
     REPO
     / "src"
     / "data"
@@ -22,7 +23,7 @@ EXPORT = (
     / "ts_v3a_architecture_validation"
     / "archval25_export"
 )
-OUT = (
+DEFAULT_OUT = (
     REPO
     / "src"
     / "data"
@@ -419,15 +420,21 @@ def evaluate_one(
     }
 
 
-def write_report(results: dict[str, dict], recommendation: str) -> str:
+def write_report(
+    results: dict[str, dict],
+    recommendation: str,
+    *,
+    export_dir: Path,
+    out_dir: Path,
+) -> str:
     sections: list[str] = [
         "# Archval25 fixed 50/50 blends (V2.1 + neural)",
         "",
-        "- Source: `archval25_export` predictions (production cutoff).",
+        f"- Source: `{export_dir.name}` predictions (production cutoff).",
         "- Blends: `0.5 * V2.1 + 0.5 * neural` (A0 and A1 separately).",
         "- Pairwise panels: V2.1 ∩ neural only (A1 failures do not drop V2.1+A0 rows).",
         "- No refits; no weight search.",
-        f"- Artifacts: `{OUT.as_posix()}`",
+        f"- Artifacts: `{out_dir.as_posix()}`",
         "",
     ]
 
@@ -545,10 +552,17 @@ def write_report(results: dict[str, dict], recommendation: str) -> str:
 
 
 def main() -> int:
-    OUT.mkdir(parents=True, exist_ok=True)
-    panel_path = EXPORT / "forecasts_panel.parquet"
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--export-dir", type=Path, default=DEFAULT_EXPORT)
+    p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
+    args = p.parse_args()
+    export_dir = Path(args.export_dir)
+    out_dir = Path(args.out_dir)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    panel_path = export_dir / "forecasts_panel.parquet"
     if not panel_path.is_file():
-        panel_path = EXPORT / "forecasts_panel.csv"
+        panel_path = export_dir / "forecasts_panel.csv"
     panel = (
         pd.read_parquet(panel_path)
         if panel_path.suffix == ".parquet"
@@ -572,20 +586,22 @@ def main() -> int:
     for neural_name in NEURALS:
         r = evaluate_one(frames, neural_name)
         results[neural_name] = r
-        r["panel"].to_parquet(OUT / f"panel_v21_{neural_name}.parquet", index=False)
-        r["headline"].to_csv(OUT / f"headline_v21_{neural_name}.csv", index=False)
-        r["by_origin"].to_csv(OUT / f"by_origin_v21_{neural_name}.csv", index=False)
-        r["by_sku"].to_csv(OUT / f"by_sku_v21_{neural_name}.csv", index=False)
-        r["high_volume"].to_csv(OUT / f"high_volume_v21_{neural_name}.csv", index=False)
-        r["loo_origin"].to_csv(OUT / f"loo_origin_v21_{neural_name}.csv", index=False)
-        r["loo_sku"].to_csv(OUT / f"loo_sku_v21_{neural_name}.csv", index=False)
+        r["panel"].to_parquet(out_dir / f"panel_v21_{neural_name}.parquet", index=False)
+        r["headline"].to_csv(out_dir / f"headline_v21_{neural_name}.csv", index=False)
+        r["by_origin"].to_csv(out_dir / f"by_origin_v21_{neural_name}.csv", index=False)
+        r["by_sku"].to_csv(out_dir / f"by_sku_v21_{neural_name}.csv", index=False)
+        r["high_volume"].to_csv(out_dir / f"high_volume_v21_{neural_name}.csv", index=False)
+        r["loo_origin"].to_csv(out_dir / f"loo_origin_v21_{neural_name}.csv", index=False)
+        r["loo_sku"].to_csv(out_dir / f"loo_sku_v21_{neural_name}.csv", index=False)
         headline_all.append(r["headline"])
 
-    pd.concat(headline_all, ignore_index=True).to_csv(OUT / "headline.csv", index=False)
+    pd.concat(headline_all, ignore_index=True).to_csv(out_dir / "headline.csv", index=False)
 
     recommendation = recommend(results)
-    report = write_report(results, recommendation)
-    report_path = OUT / "report.md"
+    report = write_report(
+        results, recommendation, export_dir=export_dir, out_dir=out_dir
+    )
+    report_path = out_dir / "report.md"
     report_path.write_text(report + "\n", encoding="utf-8")
 
     print(f"wrote {report_path}")

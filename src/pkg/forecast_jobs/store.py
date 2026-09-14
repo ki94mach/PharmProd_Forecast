@@ -92,9 +92,29 @@ def persist_job_result(
     """Write one job's forecast CSV + log JSON under the run directory."""
     out_dir = job_artifact_dir(run_root, identity)
     out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(out_dir / "job.json", dict(log_payload))
-    if result.success and result.forecasts is not None and not result.forecasts.empty:
+    payload = dict(log_payload)
+    payload["ineligible"] = bool(getattr(result, "ineligible", False))
+    if result.extras:
+        payload["extras"] = dict(result.extras)
+    atomic_write_json(out_dir / "job.json", payload)
+    delivered = (
+        result.success
+        and result.forecasts is not None
+        and not result.forecasts.empty
+    )
+    if delivered:
         result.forecasts.to_csv(out_dir / "forecast.csv", index=False)
+    if getattr(result, "ineligible", False):
+        atomic_write_json(
+            out_dir / "fallback.json",
+            {
+                "ineligible": True,
+                "error_type": result.error_type,
+                "error_message": result.error_message,
+                "selected_model": result.selected_model,
+                "extras": dict(result.extras) if result.extras else {},
+            },
+        )
     elif not result.success:
         atomic_write_json(
             out_dir / "error.json",
