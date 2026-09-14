@@ -132,18 +132,23 @@ def assert_snapshot_matches_recorded(
     current: SalesInputSnapshot,
     recorded: Mapping[str, Any],
 ) -> None:
-    """Ensure a resume uses the same frozen sales input as the first run."""
+    """Ensure a resume uses the same frozen sales bytes as the first run.
+
+    ``resolved_path`` is allowed to differ across machines (laptop vs VPS);
+    content hash / row count / size are the durable pins.
+    """
     checks = (
         ("content_sha256", current.content_sha256, recorded.get("content_sha256")),
         ("n_rows", current.n_rows, recorded.get("n_rows")),
         ("size_bytes", current.size_bytes, recorded.get("size_bytes")),
-        ("resolved_path", current.resolved_path, recorded.get("resolved_path")),
     )
     problems = []
     for name, actual, expected in checks:
         if expected is None:
             continue
-        if str(actual) != str(expected):
+        a = str(actual).lower() if name == "content_sha256" else str(actual)
+        e = str(expected).lower() if name == "content_sha256" else str(expected)
+        if a != e:
             problems.append(f"{name}: recorded={expected!r} current={actual!r}")
     if problems:
         raise SalesSnapshotError(

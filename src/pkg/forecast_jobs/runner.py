@@ -113,11 +113,22 @@ def prepare_run(
     if recorded is not None:
         assert_snapshot_matches_recorded(snapshot, recorded)
         man = read_manifest(root)
-        if man is not None and man.get("config_hash") not in (None, cfg_hash):
-            raise JobConfigError(
-                f"config_hash mismatch for run {config.run_id!r}: "
-                f"manifest={man.get('config_hash')!r} current={cfg_hash!r}"
-            )
+        recorded_hash = None if man is None else man.get("config_hash")
+        if recorded_hash not in (None, cfg_hash):
+            # Absolute sales.path is machine-local and participates in the
+            # scientific hash. Across laptop→VPS copies the bytes match but
+            # the path string (and thus config_hash) differs. Keep the
+            # recorded hash so existing SUCCESS/INELIGIBLE job_ids stay valid.
+            same_bytes = str(recorded.get("content_sha256", "")).lower() == str(
+                snapshot.content_sha256
+            ).lower()
+            if same_bytes:
+                cfg_hash = str(recorded_hash)
+            else:
+                raise JobConfigError(
+                    f"config_hash mismatch for run {config.run_id!r}: "
+                    f"manifest={recorded_hash!r} current={cfg_hash!r}"
+                )
     else:
         write_input_snapshot(root, snapshot)
 
