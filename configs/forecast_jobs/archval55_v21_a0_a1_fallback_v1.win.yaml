@@ -1,0 +1,58 @@
+schema_version: "1"
+
+# Locked 55-SKU MVP confirmation (V2.1 / A0 / A1 + fallback v1).
+# Does not overwrite archval25_* run trees. See docs/archval55_v21_a0_a1_lock.md.
+run:
+  run_id: archval55_v21_a0_a1_fallback_v1
+  output_dir: src/data/forecast_jobs
+
+cohort:
+  universe: mvp_products
+
+origins:
+  - 140104
+  - 140201
+  - 140301
+  - 140402
+
+architectures:
+  - v2.1
+  - a0
+  - a1
+
+seeds:
+  - 41
+  - 42
+  - 43
+
+horizon: 15
+
+cutoff_policy:
+  name: production
+
+fallback:
+  policy: naive_last_value
+  version: v1
+
+sales:
+  path: src/data/benchmarks/v1/raw/sales.parquet
+  read_only: true
+  schema:
+    columns: [product, date, sales]
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    # Pinned to frozen archval25 input_snapshot (reuse gate).
+    content_sha256: 1d146d49261357f6b35d743a4c4064b22abe82047f6f5c36bbe4496d03f1ffc7
+    n_rows: 6100
+    size_bytes: 34006
+    mtime_ns: null
+
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 12
+  pool: processes
