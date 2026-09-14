@@ -35,6 +35,8 @@ SLICES = (
     ("new_sku_x_early_origin", "new_sku", "early_origin"),
     ("new_sku_x_late_origin", "new_sku", "late_origin"),
 )
+# Detailed oracle opportunity CSVs / report sections (hindsight ceilings only).
+ORACLE_SLICES = ("pooled", "new_sku_x_late_origin")
 
 
 def _md_table(df: pd.DataFrame, float_cols: set[str] | None = None) -> str:
@@ -212,8 +214,148 @@ def build_pairwise(v21: pd.DataFrame, neural: pd.DataFrame, neural_name: str) ->
     m["err_v21"] = m["f_v21"] - m["actual"]
     m["err_neural"] = m["f_neural"] - m["actual"]
     m["err_blend50"] = m["f_blend50"] - m["actual"]
+    # Cell oracle (hindsight): per-row pick by lower abs error — not deployable.
+    use_v21 = m["ae_v21"] <= m["ae_neural"]
+    m["f_cell_oracle"] = np.where(use_v21, m["f_v21"], m["f_neural"])
+    m["ae_cell_oracle"] = np.where(use_v21, m["ae_v21"], m["ae_neural"])
+    m["cell_oracle_source"] = np.where(use_v21, "v2.1", neural_name)
     m["neural"] = neural_name
     return m.drop(columns=["actual_v21", "actual_neural"], errors="ignore")
+
+
+def add_sku_origin_oracle(panel: pd.DataFrame, neural_name: str) -> pd.DataFrame:
+    """Per (product, origin), pick engine with better group WMAPE (hindsight ceiling)."""
+    out = panel.copy()
+    choices: list[pd.DataFrame] = []
+    for (_, _), g in out.groupby(["product", "forecast_origin"], sort=False):
+        w_v = portfolio_wmape_pct(g["actual"], g["f_v21"])
+        w_n = portfolio_wmape_pct(g["actual"], g["f_neural"])
+        pick = "v2.1" if w_v <= w_n else neural_name
+        part = g[KEYS].copy()
+        part["sku_origin_oracle_source"] = pick
+        part["f_sku_origin_oracle"] = np.where(
+            pick == "v2.1", g["f_v21"].to_numpy(), g["f_neural"].to_numpy()
+        )
+        choices.append(part)
+    if not choices:
+        out["sku_origin_oracle_source"] = "v2.1"
+        out["f_sku_origin_oracle"] = out["f_v21"]
+        out["ae_sku_origin_oracle"] = out["ae_v21"]
+        return out
+    ch = pd.concat(choices, ignore_index=True)
+    out = out.merge(ch, on=KEYS, how="left")
+    out["ae_sku_origin_oracle"] = (out["f_sku_origin_oracle"] - out["actual"]).abs()
+    return out
+
+
+def _capture_frac(captured: float, gap: float) -> float:
+    if gap is None or (isinstance(gap, float) and (np.isnan(gap) or gap <= 0)):
+        return float("nan")
+    return float(captured / gap)
+
+
+def portfolio_opportunity(panel: pd.DataFrame, neural: str, slice_name: str) -> dict[str, Any]:
+    """Portfolio WMAPE gaps and blend capture vs hindsight oracles."""
+    s_v = score_series(panel["actual"], panel["f_v21"])
+    s_n = score_series(panel["actual"], panel["f_neural"])
+    s_b = score_series(panel["actual"], panel["f_blend50"])
+    s_c = score_series(panel["actual"], panel["f_cell_oracle"])
+    s_so = score_series(panel["actual"], panel["f_sku_origin_oracle"])
+    wm_v = float(s_v["portfolio_wmape_pct"])
+    wm_b = float(s_b["portfolio_wmape_pct"])
+    wm_c = float(s_c["portfolio_wmape_pct"])
+    wm_so = float(s_so["portfolio_wmape_pct"])
+    captured = wm_v - wm_b
+    gap_cell = wm_v - wm_c
+    gap_so = wm_v - wm_so
+    ae_v = float(panel["ae_v21"].sum())
+    ae_b = float(panel["ae_blend50"].sum())
+    ae_c = float(panel["ae_cell_oracle"].sum())
+    ae_so = float(panel["ae_sku_origin_oracle"].sum())
+    ae_cap = ae_v - ae_b
+    ae_gap_c = ae_v - ae_c
+    ae_gap_so = ae_v - ae_so
+    return {
+        "slice": slice_name,
+        "neural": neural,
+        "n_rows": int(len(panel)),
+        "wmape_v21": wm_v,
+        "wmape_neural": float(s_n["portfolio_wmape_pct"]),
+        "wmape_blend50": wm_b,
+        "wmape_cell_oracle": wm_c,
+        "wmape_sku_origin_oracle": wm_so,
+        "captured_blend_pp": captured,
+        "gap_cell_pp": gap_cell,
+        "gap_sku_origin_pp": gap_so,
+        "capture_frac_vs_cell": _capture_frac(captured, gap_cell),
+        "capture_frac_vs_sku_origin": _capture_frac(captured, gap_so),
+        "ae_sum_v21": ae_v,
+        "ae_reduction_blend": ae_cap,
+        "ae_reduction_cell_oracle": ae_gap_c,
+        "ae_reduction_sku_origin_oracle": ae_gap_so,
+        "ae_capture_frac_vs_cell": _capture_frac(ae_cap, ae_gap_c),
+        "ae_capture_frac_vs_sku_origin": _capture_frac(ae_cap, ae_gap_so),
+        "bias_v21": s_v["bias"],
+        "bias_blend50": s_b["bias"],
+        "bias_cell_oracle": s_c["bias"],
+        "bias_sku_origin_oracle": s_so["bias"],
+        "n_cell_oracle_pick_neural": int((panel["cell_oracle_source"] == neural).sum()),
+        "n_sku_origin_groups_pick_neural": int(
+            panel.groupby(["product", "forecast_origin"])["sku_origin_oracle_source"]
+            .first()
+            .eq(neural)
+            .sum()
+        ),
+    }
+
+
+def oracle_breakdown(panel: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """Per-group WMAPE/AE for v21, neural, blend, and both oracles + capture."""
+    rows: list[dict[str, Any]] = []
+    for key, g in panel.groupby(group_col, sort=True):
+        s_v = score_series(g["actual"], g["f_v21"])
+        s_n = score_series(g["actual"], g["f_neural"])
+        s_b = score_series(g["actual"], g["f_blend50"])
+        s_c = score_series(g["actual"], g["f_cell_oracle"])
+        s_so = score_series(g["actual"], g["f_sku_origin_oracle"])
+        wm_v = float(s_v["portfolio_wmape_pct"])
+        wm_b = float(s_b["portfolio_wmape_pct"])
+        wm_c = float(s_c["portfolio_wmape_pct"])
+        wm_so = float(s_so["portfolio_wmape_pct"])
+        captured = wm_v - wm_b
+        gap_cell = wm_v - wm_c
+        gap_so = wm_v - wm_so
+        ae_v = float(g["ae_v21"].sum())
+        ae_b = float(g["ae_blend50"].sum())
+        ae_c = float(g["ae_cell_oracle"].sum())
+        ae_so = float(g["ae_sku_origin_oracle"].sum())
+        ae_cap = ae_v - ae_b
+        ae_gap_c = ae_v - ae_c
+        row: dict[str, Any] = {
+            group_col: int(key) if group_col in ("forecast_origin", "horizon") else key,
+            "n_rows": int(len(g)),
+            "wmape_v21": wm_v,
+            "wmape_neural": float(s_n["portfolio_wmape_pct"]),
+            "wmape_blend50": wm_b,
+            "wmape_cell_oracle": wm_c,
+            "wmape_sku_origin_oracle": wm_so,
+            "lift_blend_pp": captured,
+            "gap_cell_pp": gap_cell,
+            "gap_sku_origin_pp": gap_so,
+            "capture_frac_vs_cell": _capture_frac(captured, gap_cell),
+            "capture_frac_vs_sku_origin": _capture_frac(captured, gap_so),
+            "ae_sum_v21": ae_v,
+            "ae_reduction_blend": ae_cap,
+            "ae_reduction_cell_oracle": ae_gap_c,
+            "ae_reduction_sku_origin_oracle": ae_v - ae_so,
+            "ae_unrecovered_vs_cell": ae_gap_c - ae_cap,
+            "ae_capture_frac_vs_cell": _capture_frac(ae_cap, ae_gap_c),
+        }
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    if not df.empty and "ae_unrecovered_vs_cell" in df.columns:
+        df = df.sort_values("ae_unrecovered_vs_cell", ascending=False)
+    return df
 
 
 def triple_matched(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -391,18 +533,22 @@ def evaluate_slice(
         out["triple"] = pd.DataFrame(trip_metrics)
         out["triple_n"] = int(trip.loc[trip["engine"] == "v2.1"].shape[0])
 
-    # Pairwise blends
+    # Pairwise blends + hindsight oracles
     blend_summaries = []
+    opportunity_rows = []
     for neural in NEURALS:
         pair = build_pairwise(frames["v2.1"], frames[neural], neural)
         if pair.empty:
             continue
+        pair = add_sku_origin_oracle(pair, neural)
         methods = method_block(
             pair,
             [
                 ("v2.1", "f_v21"),
                 (neural, "f_neural"),
                 ("blend50", "f_blend50"),
+                ("cell_oracle", "f_cell_oracle"),
+                ("sku_origin_oracle", "f_sku_origin_oracle"),
             ],
         )
         methods["neural"] = neural
@@ -410,23 +556,44 @@ def evaluate_slice(
         so_wins = sku_origin_wins(pair, "f_blend50", "f_v21")
         v21 = methods.loc[methods["method"] == "v2.1"].iloc[0]
         b50 = methods.loc[methods["method"] == "blend50"].iloc[0]
+        cell = methods.loc[methods["method"] == "cell_oracle"].iloc[0]
+        so_or = methods.loc[methods["method"] == "sku_origin_oracle"].iloc[0]
+        wm_v = float(v21["portfolio_wmape_pct"])
+        wm_b = float(b50["portfolio_wmape_pct"])
+        wm_c = float(cell["portfolio_wmape_pct"])
+        wm_so = float(so_or["portfolio_wmape_pct"])
+        captured = wm_v - wm_b
+        gap_cell = wm_v - wm_c
+        gap_so = wm_v - wm_so
+        opp = portfolio_opportunity(pair, neural, slice_name)
+        opportunity_rows.append(opp)
         blend_summaries.append(
             {
                 "slice": slice_name,
                 "neural": neural,
                 "n_rows": int(len(pair)),
-                "wmape_v21": v21["portfolio_wmape_pct"],
+                "wmape_v21": wm_v,
                 "wmape_neural": float(
                     methods.loc[methods["method"] == neural, "portfolio_wmape_pct"].iloc[0]
                 ),
-                "wmape_blend50": b50["portfolio_wmape_pct"],
-                "lift_vs_v21_pp": float(v21["portfolio_wmape_pct"] - b50["portfolio_wmape_pct"]),
+                "wmape_blend50": wm_b,
+                "wmape_cell_oracle": wm_c,
+                "wmape_sku_origin_oracle": wm_so,
+                "lift_vs_v21_pp": captured,
+                "gap_cell_pp": gap_cell,
+                "gap_sku_origin_pp": gap_so,
+                "capture_frac_vs_cell": _capture_frac(captured, gap_cell),
+                "capture_frac_vs_sku_origin": _capture_frac(captured, gap_so),
                 "bias_v21": v21["bias"],
                 "bias_blend50": b50["bias"],
+                "bias_cell_oracle": cell["bias"],
+                "bias_sku_origin_oracle": so_or["bias"],
                 "ae_p90_v21": v21["ae_p90"],
                 "ae_p90_blend50": b50["ae_p90"],
+                "ae_p90_cell_oracle": cell["ae_p90"],
                 "ae_p95_v21": v21["ae_p95"],
                 "ae_p95_blend50": b50["ae_p95"],
+                "ae_p95_cell_oracle": cell["ae_p95"],
                 "top_decile_ae_share_v21": v21["top_decile_ae_share"],
                 "top_decile_ae_share_blend50": b50["top_decile_ae_share"],
                 "cell_wins_blend_vs_v21": int(b50.get("cell_wins_vs_v21") or 0),
@@ -440,8 +607,14 @@ def evaluate_slice(
         out[f"by_origin_{neural}"] = by_origin_blend(pair)
         out[f"sens_drop2_{neural}"] = drop_top_gainers(pair, 2)
         out[f"sens_drop3_{neural}"] = drop_top_gainers(pair, 3)
+        out[f"opportunity_{neural}"] = opp
+        if slice_name in ORACLE_SLICES:
+            out[f"oracle_by_sku_{neural}"] = oracle_breakdown(pair, "product")
+            out[f"oracle_by_origin_{neural}"] = oracle_breakdown(pair, "forecast_origin")
+            out[f"oracle_by_horizon_{neural}"] = oracle_breakdown(pair, "horizon")
 
     out["blend_summary"] = pd.DataFrame(blend_summaries)
+    out["opportunity"] = pd.DataFrame(opportunity_rows)
     return out
 
 
@@ -481,6 +654,94 @@ def decision_text(results: dict[str, dict[str, Any]]) -> str:
                 f"(lift {float(d3.get('lift_vs_v21_pp', float('nan'))):+.2f} pp)."
             )
     return "\n".join(lines)
+
+
+def write_oracle_sections(results: dict[str, dict[str, Any]]) -> list[str]:
+    """Hindsight ceiling opportunity for pooled + primary confirmation slice."""
+    sections: list[str] = [
+        "## Hindsight oracles (ceilings only — not deployable)",
+        "",
+        "**Hindsight ceilings — not deployable; actuals used only for ceiling measurement.**",
+        "Neither cell nor SKU×origin oracle may produce a production forecast or choose",
+        "that origin’s model. They bound how much of the V2.1-vs-neural gap a routing",
+        "policy could ever capture.",
+        "",
+        "- **Cell oracle:** per-row pick of V2.1 vs neural by lower abs error.",
+        "- **SKU×origin oracle:** per `(product, forecast_origin)` pick by lower group WMAPE.",
+        "- **Capture frac:** `captured_blend_pp / gap_*_pp` (null when gap ≤ 0).",
+        "",
+    ]
+    float_cols = {
+        "wmape_v21",
+        "wmape_neural",
+        "wmape_blend50",
+        "wmape_cell_oracle",
+        "wmape_sku_origin_oracle",
+        "captured_blend_pp",
+        "gap_cell_pp",
+        "gap_sku_origin_pp",
+        "capture_frac_vs_cell",
+        "capture_frac_vs_sku_origin",
+        "ae_reduction_blend",
+        "ae_reduction_cell_oracle",
+        "ae_reduction_sku_origin_oracle",
+        "ae_capture_frac_vs_cell",
+        "ae_capture_frac_vs_sku_origin",
+        "lift_blend_pp",
+        "ae_unrecovered_vs_cell",
+    }
+    for slice_name in ORACLE_SLICES:
+        r = results.get(slice_name) or {}
+        opp = r.get("opportunity")
+        weight = " **(PRIMARY)**" if slice_name == "new_sku_x_late_origin" else " *(descriptive)*"
+        sections.extend([f"### {slice_name}{weight}", ""])
+        if not isinstance(opp, pd.DataFrame) or opp.empty:
+            sections.append("_No oracle opportunity rows._\n")
+            continue
+        show = opp[
+            [
+                "neural",
+                "n_rows",
+                "wmape_v21",
+                "wmape_neural",
+                "wmape_blend50",
+                "wmape_cell_oracle",
+                "wmape_sku_origin_oracle",
+                "captured_blend_pp",
+                "gap_cell_pp",
+                "gap_sku_origin_pp",
+                "capture_frac_vs_cell",
+                "capture_frac_vs_sku_origin",
+                "ae_capture_frac_vs_cell",
+                "ae_capture_frac_vs_sku_origin",
+            ]
+        ]
+        sections.extend([_md_table(show, float_cols), ""])
+        for neural in NEURALS:
+            by_sku = r.get(f"oracle_by_sku_{neural}")
+            if not isinstance(by_sku, pd.DataFrame) or by_sku.empty:
+                continue
+            top = by_sku.head(8)
+            cols = [
+                "product",
+                "n_rows",
+                "wmape_v21",
+                "wmape_blend50",
+                "wmape_cell_oracle",
+                "gap_cell_pp",
+                "lift_blend_pp",
+                "capture_frac_vs_cell",
+                "ae_unrecovered_vs_cell",
+            ]
+            sections.extend(
+                [
+                    f"#### Top unrecovered cell-oracle AE — V2.1+{neural.upper()} ({slice_name})",
+                    "",
+                    _md_table(top[cols], float_cols),
+                    "",
+                ]
+            )
+    return sections
 
 
 def write_report(
@@ -565,20 +826,51 @@ def write_report(
                     "### Pairwise blends (identical V2.1 ∩ neural rows)",
                     "",
                     _md_table(
-                        bs,
+                        bs[
+                            [
+                                c
+                                for c in (
+                                    "slice",
+                                    "neural",
+                                    "n_rows",
+                                    "wmape_v21",
+                                    "wmape_neural",
+                                    "wmape_blend50",
+                                    "wmape_cell_oracle",
+                                    "wmape_sku_origin_oracle",
+                                    "lift_vs_v21_pp",
+                                    "gap_cell_pp",
+                                    "gap_sku_origin_pp",
+                                    "capture_frac_vs_cell",
+                                    "capture_frac_vs_sku_origin",
+                                    "bias_v21",
+                                    "bias_blend50",
+                                    "ae_p90_v21",
+                                    "ae_p90_blend50",
+                                    "cell_wins_blend_vs_v21",
+                                    "cell_losses_blend_vs_v21",
+                                    "left_sku_origin_wins",
+                                    "right_sku_origin_wins",
+                                    "ties",
+                                )
+                                if c in bs.columns
+                            ]
+                        ],
                         {
                             "wmape_v21",
                             "wmape_neural",
                             "wmape_blend50",
+                            "wmape_cell_oracle",
+                            "wmape_sku_origin_oracle",
                             "lift_vs_v21_pp",
+                            "gap_cell_pp",
+                            "gap_sku_origin_pp",
+                            "capture_frac_vs_cell",
+                            "capture_frac_vs_sku_origin",
                             "bias_v21",
                             "bias_blend50",
                             "ae_p90_v21",
                             "ae_p90_blend50",
-                            "ae_p95_v21",
-                            "ae_p95_blend50",
-                            "top_decile_ae_share_v21",
-                            "top_decile_ae_share_blend50",
                         },
                     ),
                     "",
@@ -624,6 +916,7 @@ def write_report(
                     )
                 sections.append("")
 
+    sections.extend(write_oracle_sections(results))
     sections.extend(["", decision_text(results), ""])
     text = "\n".join(sections)
     (out_dir / "report.md").write_text(text + "\n", encoding="utf-8")
@@ -678,6 +971,7 @@ def main() -> int:
     results: dict[str, dict[str, Any]] = {}
     all_blend_rows: list[pd.DataFrame] = []
     all_triple: list[pd.DataFrame] = []
+    all_opp_rows: list[pd.DataFrame] = []
 
     for slice_name, sku, origin in SLICES:
         frames = filter_slice(base_frames, sku, origin)
@@ -685,6 +979,9 @@ def main() -> int:
         results[slice_name] = r
         if isinstance(r.get("blend_summary"), pd.DataFrame) and not r["blend_summary"].empty:
             all_blend_rows.append(r["blend_summary"])
+        if isinstance(r.get("opportunity"), pd.DataFrame) and not r["opportunity"].empty:
+            if slice_name in ORACLE_SLICES:
+                all_opp_rows.append(r["opportunity"])
         if isinstance(r.get("triple"), pd.DataFrame) and not r["triple"].empty:
             t = r["triple"].copy()
             t["slice"] = slice_name
@@ -700,10 +997,22 @@ def main() -> int:
             pair = r.get(f"pairwise_{neural}")
             if isinstance(pair, pd.DataFrame) and not pair.empty:
                 pair.to_parquet(out_dir / f"pairwise_{slice_name}_v21_{neural}.parquet", index=False)
+            if slice_name in ORACLE_SLICES:
+                for dim in ("sku", "origin", "horizon"):
+                    odf = r.get(f"oracle_by_{dim}_{neural}")
+                    if isinstance(odf, pd.DataFrame) and not odf.empty:
+                        odf.to_csv(
+                            out_dir / f"oracle_by_{dim}_{slice_name}_v21_{neural}.csv",
+                            index=False,
+                        )
 
     if all_blend_rows:
         pd.concat(all_blend_rows, ignore_index=True).to_csv(
             out_dir / "blend_summary_by_slice.csv", index=False
+        )
+    if all_opp_rows:
+        pd.concat(all_opp_rows, ignore_index=True).to_csv(
+            out_dir / "oracle_opportunity_by_slice.csv", index=False
         )
     if all_triple:
         pd.concat(all_triple, ignore_index=True).to_csv(
