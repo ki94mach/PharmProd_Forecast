@@ -1,0 +1,455 @@
+{
+  "n": 90,
+  "jobs": [
+    {
+      "product": "Alvoxal 50",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Beraksurf 4",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Dalfyra",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Rolima 0.75",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Tysuna 50",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Xybrone 250",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvopem 500",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvotere 160",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvotere 80",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvotere 80",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvoxal 100",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvoxal 50",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvoxal 50",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 1.2",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 1.2",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 1.2",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Beraksurf 8",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Beraksurf 8",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "CinnoRA PFS",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "CinnoRA PFS",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Rolima 0.25",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Rolima 0.25",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Rolima 0.25",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Rolima 0.75",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Zytux 100",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Zytux 100",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 150",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 150",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 150",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvotere 20",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvotere 20",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvotere 80",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvotere 80",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvotere 80",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvoxal 100",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvoxal 100",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvoxal 50",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Aryotrust 440",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Beraksurf 4",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Beraksurf 4",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Beraksurf 4",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Beraksurf 8",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Beraksurf 8",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Cinnal-f 450",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Dalfyra",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Paglino 25",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Rolima 0.25",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Rolima 0.25",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Xybrone 250",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Zytux 100",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Zytux 100",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Zytux 100",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Zytux 500",
+      "forecast_origin": 140402,
+      "seed": 43
+    }
+  ]
+}

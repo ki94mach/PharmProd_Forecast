@@ -1,0 +1,71 @@
+schema_version: '1'
+run:
+  run_id: archval55_a0_empty_fix_v1
+  output_dir: src/data/forecast_jobs
+cohort:
+  products:
+  - Alvopax 100
+  - Alvopax 150
+  - Alvopax 30
+  - Alvopem 500
+  - Alvotere 160
+  - Alvotere 20
+  - Alvotere 80
+  - Alvoxal 100
+  - Alvoxal 50
+  - Aryoseven 1.2
+  - Aryotrust 440
+  - Beraksurf 4
+  - Beraksurf 8
+  - Cinnal-f 450
+  - CinnoRA PFS
+  - Cinnopar
+  - Dalfyra
+  - Leudribine 10/5
+  - Lyratan
+  - Paglino 25
+  - Rolima 0.25
+  - Rolima 0.75
+  - Tysuna 50
+  - Xybrone 250
+  - Zytux 100
+  - Zytux 500
+origins:
+- 140201
+- 140301
+- 140402
+architectures:
+- a0
+seeds:
+- 41
+- 42
+- 43
+horizon: 15
+cutoff_policy:
+  name: production
+fallback:
+  policy: naive_last_value
+  version: v1
+sales:
+  path: src/data/benchmarks/v1/raw/sales.parquet
+  read_only: true
+  schema:
+    columns:
+    - product
+    - date
+    - sales
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    content_sha256: 1d146d49261357f6b35d743a4c4064b22abe82047f6f5c36bbe4496d03f1ffc7
+    n_rows: 6100
+    size_bytes: 34006
+    mtime_ns: null
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 12
+  pool: processes

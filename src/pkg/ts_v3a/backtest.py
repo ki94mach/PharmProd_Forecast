@@ -540,6 +540,37 @@ def backtest_product_architectures(
     prepared_by_arch_origin: dict[tuple[str, int], PreparedSeries] = {}
     windows_by_arch_origin: dict[tuple[str, int], ForecastWindow] = {}
 
+    # Never return bare empty predictions for requested origins/seeds: emit
+    # fold metadata with an explicit unavailable_reason so job adapters can
+    # map to specific ineligibility codes instead of generic empty.
+    if not origin_covers and explicit_origins is not None:
+        hist_len = (
+            int(pd.to_numeric(full_sales, errors="coerce").notna().sum())
+            if full_sales is not None and len(full_sales)
+            else 0
+        )
+        for origin_ym in (validate_shamsi_yyyymm(int(o)) for o in explicit_origins):
+            for architecture in arch_list:
+                for seed in seed_list:
+                    meta_rows.append(
+                        _unavailable_metadata(
+                            product=product,
+                            product_id=product_id,
+                            architecture=architecture.value,
+                            seed=int(seed),
+                            origin=int(origin_ym),
+                            available_history_length=hist_len,
+                            runtime_seconds=0.0,
+                            status=STATUS_UNAVAILABLE,
+                            unavailable_reason="insufficient_history",
+                            error_type=None,
+                            error_message=(
+                                "discover_origins returned no cover for "
+                                f"explicit origin={int(origin_ym)}"
+                            ),
+                        )
+                    )
+
     for cover in origin_covers:
         origin_ym = int(cover.window.forecast_origin)
         for architecture in arch_list:
@@ -556,6 +587,25 @@ def backtest_product_architectures(
                 sales_col=sales_col,
             )
             if prepared.n_observations < v2_cfg.min_train_months:
+                for seed in seed_list:
+                    meta_rows.append(
+                        _unavailable_metadata(
+                            product=product,
+                            product_id=product_id,
+                            architecture=architecture.value,
+                            seed=int(seed),
+                            origin=origin_ym,
+                            available_history_length=int(prepared.n_observations),
+                            runtime_seconds=0.0,
+                            status=STATUS_UNAVAILABLE,
+                            unavailable_reason="insufficient_history",
+                            error_type=None,
+                            error_message=(
+                                f"prepared.n_observations={prepared.n_observations} "
+                                f"< min_train_months={v2_cfg.min_train_months}"
+                            ),
+                        )
+                    )
                 continue
             arch_key = (architecture.value, origin_ym)
             prepared_by_arch_origin[arch_key] = prepared

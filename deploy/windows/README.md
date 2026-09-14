@@ -105,6 +105,37 @@ Get-ScheduledTask -TaskName 'ForecastJobs-*' | Get-ScheduledTaskInfo
 Get-Content C:\Forecast\src\data\forecast_jobs\logs\*.log -Tail 40
 ```
 
+## Archval55 A0 empty-fix refit (90 jobs)
+
+Laptop stopped; do **not** copy the laptop partial tree. On the VPS:
+
+```powershell
+cd C:\Forecast
+Set-ExecutionPolicy -Scope Process Bypass
+
+# 1) Refresh code + allow-list from the redirected laptop drive
+& '\\tsclient\C\Users\Mohajeri.K\MyProjects\Forecast\deploy\windows\Copy-FromRedirectedDrive.ps1' `
+  -Source '\\tsclient\C\Users\Mohajeri.K\MyProjects\Forecast' `
+  -Destination 'C:\Forecast'
+
+# 2) Ensure no stale same run_id from a prior attempt
+if (Test-Path 'C:\Forecast\src\data\forecast_jobs\archval55_a0_empty_fix_v1') {
+  Rename-Item 'C:\Forecast\src\data\forecast_jobs\archval55_a0_empty_fix_v1' `
+    ("archval55_a0_empty_fix_v1_bak_" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
+}
+
+# 3) Register + start (survives RDP disconnect); workers=12
+.\deploy\windows\Register-A0EmptyFixRefit.ps1 -StartNow
+
+# 4) Monitor
+Get-Content C:\Forecast\src\data\forecast_jobs\logs\archval55_a0_empty_fix_v1.log -Wait -Tail 40
+```
+
+Allow-list: `configs\forecast_jobs\archval55_a0_empty_fix_v1.allowlist.json`  
+Run id: `archval55_a0_empty_fix_v1`
+
+When finished, copy `C:\Forecast\src\data\forecast_jobs\archval55_a0_empty_fix_v1` back to the laptop for merge/eval.
+
 ## Notes
 
 - Keep **minos** `archval25` running unless you deliberately stop it — do not run the same `run_id` on two hosts writing different trees and then merge blindly.

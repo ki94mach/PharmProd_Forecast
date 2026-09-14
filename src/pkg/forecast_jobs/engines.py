@@ -13,6 +13,7 @@ from pkg.ts_v2.dates import parse_origin
 from pkg.ts_v2.engine import forecast_products
 from pkg.ts_v3a.architectures import ArchitectureName
 from pkg.ts_v3a.backtest import (
+    STATUS_ERROR,
     STATUS_UNAVAILABLE,
     backtest_product_architectures,
 )
@@ -306,6 +307,32 @@ def _neural_unavailable_reason(fold_metadata: Optional[pd.DataFrame]) -> Optiona
     return "insufficient_history"
 
 
+def _neural_error_fold(
+    fold_metadata: Optional[pd.DataFrame],
+) -> Optional[dict[str, str]]:
+    """Return error_type/message when any fold has status=error (not ineligible)."""
+    if fold_metadata is None or fold_metadata.empty:
+        return None
+    if "status" not in fold_metadata.columns:
+        return None
+    errored = fold_metadata.loc[
+        fold_metadata["status"].astype(str) == STATUS_ERROR
+    ]
+    if errored.empty:
+        return None
+    row = errored.iloc[0]
+    err_type = row.get("error_type")
+    err_msg = row.get("error_message")
+    return {
+        "error_type": str(err_type) if err_type is not None and str(err_type).strip() else "NeuralFoldError",
+        "error_message": (
+            str(err_msg)
+            if err_msg is not None and str(err_msg).strip()
+            else "neural fold status=error"
+        ),
+    }
+
+
 def run_v21_job(request: EngineJobRequest) -> EngineJobResult:
     """Run one V2.1 product × origin job via ``DEFAULT_CONFIG_V21``."""
     try:
@@ -420,6 +447,23 @@ def run_neural_job(
         )
         preds = result.predictions
         if preds is None or preds.empty:
+            fold_err = _neural_error_fold(result.fold_metadata)
+            if fold_err is not None:
+                # Runtime/training defects must be FAILED, not silent INELIGIBLE.
+                return EngineJobResult(
+                    success=False,
+                    product=request.product,
+                    quarter=request.quarter,
+                    forecast_origin=request.forecast_origin,
+                    error_message=fold_err["error_message"],
+                    error_type=fold_err["error_type"],
+                    extras={
+                        "architecture": arch.value,
+                        "seed": int(seed),
+                        "empty_predictions": True,
+                        "fold_status": STATUS_ERROR,
+                    },
+                )
             unavailable = _neural_unavailable_reason(result.fold_metadata)
             reason_code = (
                 REASON_NEURAL_SHORT_HISTORY
@@ -438,7 +482,10 @@ def run_neural_job(
                 error_type="ExpectedIneligible",
                 seed=int(seed),
                 architecture=arch.value,
-                extra={"empty_predictions": True},
+                extra={
+                    "empty_predictions": True,
+                    "unavailable_reason": unavailable,
+                },
             )
         model_name = f"{arch.value}:seed{int(seed)}"
         frame = neural_predictions_to_v21_frame(
