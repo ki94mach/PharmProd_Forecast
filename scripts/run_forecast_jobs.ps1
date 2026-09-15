@@ -144,5 +144,22 @@ Write-Host "config=$Config"
 Write-Host "run_id=$RunId"
 Write-Host "cmd=$PythonBin $($cmd -join ' ')"
 
-& $PythonBin @cmd
-exit $LASTEXITCODE
+# TF/absl and other native tools write warnings to stderr. With
+# ErrorActionPreference=Stop, PowerShell turns those into terminating
+# NativeCommandError and aborts the job before any work finishes.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+  & $PythonBin @cmd 2>&1 | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord]) {
+      [Console]::Error.WriteLine($_.Exception.Message)
+    } else {
+      $_
+    }
+  }
+  $code = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $prevEap
+}
+if ($null -eq $code) { $code = 0 }
+exit $code

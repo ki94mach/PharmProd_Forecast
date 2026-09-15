@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """A0-only refit of the 90 empty-prediction jobs into a new run version.
 
-Does not mutate archval55_v21_a0_a1_fallback_v1. Uses the forecast_jobs
-runner primitives with an A0-only config and an exact job allow-list.
+Does not mutate archval55_v21_a0_a1_fallback_v1. Uses forecast_jobs runner
+primitives with an A0-only config and an exact job allow-list.
+
+On Windows, jobs are submitted in a rolling window of ``--workers`` so we do
+not pickle the full sales frame 90 times up-front (that looked like 1 worker).
 """
 from __future__ import annotations
 
 import argparse
 import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import yaml
@@ -46,6 +49,10 @@ ALLOWLIST = (
 NEW_RUN_ID = "archval55_a0_empty_fix_v1"
 
 
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+
 def _empty_jobs_from_csv(path: Path) -> pd.DataFrame:
     jobs = pd.read_csv(path)
     return jobs.loc[
@@ -68,6 +75,7 @@ def _load_empty_jobs(*, ineligible_csv: Path, allowlist: Path) -> pd.DataFrame:
     raise FileNotFoundError(
         f"need allow-list JSON ({allowlist}) or ineligible CSV ({ineligible_csv})"
     )
+
 
 def _write_refit_yaml(
     *,
@@ -95,7 +103,94 @@ def _write_refit_yaml(
     return out_path
 
 
+def _run_pool_rolling(
+    *,
+    config,
+    planned: list[PlannedJob],
+    sales_df: pd.DataFrame,
+    cfg_hash: str,
+    workers_n: int,
+    shutdown: ShutdownCoordinator,
+) -> list[str]:
+    """Keep at most ``workers_n`` futures in flight; submit the rest as slots free."""
+    outcomes: list[str] = []
+    pending: dict[Future, PlannedJob] = {}
+    it = iter(planned)
+    submitted = 0
+    total = len(planned)
+
+    with ProcessPoolExecutor(max_workers=workers_n) as pool:
+        def _submit_one(job: PlannedJob) -> None:
+            nonlocal submitted
+            fut = pool.submit(
+                _mp_run_one_job,
+                config,
+                job,
+                sales_df,
+                cfg_hash,
+                "unknown",
+            )
+            pending[fut] = job
+            submitted += 1
+            _log(
+                f"submit {submitted}/{total} "
+                f"{job.product} @ {job.origin} seed={job.seed} "
+                f"in_flight={len(pending)}"
+            )
+
+        # Prime the pool.
+        for _ in range(workers_n):
+            if shutdown.should_stop():
+                break
+            try:
+                job = next(it)
+            except StopIteration:
+                break
+            _submit_one(job)
+
+        while pending:
+            if shutdown.should_stop():
+                break
+            # Wait for any one to finish, then top up.
+            done_set = set()
+            for fut in as_completed(list(pending.keys()), timeout=None):
+                done_set.add(fut)
+                break
+            for fut in done_set:
+                job = pending.pop(fut)
+                try:
+                    outcome = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    _log(
+                        f"FAILED future {job.product} @ {job.origin} "
+                        f"seed={job.seed}: {type(exc).__name__}: {exc}"
+                    )
+                    outcome = "failed"
+                outcomes.append(outcome)
+                _log(
+                    f"done {len(outcomes)}/{total} "
+                    f"{job.product} @ {job.origin} seed={job.seed} "
+                    f"outcome={outcome} in_flight={len(pending)}"
+                )
+                if shutdown.should_stop():
+                    break
+                try:
+                    nxt = next(it)
+                except StopIteration:
+                    continue
+                _submit_one(nxt)
+
+    return outcomes
+
+
 def main() -> int:
+    # Unbuffered-ish when redirected from the Task Scheduler launcher.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ineligible-csv", type=Path, default=INELIG)
     p.add_argument("--allowlist", type=Path, default=ALLOWLIST)
@@ -127,20 +222,17 @@ def main() -> int:
         seeds=seeds,
         workers=int(args.workers),
     )
-    print(f"wrote config {cfg_path} products={len(products)} origins={origins} seeds={seeds}")
-    print(f"allow-list size={len(allow)}")
+    _log(f"wrote config {cfg_path} products={len(products)} origins={origins} seeds={seeds}")
+    _log(f"allow-list size={len(allow)}")
 
     config = load_job_config(cfg_path)
     root, cfg_hash, plan, sales_df, snap = prepare_run(config, dry_run=args.dry_run)
-    # Filter Cartesian expansion down to the exact 90 empties.
-    jobs = [
-        j
-        for j in plan.jobs
-        if (str(j.product), int(j.origin), int(j.seed)) in allow
-    ]
-    # Also register any missing allow-list identities (plan may already have them).
+    _log(f"prepare_run done root={root} cartesian_remaining={plan.remaining}")
+
     state = JobStateStore(root)
+    # Resume-safe: only schedule allow-list jobs that are not already SUCCESS.
     planned: list[PlannedJob] = []
+    skipped_done = 0
     for product, origin, seed in sorted(allow):
         quarter = quarter_from_origin(int(origin))
         identity = JobIdentity(
@@ -151,7 +243,14 @@ def main() -> int:
             forecast_origin=int(origin),
             product_id=encode_product_key(product, seed),
         )
-        state.ensure_job(identity, git_commit="unknown")
+        record = state.ensure_job(identity, git_commit="unknown")
+        if record.status == "SUCCESS":
+            skipped_done += 1
+            continue
+        if record.status == "RUNNING":
+            # Reclaim stale RUNNING from a killed prior attempt.
+            state.reclaim_stale_running(config.run_id)
+            record = state.ensure_job(identity, git_commit="unknown")
         planned.append(
             PlannedJob(
                 architecture="a0",
@@ -162,7 +261,10 @@ def main() -> int:
                 identity=identity,
             )
         )
-    print(f"planned refit jobs={len(planned)} run_root={root}")
+    _log(
+        f"planned refit jobs={len(planned)} already_success={skipped_done} "
+        f"workers={int(args.workers)}"
+    )
     if args.dry_run:
         return 0
 
@@ -192,22 +294,14 @@ def main() -> int:
                     )
                 )
         else:
-            with ProcessPoolExecutor(max_workers=workers_n) as pool:
-                futs = [
-                    pool.submit(
-                        _mp_run_one_job,
-                        config,
-                        job,
-                        sales_df,
-                        cfg_hash,
-                        "unknown",
-                    )
-                    for job in planned
-                ]
-                for fut in as_completed(futs):
-                    outcomes.append(fut.result())
-                    if shutdown.should_stop():
-                        break
+            outcomes = _run_pool_rolling(
+                config=config,
+                planned=planned,
+                sales_df=sales_df,
+                cfg_hash=cfg_hash,
+                workers_n=workers_n,
+                shutdown=shutdown,
+            )
     finally:
         shutdown.uninstall()
 
@@ -218,6 +312,7 @@ def main() -> int:
         "skipped": sum(1 for o in outcomes if o == "skipped"),
         "stopped": sum(1 for o in outcomes if o == "stopped"),
         "n_outcomes": len(outcomes),
+        "already_success_skipped": skipped_done,
     }
     (root / "refit_summary.json").write_text(
         json.dumps(
@@ -232,9 +327,12 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
-    print(json.dumps(counts, indent=2))
-    print("status", state.status_counts(config.run_id))
-    return 0 if counts["failed"] == 0 and counts["success"] + counts["ineligible"] >= len(allow) else 1
+    _log(json.dumps(counts, indent=2))
+    _log(f"status {state.status_counts(config.run_id)}")
+    ok = counts["failed"] == 0 and (
+        counts["success"] + counts["ineligible"] + skipped_done >= len(allow)
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

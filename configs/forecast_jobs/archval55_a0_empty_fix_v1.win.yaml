@@ -67,5 +67,7 @@ execution:
   resume: true
   retry_failed: false
   force_job: false
-  workers: 12
+  # A0-only TF fits are heavy; Archval55 used 12 because V2.1 diluted the pool.
+  # Keep this at 4 on the Windows VPS unless RAM clearly supports more.
+  workers: 4
   pool: processes

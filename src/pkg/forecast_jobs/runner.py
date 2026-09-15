@@ -1,8 +1,10 @@
 """Orchestrate resumable forecast_jobs runs (V2.1 / A0 / A1)."""
 from __future__ import annotations
 
+import multiprocessing as mp
+import os
 import threading
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +42,9 @@ from pkg.forecast_jobs.store import (
 
 JobExecutor = Callable[..., EngineJobResult]
 
+# Per-job wall timeout for one A0/A1/V2.1 fit (seconds).
+_DEFAULT_JOB_TIMEOUT_S = 60 * 45
+
 
 class _NeverStop:
     """Stand-in shutdown flag for process-pool workers (signals stay in parent)."""
@@ -70,6 +75,119 @@ def _mp_run_one_job(
         shutdown=_NeverStop(),  # type: ignore[arg-type]
         print_lock=threading.Lock(),
     )
+
+
+def _mp_run_one_job_exit(
+    result_queue: "mp.Queue[tuple[str, str]]",
+    config: JobRunConfig,
+    job: PlannedJob,
+    sales_df: pd.DataFrame,
+    cfg_hash: str,
+    git_commit: Optional[str],
+) -> None:
+    """Child process target: run one job, push outcome, hard-exit.
+
+    Keras/TF atexit handlers often hang on Windows after a successful fit.
+    ``os._exit`` skips them so the parent can start the next wave.
+    """
+    outcome = "failed"
+    try:
+        outcome = _mp_run_one_job(config, job, sales_df, cfg_hash, git_commit)
+        result_queue.put(("ok", outcome))
+    except Exception as exc:  # noqa: BLE001
+        try:
+            result_queue.put(("err", f"{type(exc).__name__}: {exc}"))
+        except Exception:
+            pass
+        outcome = "failed"
+    finally:
+        # noqa: S110 — intentional hard exit to avoid TF teardown deadlock
+        os._exit(0 if outcome in {"success", "ineligible", "skipped"} else 1)
+
+
+def _run_jobs_in_process_waves(
+    *,
+    jobs: list[PlannedJob],
+    config: JobRunConfig,
+    sales_df: pd.DataFrame,
+    cfg_hash: str,
+    git_commit: Optional[str],
+    workers_n: int,
+    shutdown: ShutdownCoordinator,
+    job_timeout_s: float = _DEFAULT_JOB_TIMEOUT_S,
+) -> list[str]:
+    """Run jobs in waves of fresh spawn processes (one TF fit per process)."""
+    ctx = mp.get_context("spawn")
+    remaining = list(jobs)
+    outcomes: list[str] = []
+    print(
+        f"process waves: jobs={len(remaining)} workers={workers_n} "
+        f"(spawn+os._exit per job, timeout_s={int(job_timeout_s)})",
+        flush=True,
+    )
+    while remaining and not shutdown.should_stop():
+        batch = remaining[:workers_n]
+        remaining = remaining[workers_n:]
+        print(
+            f"wave size={len(batch)} remaining_after={len(remaining)}",
+            flush=True,
+        )
+        procs: list[tuple[Any, Any, PlannedJob]] = []
+        for job in batch:
+            q: mp.Queue = ctx.Queue()
+            proc = ctx.Process(
+                target=_mp_run_one_job_exit,
+                args=(q, config, job, sales_df, cfg_hash, git_commit),
+            )
+            proc.start()
+            procs.append((proc, q, job))
+
+        for proc, q, job in procs:
+            proc.join(timeout=float(job_timeout_s))
+            if proc.is_alive():
+                print(
+                    f"timeout killing {job.product} @ {job.origin} "
+                    f"seed={job.seed} pid={proc.pid}",
+                    flush=True,
+                )
+                proc.terminate()
+                proc.join(timeout=30)
+                if proc.is_alive():
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    proc.join(timeout=10)
+                outcomes.append("failed")
+                continue
+            try:
+                status, payload = q.get_nowait()
+            except Exception:
+                outcomes.append("failed")
+                print(
+                    f"no result queue for {job.product} @ {job.origin} "
+                    f"seed={job.seed} exitcode={proc.exitcode}",
+                    flush=True,
+                )
+                continue
+            if status == "ok":
+                outcomes.append(str(payload))
+            else:
+                outcomes.append("failed")
+                print(
+                    f"worker error {job.product} @ {job.origin} "
+                    f"seed={job.seed}: {payload}",
+                    flush=True,
+                )
+            if shutdown.should_stop():
+                break
+        if shutdown.should_stop():
+            for leftover, _q, _job in procs:
+                if leftover.is_alive():
+                    leftover.terminate()
+                    leftover.join(timeout=10)
+            break
+    return outcomes
 
 
 @dataclass
@@ -444,30 +562,22 @@ def run_forecast_jobs(
                     break
                 outcomes.append(_one_thread(job))
         elif pool_mode == "processes":
-            # True multi-core: one OS process per in-flight job.
-            with ProcessPoolExecutor(max_workers=workers_n) as pool:
-                futures = []
-                for job in plan.jobs:
-                    if shutdown.should_stop():
-                        stopped_early = True
-                        stop_reason = shutdown.reason
-                        break
-                    futures.append(
-                        pool.submit(
-                            _mp_run_one_job,
-                            config,
-                            job,
-                            sales_df,
-                            cfg_hash,
-                            git_commit,
-                        )
-                    )
-                for fut in as_completed(futures):
-                    outcomes.append(fut.result())
-                    if shutdown.should_stop():
-                        stopped_early = True
-                        stop_reason = shutdown.reason
-                        break
+            # Keras/TF hangs process-pool workers on Windows after a fit
+            # (atexit / session teardown). Use spawn waves + os._exit.
+            outcomes.extend(
+                _run_jobs_in_process_waves(
+                    jobs=list(plan.jobs),
+                    config=config,
+                    sales_df=sales_df,
+                    cfg_hash=cfg_hash,
+                    git_commit=git_commit,
+                    workers_n=workers_n,
+                    shutdown=shutdown,
+                )
+            )
+            if shutdown.should_stop():
+                stopped_early = True
+                stop_reason = shutdown.reason or "shutdown"
         else:
             with ThreadPoolExecutor(max_workers=workers_n) as pool:
                 futures = []

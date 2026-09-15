@@ -74,6 +74,7 @@ Write-Host "Staging to $stage"
   'scripts\run_forecast_jobs.ps1',
   'scripts\verify_forecast_jobs_smoke.py',
   'scripts\refit_archval55_a0_empty_fix.py',
+  'scripts\prepare_archval55_a0_empty_fix_allowlist.py',
   'scripts\run_a0_empty_fix_refit.ps1'
 ) | ForEach-Object { Stage-File $_ }
 
