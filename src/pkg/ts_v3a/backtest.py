@@ -1,8 +1,9 @@
 """V3A outer expanding-CV backtest engine.
 
-Evaluates A0–A5 under the V2 historical forecasting contracts:
-- A0/A1: production time contract (train through last_complete, 16→15 bridge)
-- A2–A5: screening contract (train through origin−1, no bridge)
+Evaluates A0–A5 under the V2 production forecasting contract:
+- train through last_complete (origin−2), bridge month origin−1
+- A0/A1: recursive roll 16 internal steps, discard bridge → 15 delivered
+- A2–A5: MIMO Dense(15) on delivered dates (equivalent offset; bridge = gap)
 
 Horizon-equal MAE scoring is unchanged. Does not modify V1 behavior, select
 architectures, refit on full history, or integrate with the server runner.
@@ -375,7 +376,7 @@ def _window_for_architecture(
     *,
     v2_config: TSForecastConfig,
 ) -> ForecastWindow:
-    """Production window for A0/A1; screening window for A2–A5."""
+    """Production window for A0–A5; screening window only if contract is off."""
     if uses_production_time_contract(architecture):
         return make_forecast_window(origin_ym, config=v2_config)
     return make_screening_forecast_window(origin_ym, config=v2_config)
@@ -696,8 +697,8 @@ def run_outer_backtest(
 
     For each historical origin ``O`` and each configured seed:
 
-    - A0/A1: production contract (train through ``O-2``, bridge 16→15)
-    - A2–A5: screening contract (train through ``O-1``, no bridge)
+    - A0–A5: production contract (train through ``O-2``; bridge = ``O-1``)
+    - A0/A1: recursive 16→15 discard; A2–A5: MIMO Dense(15) delivered offset
     - resolve architecture configuration from that history only (A0 tiers)
     - train a fresh model through ``NeuralTrainer`` (independent seed run)
     - forecast delivered h1..h15 and score evaluable outer actuals only

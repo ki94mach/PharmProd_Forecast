@@ -27,7 +27,7 @@ from pkg.ts_v3a.scaling import FoldScaler
 
 
 class TestArchitectureTimeContractRouting(unittest.TestCase):
-    def test_a0_a1_use_production_a2_a5_screening(self):
+    def test_a0_through_a5_use_production(self):
         self.assertTrue(
             uses_production_time_contract(
                 ArchitectureName.A0_LEGACY_ADAPTIVE_RECURSIVE_LSTM
@@ -36,8 +36,14 @@ class TestArchitectureTimeContractRouting(unittest.TestCase):
         self.assertTrue(
             uses_production_time_contract(ArchitectureName.A1_SMALL_RECURSIVE_LSTM)
         )
-        self.assertFalse(uses_production_time_contract(ArchitectureName.A2_MIMO_LSTM))
-        self.assertFalse(
+        self.assertTrue(uses_production_time_contract(ArchitectureName.A2_MIMO_LSTM))
+        self.assertTrue(
+            uses_production_time_contract(ArchitectureName.A3_STACKED_MIMO_LSTM)
+        )
+        self.assertTrue(
+            uses_production_time_contract(ArchitectureName.A4_ENCODER_DECODER_LSTM)
+        )
+        self.assertTrue(
             uses_production_time_contract(ArchitectureName.A5_BIDIRECTIONAL_MIMO_LSTM)
         )
 

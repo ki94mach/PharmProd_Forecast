@@ -31,7 +31,7 @@ class ForecastWindow:
             also called ``forecast_start`` in the production contract.
         training_end: Last inclusive training month.
             Production: ``forecast_start - 2`` (``last_complete_month``).
-            Screening (A2–A5): ``forecast_origin - 1``.
+            Screening helper: ``forecast_origin - 1`` (legacy bake-off only).
         target_dates: Exactly ``H`` *delivered* Shamsi months; index ``i``
             is horizon ``i+1``. Horizon 1 equals ``forecast_origin``.
         horizons: ``(1, 2, ..., H)`` aligned with ``target_dates``.

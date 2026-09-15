@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"1"})
-SUPPORTED_ARCHITECTURES = frozenset({"v2.1", "a0", "a1"})
+SUPPORTED_ARCHITECTURES = frozenset({"v2.1", "a0", "a1", "a2", "a3", "a4", "a5"})
+_NEURAL_ARCHITECTURES = frozenset({"a0", "a1", "a2", "a3", "a4", "a5"})
 SUPPORTED_CUTOFF_POLICIES = frozenset({"production", "origin_exclusive"})
 SUPPORTED_FALLBACK_POLICIES = frozenset({"naive_last_value", "none"})
 
@@ -274,7 +275,7 @@ def parse_job_config(
         key = str(a).strip().lower()
         if key in {"v2.1", "v21", "v2_1"}:
             key = "v2.1"
-        elif key in {"a0", "a1"}:
+        elif key in {"a0", "a1", "a2", "a3", "a4", "a5"}:
             pass
         else:
             raise JobConfigError(
@@ -290,9 +291,11 @@ def parse_job_config(
         raise JobConfigError("architectures must be non-empty")
 
     seeds = _as_tuple_int(data.get("seeds"), field_name="seeds")
-    needs_seeds = any(a in {"a0", "a1"} for a in architectures)
+    needs_seeds = any(a in _NEURAL_ARCHITECTURES for a in architectures)
     if needs_seeds and not seeds:
-        raise JobConfigError("seeds required when architectures include a0/a1")
+        raise JobConfigError(
+            "seeds required when architectures include a0–a5"
+        )
     if not needs_seeds:
         seeds = seeds or ()
 

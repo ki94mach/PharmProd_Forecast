@@ -24,6 +24,10 @@ from pkg.ts_v3a.screen import parse_architecture_aliases
 _ARCH_ALIAS = {
     "a0": ArchitectureName.A0_LEGACY_ADAPTIVE_RECURSIVE_LSTM,
     "a1": ArchitectureName.A1_SMALL_RECURSIVE_LSTM,
+    "a2": ArchitectureName.A2_MIMO_LSTM,
+    "a3": ArchitectureName.A3_STACKED_MIMO_LSTM,
+    "a4": ArchitectureName.A4_ENCODER_DECODER_LSTM,
+    "a5": ArchitectureName.A5_BIDIRECTIONAL_MIMO_LSTM,
 }
 
 # Shared join contract with V2.1 / backfill ``forecast.csv`` rows.
@@ -548,14 +552,14 @@ def execute_architecture_job(
     key = str(architecture).lower()
     if key == "v2.1":
         return run_v21_job(request)
-    if key in {"a0", "a1"}:
+    if key in {"a0", "a1", "a2", "a3", "a4", "a5"}:
         if seed is None:
             return EngineJobResult(
                 success=False,
                 product=request.product,
                 quarter=request.quarter,
                 forecast_origin=request.forecast_origin,
-                error_message="seed is required for a0/a1 jobs",
+                error_message="seed is required for neural architecture jobs",
                 error_type="MissingSeed",
             )
         return run_neural_job(

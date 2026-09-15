@@ -131,7 +131,8 @@ Copy-DirWithProgress -RelDir 'deploy\windows'
   'scripts\verify_forecast_jobs_smoke.py',
   'scripts\refit_archval55_a0_empty_fix.py',
   'scripts\prepare_archval55_a0_empty_fix_allowlist.py',
-  'scripts\run_a0_empty_fix_refit.ps1'
+  'scripts\run_a0_empty_fix_refit.ps1',
+  'scripts\run_archval55_a2_a5_late_prod.ps1'
 ) | ForEach-Object { Copy-OneFile $_ }
 
 if ($IncludeTests) {

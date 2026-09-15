@@ -24,7 +24,7 @@ def _shamsi_months(start: int, n: int) -> list[int]:
 class TestInternalSplit(unittest.TestCase):
     def test_validation_entirely_before_forecast_origin(self):
         origin = 140501
-        # MIMO / screening contract: history through origin - 1.
+        # Explicit screening window (legacy helper); production uses O-2.
         window = make_screening_forecast_window(origin)
         months = _shamsi_months(140201, 36)
         self.assertEqual(months[-1], window.training_end)

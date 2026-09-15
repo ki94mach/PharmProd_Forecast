@@ -90,7 +90,7 @@ def build_job_plan(
 
     for architecture in config.architectures:
         seed_values: Sequence[Optional[int]]
-        if architecture in {"a0", "a1"}:
+        if architecture in {"a0", "a1", "a2", "a3", "a4", "a5"}:
             seed_values = list(config.seeds)
         else:
             seed_values = [None]
@@ -139,7 +139,11 @@ def build_job_plan(
 
     total = 0
     for architecture in config.architectures:
-        n_seeds = len(config.seeds) if architecture in {"a0", "a1"} else 1
+        n_seeds = (
+            len(config.seeds)
+            if architecture in {"a0", "a1", "a2", "a3", "a4", "a5"}
+            else 1
+        )
         total += len(config.origins) * len(products) * n_seeds
 
     counts = (

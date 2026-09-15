@@ -32,12 +32,17 @@ _TARGET_MODE: dict[ArchitectureName, TargetMode] = {
     ArchitectureName.A6_ATTENTION_BIDIRECTIONAL_LSTM: TargetMode.DIRECT_MIMO,
 }
 
-# A0/A1 share the V2 production time contract (bridge month + train through
-# last_complete). A2–A5 keep the historical screening contract.
+# A0–A5 share the V2 production time contract (bridge month + train through
+# last_complete). MIMO heads keep Dense(H=15) on delivered dates (equivalent
+# offset: bridge is the calendar gap, not a discarded output).
 _PRODUCTION_TIME_CONTRACT: frozenset[ArchitectureName] = frozenset(
     {
         ArchitectureName.A0_LEGACY_ADAPTIVE_RECURSIVE_LSTM,
         ArchitectureName.A1_SMALL_RECURSIVE_LSTM,
+        ArchitectureName.A2_MIMO_LSTM,
+        ArchitectureName.A3_STACKED_MIMO_LSTM,
+        ArchitectureName.A4_ENCODER_DECODER_LSTM,
+        ArchitectureName.A5_BIDIRECTIONAL_MIMO_LSTM,
     }
 )
 
@@ -61,5 +66,5 @@ def target_mode_for(architecture_name: str | ArchitectureName) -> TargetMode:
 def uses_production_time_contract(
     architecture_name: str | ArchitectureName,
 ) -> bool:
-    """True for A0/A1 (production bridge contract); False for A2–A5 screening."""
+    """True for A0–A5 (production bridge contract). A6 remains unset."""
     return coerce_architecture_name(architecture_name) in _PRODUCTION_TIME_CONTRACT

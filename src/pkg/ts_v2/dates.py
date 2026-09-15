@@ -11,7 +11,7 @@ Production time contract (default ``make_forecast_window``)
 - Generate ``H+1`` internal steps, discard the bridge, deliver ``H`` horizons
   starting at ``forecast_start``.
 
-Screening contract (``make_screening_forecast_window``, A2–A5)
+Screening helper (``make_screening_forecast_window``; legacy bake-off only)
 -------------------------------------------------------------
 - ``training_end = origin - 1``; no bridge; deliver ``H`` months from origin.
 
@@ -200,11 +200,12 @@ def make_screening_forecast_window(
     config: Optional[TSForecastConfig] = None,
     horizon: Optional[int] = None,
 ) -> ForecastWindow:
-    """Build the historical **screening** contract (A2–A5 bake-off).
+    """Build the historical **screening** contract (legacy helper).
 
     - ``training_end = origin - 1`` (partial month included in training).
     - No bridge month (``current_partial_month is None``).
     - Exactly ``H`` delivered targets starting at ``origin``.
+    A0–A5 forecast_jobs now use :func:`make_forecast_window` (production).
     """
     cfg = config or DEFAULT_CONFIG
     h = int(cfg.forecast_horizon if horizon is None else horizon)
