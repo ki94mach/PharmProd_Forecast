@@ -325,9 +325,26 @@ def audit_ineligible(
         if not late_new_a0.empty
         else {},
         "suspicious_any": bool(
-            (inelig["gap_classification"] == "suspicious_late_long_history").any()
-            or (inelig["gap_classification"] == "possible_implementation_issue").any()
-        ),
+            (
+                (inelig["engine"].astype(str).str.lower() == "a0")
+                & inelig["gap_classification"].isin(
+                    {
+                        "suspicious_late_long_history",
+                        "possible_implementation_issue",
+                    }
+                )
+            ).any()
+        )
+        if not inelig.empty
+        else False,
+        "a1_empty_predictions_remaining": int(
+            (
+                (inelig["engine"].astype(str).str.lower() == "a1")
+                & (inelig["reason_code"] == "neural_empty_predictions_ineligible")
+            ).sum()
+        )
+        if not inelig.empty
+        else 0,
         "note_675_vs_900": (
             "Pairwise confirmation uses seed-mean of SUCCESS seeds only. "
             "A product×origin contributes 15 cells if ≥1 A0 seed succeeded. "
@@ -802,8 +819,8 @@ def make_recommendation(
     if suspicious:
         choice = "C"
         bullets.append(
-            "INELIGIBLE audit flagged suspicious late-origin / long-history or "
-            "empty-prediction gaps → insufficient evidence for a clean freeze."
+            "A0 INELIGIBLE audit still flags suspicious late-origin / long-history "
+            "or empty-prediction gaps → insufficient evidence for a clean freeze."
         )
     elif (
         lift_primary > 0
@@ -1070,6 +1087,121 @@ def main() -> int:
 
     # --- 1. Audit ---
     inelig, summary, audit_meta = audit_ineligible(Path(args.run_dir), sales, old_skus)
+
+    # Reconcile SQLite INELIGIBLE with the export panel (A0 empty-fix overlays
+    # leave the original run untouched, so fixed keys would otherwise linger).
+    if not inelig.empty and "product" in panel.columns:
+        success_keys: set[tuple[str, str, int, Optional[int]]] = set()
+        status_ok = (
+            panel["job_status"].astype(str).eq("SUCCESS")
+            if "job_status" in panel.columns
+            else pd.Series(True, index=panel.index)
+        )
+        not_inelig = (
+            ~panel["ineligible"].fillna(False).astype(bool)
+            if "ineligible" in panel.columns
+            else pd.Series(True, index=panel.index)
+        )
+        a0_ok = panel.loc[
+            (panel["engine"].astype(str).str.lower() == "a0") & status_ok & not_inelig
+        ]
+        for r in a0_ok.itertuples(index=False):
+            seed = getattr(r, "seed", None)
+            if seed is None or (isinstance(seed, float) and pd.isna(seed)):
+                seed = None
+            else:
+                seed = int(seed)
+            success_keys.add(
+                ("a0", str(r.product), int(r.forecast_origin), seed)
+            )
+        if success_keys:
+            keep = []
+            for r in inelig.itertuples(index=False):
+                seed = r.seed if pd.notna(r.seed) else None
+                if seed is not None:
+                    seed = int(seed)
+                key = (str(r.engine).lower(), str(r.product), int(r.forecast_origin), seed)
+                keep.append(key not in success_keys)
+            n_before = len(inelig)
+            inelig = inelig.loc[keep].reset_index(drop=True)
+            n_dropped = n_before - len(inelig)
+            if n_dropped:
+                # Rebuild summary / explain from reconciled table
+                summary = (
+                    inelig.groupby(
+                        ["engine", "origin_cohort", "reason_code", "gap_classification"],
+                        as_index=False,
+                    )
+                    .agg(n_jobs=("product_id", "size"), n_products=("product", "nunique"))
+                    .sort_values(
+                        ["engine", "origin_cohort", "n_jobs"],
+                        ascending=[True, True, False],
+                    )
+                    if not inelig.empty
+                    else pd.DataFrame()
+                )
+                late_new_a0 = inelig.loc[
+                    (inelig["engine"] == "a0")
+                    & (inelig["sku_cohort"] == "new_sku")
+                    & (inelig["origin_cohort"] == "late_origin")
+                ]
+                missing_groups = (
+                    late_new_a0.groupby(["product", "forecast_origin"], as_index=False)
+                    .agg(
+                        n_ineligible_seeds=("seed", "nunique"),
+                        history_length=("history_length", "first"),
+                        reason_code=("reason_code", "first"),
+                        gap_classification=("gap_classification", "first"),
+                    )
+                    if not late_new_a0.empty
+                    else pd.DataFrame()
+                )
+                audit_meta["missing_groups"] = missing_groups
+                expl = audit_meta.get("explain") or {}
+                expl.update(
+                    {
+                        "n_ineligible_jobs": int(len(inelig)),
+                        "by_engine": inelig.groupby("engine").size().astype(int).to_dict()
+                        if not inelig.empty
+                        else {},
+                        "new_sku_late_a0_ineligible_jobs": int(len(late_new_a0)),
+                        "new_sku_late_a0_groups_with_any_ineligible_seed": int(
+                            len(missing_groups)
+                        ),
+                        "gap_class_counts": late_new_a0["gap_classification"]
+                        .value_counts()
+                        .to_dict()
+                        if not late_new_a0.empty
+                        else {},
+                        "suspicious_any": bool(
+                            (
+                                (inelig["engine"].astype(str).str.lower() == "a0")
+                                & inelig["gap_classification"].isin(
+                                    {
+                                        "suspicious_late_long_history",
+                                        "possible_implementation_issue",
+                                    }
+                                )
+                            ).any()
+                        )
+                        if not inelig.empty
+                        else False,
+                        "n_ineligible_reconciled_away_vs_panel": int(n_dropped),
+                        "a1_empty_predictions_remaining": int(
+                            (
+                                (inelig["engine"].astype(str).str.lower() == "a1")
+                                & (
+                                    inelig["reason_code"]
+                                    == "neural_empty_predictions_ineligible"
+                                )
+                            ).sum()
+                        )
+                        if not inelig.empty
+                        else 0,
+                    }
+                )
+                audit_meta["explain"] = expl
+
     inelig.to_csv(out_dir / "ineligible_jobs.csv", index=False)
     summary.to_csv(out_dir / "ineligible_summary_by_engine_origin_reason.csv", index=False)
     mg = audit_meta.get("missing_groups")
