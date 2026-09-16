@@ -1,0 +1,30 @@
+{
+  "n": 5,
+  "jobs": [
+    {
+      "product": "Ablyze",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Alvinotec 100",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Alvinotec 100",
+      "forecast_origin": 140101,
+      "seed": 41
+    },
+    {
+      "product": "Recigen AutoInjector",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Recigen AutoInjector",
+      "forecast_origin": 140101,
+      "seed": 41
+    }
+  ]
+}

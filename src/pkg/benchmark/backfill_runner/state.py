@@ -17,12 +17,23 @@ JOB_SUCCESS = "SUCCESS"
 JOB_FAILED = "FAILED"
 # Expected data/eligibility gap with an explicit fallback forecast delivered.
 JOB_INELIGIBLE = "INELIGIBLE"
+# Intentionally not executed (e.g. outside allow-list); no forecast artifact.
+JOB_SKIPPED = "SKIPPED"
 
 JOB_STATUSES = frozenset(
-    {JOB_PENDING, JOB_RUNNING, JOB_SUCCESS, JOB_FAILED, JOB_INELIGIBLE}
+    {
+        JOB_PENDING,
+        JOB_RUNNING,
+        JOB_SUCCESS,
+        JOB_FAILED,
+        JOB_INELIGIBLE,
+        JOB_SKIPPED,
+    }
 )
-# Terminal statuses that deliver artifacts and are skipped on resume.
+# Terminal statuses that deliver forecast artifacts (native or fallback).
 JOB_TERMINAL_OK = frozenset({JOB_SUCCESS, JOB_INELIGIBLE})
+# Terminal statuses that must not be re-claimed on resume (includes SKIPPED).
+JOB_RESUME_TERMINAL = frozenset({JOB_SUCCESS, JOB_INELIGIBLE, JOB_SKIPPED})
 
 LOCK_FILENAME = "run.lock"
 DB_FILENAME = "state.sqlite"
@@ -580,6 +591,60 @@ class JobStateStore:
             ).fetchone()
             return self._row_to_record(row)
 
+    def mark_skipped(
+        self,
+        identity: JobIdentity,
+        *,
+        reason_code: str,
+        reason_detail: Optional[str] = None,
+        started_at: Optional[str] = None,
+        finished_at: Optional[str] = None,
+        git_commit: str = "unknown",
+    ) -> JobRecord:
+        """Mark a job as intentionally not executed (no forecast artifact).
+
+        ``error_type`` is set to ``SkipReason``; ``error_message`` holds the
+        stable reason code (and optional detail). ``selected_model`` is cleared.
+        """
+        now = _utc_stamp()
+        started = started_at or now
+        finished = finished_at or now
+        detail = str(reason_code).strip()
+        if reason_detail:
+            detail = f"{detail}: {reason_detail}"
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE jobs SET
+                    status = ?,
+                    finished_at = ?,
+                    runtime_seconds = 0.0,
+                    error_type = ?,
+                    error_message = ?,
+                    output_path = NULL,
+                    selected_model = NULL,
+                    started_at = COALESCE(started_at, ?),
+                    git_commit = ?,
+                    updated_at = ?
+                WHERE job_id = ?
+                """,
+                (
+                    JOB_SKIPPED,
+                    finished,
+                    "SkipReason",
+                    detail,
+                    started,
+                    git_commit,
+                    finished,
+                    identity.job_id,
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?", (identity.job_id,)
+            ).fetchone()
+            return self._row_to_record(row)
+
     def mark_ineligible(
         self,
         identity: JobIdentity,
@@ -748,7 +813,7 @@ def should_run_job(
     """Decide whether a job should execute under the current CLI flags."""
     if force_job:
         return True
-    if record.status in JOB_TERMINAL_OK:
+    if record.status in JOB_RESUME_TERMINAL:
         return False
     if record.status == JOB_FAILED:
         return bool(retry_failed or not resume)

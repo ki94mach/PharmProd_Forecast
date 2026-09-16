@@ -132,7 +132,7 @@ def build_job_plan(
                             force_job=config.execution.force_job,
                         ):
                             jobs.append(planned)
-                        elif record.status in {"SUCCESS", "INELIGIBLE"}:
+                        elif record.status in {"SUCCESS", "INELIGIBLE", "SKIPPED"}:
                             n_done += 1
                     else:
                         jobs.append(planned)

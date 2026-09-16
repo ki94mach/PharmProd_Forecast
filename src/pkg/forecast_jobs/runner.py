@@ -648,7 +648,14 @@ def print_status(config: JobRunConfig) -> int:
     print(
         " ".join(
             f"{k}={counts.get(k, 0)}"
-            for k in ("PENDING", "RUNNING", "SUCCESS", "INELIGIBLE", "FAILED")
+            for k in (
+                "PENDING",
+                "RUNNING",
+                "SUCCESS",
+                "INELIGIBLE",
+                "FAILED",
+                "SKIPPED",
+            )
         )
     )
     return 0
