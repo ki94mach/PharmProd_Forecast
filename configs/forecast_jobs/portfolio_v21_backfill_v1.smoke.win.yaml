@@ -1,0 +1,44 @@
+schema_version: '1'
+run:
+  run_id: portfolio_v21_backfill_v1_smoke
+  output_dir: src/data/forecast_jobs
+cohort:
+  products:
+  - Recigen AutoInjector
+  - Alvinotec 100
+  - Ablyze
+origins:
+- 140101
+- 140104
+architectures:
+- v2.1
+seeds: []
+horizon: 15
+cutoff_policy:
+  name: production
+fallback:
+  policy: naive_last_value
+  version: v1
+sales:
+  path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
+  read_only: true
+  schema:
+    columns:
+    - product
+    - date
+    - sales
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    content_sha256: b67382d451974271c209f3c371219505cfa3fe45e3ad43d9769a93dfc5f1cfcc
+    n_rows: 22041
+    size_bytes: 86185
+    mtime_ns: null
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 2
+  pool: processes

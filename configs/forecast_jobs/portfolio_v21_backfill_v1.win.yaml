@@ -1,0 +1,417 @@
+schema_version: '1'
+run:
+  run_id: portfolio_v21_backfill_v1
+  output_dir: src/data/forecast_jobs
+cohort:
+  products:
+  - Abiral
+  - Ablyze
+  - Activage
+  - Adriax 10
+  - Adriax 50
+  - Alarich
+  - Alcarisa 16
+  - Alcarisa 20
+  - Alcarisa 24
+  - Alcarisa 28
+  - Alentiva
+  - Altebrel 25
+  - Altebrel 50
+  - Alvinotec 100
+  - Alvocade 2.5
+  - Alvocade 3.5
+  - Alvopax 100
+  - Alvopax 150
+  - Alvopax 30
+  - Alvopax 300
+  - Alvopem 100
+  - Alvopem 500
+  - Alvotere 160
+  - Alvotere 20
+  - Alvotere 80
+  - Alvoxal 100
+  - Alvoxal 50
+  - Amativer
+  - Amitzo 100
+  - Amitzo 140
+  - Amitzo 20
+  - Amitzo 250
+  - Amitzo Vial 100
+  - Araxya
+  - Artenix
+  - Arylia
+  - Aryoseven 1
+  - Aryoseven 1.2
+  - Aryoseven 4.8
+  - Aryotrust 150
+  - Aryotrust 440
+  - Aryxent 300
+  - Atranel
+  - Avamet 1000-2.5
+  - Avamet 500-2.5
+  - Avano 5-10
+  - Avano 5-25
+  - Avanomet 10-5-1000
+  - Avanomet 12.5-2.5-1000
+  - Avanomet 25-5-1000
+  - Avanomet 5-2.5-1000
+  - Avenile
+  - Bendanit 100
+  - Bendanit 25
+  - Bixensa
+  - Brescu 100
+  - Brescu 150
+  - Brescu 200
+  - Brescu 50
+  - Bronib
+  - Bronib 30 Capsule
+  - Cabotax
+  - Canvert
+  - Canvert Anti-Spot
+  - Canvert Comfort
+  - Canvert Fade
+  - Canvert Fade Ultra
+  - Canvert La Vie
+  - Canvert M
+  - Canvert PMS
+  - Canvert Pro Bottle
+  - Canvert Pro Tube
+  - Canvert Silk
+  - Canvert Silk Ultra
+  - Canvert Soft
+  - Canvert Sun
+  - Canvert Z
+  - Carbonatin 150
+  - Carbonatin 450
+  - Carbonatin 50
+  - CinnaFact
+  - Cinnal-f
+  - Cinnal-f 300
+  - Cinnal-f 450
+  - Cinnal-f 900
+  - Cinnapoietin 10000
+  - Cinnapoietin 2000
+  - Cinnapoietin 4000
+  - Cinnastim 4000
+  - Cinnastim 6000
+  - Cinnatropin 10
+  - Cinnatropin 5
+  - Cinnatropin Vial 4
+  - Cinnomer
+  - Cinnomer AutoInjector
+  - Cinnopar
+  - Cinnora AutoInjector
+  - CinnoRA PFS
+  - Cinnotec 240
+  - Cinnovex
+  - Ciplona 10
+  - Ciplona 50
+  - Clastoz
+  - Coageight 1000
+  - Coageight 2000
+  - Coageight 500
+  - Cybrin 100
+  - Cybrin 125
+  - Cybrin 75
+  - Dactoma
+  - Dalfyra
+  - Danelvin
+  - Darbina 50
+  - Dasamed 100
+  - Dasamed 50
+  - Dasamed 70
+  - Dynawell
+  - Ejaxon
+  - Eldixia
+  - Elpagina
+  - Embella 1 Vial
+  - Embella 4 Vial
+  - Endoxyna 1000
+  - Endoxyna 500
+  - Energ up
+  - Etoraz 100
+  - Etoraz 200
+  - Excilia Eyebrow 2.5
+  - Excilia Eyebrow 5
+  - Excilia Eyelash 2.5
+  - Excilia Eyelash 5
+  - Excilia Hair
+  - Excilia Hair Anti-Gray
+  - Fenosa
+  - Filzoma
+  - Finerenal 10
+  - Finerenal 20
+  - Finota 10
+  - Finota 5
+  - Fiorage Body
+  - Fiorage L
+  - Fiorage M
+  - Fiorage S
+  - Fiorage XL
+  - Fiverna 1000
+  - Fiverna 250
+  - Fiverna 500
+  - Fluguard
+  - Fluguard Old
+  - FolicoGen
+  - Fortydex 40
+  - Fularent
+  - Gylava
+  - Herozyme
+  - Hillaria
+  - Idanthra 10
+  - Ifoxa 1
+  - Intella
+  - Intyma 2
+  - Intyma 4
+  - KidiPeg
+  - Kinotherm
+  - LactaWell
+  - Lamean
+  - Lamean Plus
+  - Lenlira
+  - Lenoma 10
+  - Lenoma 15
+  - Lenoma 25
+  - Lenoma 5
+  - Letocan 50
+  - Letocan 70
+  - Leudribine 10/10
+  - Leudribine 10/5
+  - Leukaza
+  - Licolage Beauty 10 Bottles
+  - Licolage Beauty 30 Bottles
+  - Licolage Immune
+  - Licolage Joint
+  - Licolage Spark
+  - Licolage Sport
+  - Lixafert
+  - Lotigna 150
+  - Lotigna 200
+  - Lucentra 300
+  - Lucentra 500
+  - Lumista
+  - Lunaphil Ultra
+  - Lunaphil Volify
+  - Lunaphil Volix
+  - Lunaphil Vollip
+  - Lunaphil Volume
+  - Lyratan
+  - Maciza
+  - MammaVit
+  - Melitide
+  - Merolic
+  - Mertisso 40
+  - Mertisso 80
+  - Milosun
+  - Movabin
+  - MyeloAid
+  - Mygept 2 Tablet
+  - Nano-D
+  - Nano-D 2000
+  - Nanojade 180
+  - Nanojade 360
+  - Nanojade 90
+  - Neofor
+  - Neurotec
+  - Nibulin
+  - Nowaria
+  - Nupada 15
+  - Nupada 30
+  - Orixetide 2
+  - Orixetide 4
+  - OvuGen
+  - Paglimet 10-1000 ER
+  - Paglimet 12.5-1000
+  - Paglimet 12.5-1000 ER
+  - Paglimet 12.5-500
+  - Paglimet 25-1000 ER
+  - Paglimet 5-1000
+  - Paglimet 5-1000 ER
+  - Paglimet 5-500
+  - Paglino 10
+  - Paglino 25
+  - Parzino 100
+  - Parzino 150
+  - PEAlyte
+  - Pectuna
+  - Pegagen
+  - Perform Up 1000
+  - Perform Up 500
+  - Perleux
+  - Perleux 1 PFS
+  - Perleux Body
+  - Perleux Lip
+  - Perleux Nuvea
+  - Phantasia
+  - Pomavid 1
+  - Pomavid 2
+  - Pomavid 3
+  - Pomavid 4
+  - Premilatic 20
+  - Premilatic 30
+  - Premilatic 8 Tablet Starting Pack
+  - Premilatic Starting Pack
+  - Progio
+  - Psygamer
+  - Qcent Softgel
+  - Recigen
+  - Recigen AutoInjector
+  - Redoxyfer
+  - Relata 10
+  - Relata 15
+  - Relata 20
+  - Relata 5
+  - RenalFact
+  - RenalFact Omega
+  - Resmelyra 100
+  - Resmelyra 60
+  - Resmelyra 80
+  - Reximed 1000
+  - Reximed 50
+  - Rheuflix
+  - Rhofanib 10
+  - Rhofanib 5
+  - Ricanza
+  - Rodiyax C
+  - Rodiyax N
+  - Rodiyax T
+  - Rolima 0.25
+  - Rolima 0.75
+  - Saimera 4
+  - Sevara
+  - SightCare
+  - Solavis 15
+  - Solavis 7.5
+  - Spartina 10
+  - Spartina 12.5
+  - Spartina 15
+  - Spartina 2.5
+  - Spartina 5
+  - Spartina 7.5
+  - Spartina Pen 10
+  - Spartina Pen 12.5
+  - Spartina Pen 15
+  - Spartina Pen 2.5
+  - Spartina Pen 5
+  - Spartina Pen 7.5
+  - SperiGen
+  - Stivant 100
+  - Stivant 400
+  - Suliba 100
+  - Suprotac 0.5
+  - Suprotac 0.5 Blister
+  - Suprotac 1
+  - Suprotac 1 Blister
+  - Suprotac Vial  5
+  - Tabinoz
+  - Taurigen
+  - Tedanix 150
+  - Temziva
+  - Temziva Vial
+  - Tenoclax 100
+  - Tenoclax Starting Pack
+  - Tenzala 40
+  - Tenzala 80
+  - Tiagem 1000
+  - Tiagem 200
+  - Tinopa
+  - Trexoma 10
+  - Trexoma 15
+  - Trexoma 20
+  - Trexoma 25
+  - Trexoma 7.5
+  - Trexoma Tablet 2.5
+  - Trisenal
+  - Trustimer
+  - Tyalia
+  - Tysuna 12.5
+  - Tysuna 25
+  - Tysuna 50
+  - VedAryo 300
+  - Venotica 60
+  - Venotica 90
+  - Vicrista
+  - Voprazan 10
+  - Voprazan 20
+  - Wellosia 0.92
+  - Wellosia Starting Pack
+  - Winobin 20
+  - Winobin 30
+  - Winobin 50
+  - Xabano 2.5
+  - Xabano 2.5 Blister
+  - Xabano 5
+  - Xabano 5 Blister
+  - Xacrel
+  - Xantomit
+  - Xetabin
+  - Xetarem
+  - Xinaro 500
+  - Xolitop
+  - Xtramab 100
+  - Xtramab 240
+  - Xybrone 250
+  - Xybrone 500
+  - Xyphora 10
+  - Xyphora 2.5
+  - Xyphora 5
+  - Xyphora 7.5
+  - Zadiva 120
+  - Zadiva 240
+  - Zakaria
+  - Zerafil
+  - Zivales 100
+  - Zivales 200
+  - Zivales 50
+  - Zobis
+  - Zytux 100
+  - Zytux 500
+origins:
+- 140304
+- 140307
+- 140310
+- 140312
+- 140104
+- 140201
+- 140301
+- 140402
+- 140210
+- 140110
+- 140101
+- 140107
+- 140204
+- 140207
+- 140401
+architectures:
+- v2.1
+seeds: []
+horizon: 15
+cutoff_policy:
+  name: production
+fallback:
+  policy: naive_last_value
+  version: v1
+sales:
+  path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
+  read_only: true
+  schema:
+    columns:
+    - product
+    - date
+    - sales
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    content_sha256: b67382d451974271c209f3c371219505cfa3fe45e3ad43d9769a93dfc5f1cfcc
+    n_rows: 22041
+    size_bytes: 86185
+    mtime_ns: null
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 8
+  pool: processes
