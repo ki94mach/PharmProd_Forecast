@@ -23,11 +23,11 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from pkg.benchmark.backfill_runner.state import resolve_git_commit  # noqa: E402
-from pkg.benchmark.calendar import shamsi_add_months  # noqa: E402
 from pkg.forecast_jobs.config import load_job_config  # noqa: E402
 from pkg.forecast_jobs.plan import PlannedJob, encode_product_key  # noqa: E402
 from pkg.forecast_jobs.runner import prepare_run  # noqa: E402
 from pkg.forecast_jobs.store import atomic_write_json, job_artifact_dir  # noqa: E402
+from pkg.ts_v2.data import prepare_monthly_series  # noqa: E402
 
 INV = REPO / "src" / "data" / "results" / "product_universe" / "backfill_inventory_v2"
 SALES = (
@@ -67,14 +67,14 @@ def series_history_sha256(dates, values) -> str:
 
 
 def history_hash(sales: pd.DataFrame, product: str, origin: int) -> str:
-    lc = shamsi_add_months(int(origin), -2)
-    g = sales.loc[
-        (sales["product"] == product)
-        & (pd.to_numeric(sales["date"], errors="coerce") <= lc)
-    ].sort_values("date")
+    """Effective prepared training series through origin-2 (zero-filled gaps)."""
+    prepared = prepare_monthly_series(sales, product, int(origin))
+    series = prepared.values
+    if series.empty:
+        return ""
     return series_history_sha256(
-        [int(x) for x in g["date"].tolist()],
-        [float(x) if pd.notna(x) else float("nan") for x in g["sales"].tolist()],
+        [int(x) for x in series.index.tolist()],
+        [float(x) if pd.notna(x) else float("nan") for x in series.tolist()],
     )
 
 

@@ -5,15 +5,19 @@ run:
 cohort:
   products:
   - Recigen AutoInjector
-  - Alvinotec 100
-  - Ablyze
+  - Cinnapoietin 4000
+  - OvuGen
+  - Canvert Fade
+  - Altebrel 25
 origins:
-- 140101
-- 140104
+- 140402
+- 140401
 architectures:
 - a0
 seeds:
 - 41
+- 42
+- 43
 horizon: 15
 cutoff_policy:
   name: production

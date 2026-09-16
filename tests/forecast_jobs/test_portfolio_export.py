@@ -65,6 +65,51 @@ class TestPortfolioExport(unittest.TestCase):
         self.assertEqual(int(prepared.values.index.max()), int(window.training_end))
         self.assertEqual(prepared.missing_month_policy, "zero")
 
+    def test_seed_mean_requires_all_three_seeds(self):
+        import sys
+
+        sys.path.insert(0, str(REPO / "scripts"))
+        from export_portfolio_backfill_panel import seed_mean_panel
+
+        rows = []
+        for seed in (41, 42):  # missing 43
+            for h in range(1, 16):
+                rows.append(
+                    {
+                        "product": "P",
+                        "forecast_origin": 140402,
+                        "engine": "a0",
+                        "horizon": h,
+                        "target_date": 140402 + h - 1,
+                        "forecast": float(h),
+                        "seed": seed,
+                        "job_status": "SUCCESS",
+                    }
+                )
+        partial = pd.DataFrame(rows)
+        mean = seed_mean_panel(partial)
+        self.assertTrue(mean.empty)
+
+        for seed in (43,):
+            for h in range(1, 16):
+                rows.append(
+                    {
+                        "product": "P",
+                        "forecast_origin": 140402,
+                        "engine": "a0",
+                        "horizon": h,
+                        "target_date": 140402 + h - 1,
+                        "forecast": float(h),
+                        "seed": seed,
+                        "job_status": "SUCCESS",
+                    }
+                )
+        complete = pd.DataFrame(rows)
+        mean2 = seed_mean_panel(complete)
+        self.assertFalse(mean2.empty)
+        self.assertEqual(len(mean2), 15)
+        self.assertTrue((mean2["aggregation"] == "seed_mean").all())
+
     def test_export_portfolio_success_only_and_seed_mean(self):
         run_dir = REPO / "src" / "data" / "forecast_jobs" / "portfolio_a0_backfill_v2"
         if not (run_dir / "state.sqlite").is_file():
@@ -85,19 +130,45 @@ class TestPortfolioExport(unittest.TestCase):
         self.assertNotIn("SKIPPED", set(panel["job_status"].unique()))
 
         mean = seed_mean_panel(panel)
-        self.assertFalse(mean.empty)
-        if panel["seed"].notna().any():
-            n_jobs = panel.groupby(["product", "forecast_origin"]).ngroups
-            n_mean = mean.groupby(["product", "forecast_origin"]).ngroups
-            self.assertEqual(n_mean, n_jobs)
+        for (product, origin), g in panel.groupby(["product", "forecast_origin"]):
+            seeds = set(int(x) for x in g["seed"].dropna())
+            in_mean = not mean.loc[
+                (mean["product"] == product) & (mean["forecast_origin"] == origin)
+            ].empty
+            if seeds >= {41, 42, 43}:
+                self.assertTrue(in_mean)
+            else:
+                self.assertFalse(in_mean)
 
         out = Path(tempfile.mkdtemp()) / "export"
         summary = export_run(run_id="portfolio_a0_backfill_v2", engine="a0", out_dir=out)
-        self.assertEqual(summary["n_success_jobs"], 636)
+        # After effective-hash demotion: 471 SUCCESS remain
+        self.assertEqual(summary["n_success_jobs"], 471)
         self.assertTrue((out / "export_summary.json").is_file())
         meta = json.loads((out / "export_summary.json").read_text(encoding="utf-8"))
-        self.assertEqual(meta["status_counts"].get("SUCCESS"), 636)
+        self.assertEqual(meta["status_counts"].get("SUCCESS"), 471)
         self.assertGreaterEqual(meta["status_counts"].get("SKIPPED", 0), 1)
+
+    def test_smoke_export_structure_empty_success(self):
+        run_dir = REPO / "src" / "data" / "forecast_jobs" / "portfolio_v21_backfill_v2_smoke"
+        if not (run_dir / "state.sqlite").is_file():
+            self.skipTest("smoke run not prepared")
+        import sys
+
+        sys.path.insert(0, str(REPO / "scripts"))
+        from export_portfolio_backfill_panel import export_run
+
+        out = Path(tempfile.mkdtemp()) / "smoke_export"
+        summary = export_run(
+            run_id="portfolio_v21_backfill_v2_smoke", engine="v2.1", out_dir=out
+        )
+        self.assertEqual(summary["n_success_jobs"], 0)
+        self.assertTrue((out / "export_summary.json").is_file())
+        meta = json.loads((out / "export_summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta["status_counts"].get("PENDING"), 5)
+        self.assertEqual(meta["status_counts"].get("SKIPPED"), 5)
+        self.assertIn("n_success_rows", meta)
+        self.assertIn("n_seed_mean_rows", meta)
 
 
 if __name__ == "__main__":

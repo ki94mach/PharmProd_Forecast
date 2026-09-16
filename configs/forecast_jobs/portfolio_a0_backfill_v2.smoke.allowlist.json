@@ -1,30 +1,21 @@
 {
-  "n": 5,
+  "n": 15,
+  "note": "VPS smoke gate v2: five product×origin cases × seeds 41/42/43.",
   "jobs": [
-    {
-      "product": "Ablyze",
-      "forecast_origin": 140104,
-      "seed": 41
-    },
-    {
-      "product": "Alvinotec 100",
-      "forecast_origin": 140104,
-      "seed": 41
-    },
-    {
-      "product": "Alvinotec 100",
-      "forecast_origin": 140101,
-      "seed": 41
-    },
-    {
-      "product": "Recigen AutoInjector",
-      "forecast_origin": 140104,
-      "seed": 41
-    },
-    {
-      "product": "Recigen AutoInjector",
-      "forecast_origin": 140101,
-      "seed": 41
-    }
+    {"product": "Recigen AutoInjector", "forecast_origin": 140402, "seed": 41},
+    {"product": "Recigen AutoInjector", "forecast_origin": 140402, "seed": 42},
+    {"product": "Recigen AutoInjector", "forecast_origin": 140402, "seed": 43},
+    {"product": "Cinnapoietin 4000", "forecast_origin": 140402, "seed": 41},
+    {"product": "Cinnapoietin 4000", "forecast_origin": 140402, "seed": 42},
+    {"product": "Cinnapoietin 4000", "forecast_origin": 140402, "seed": 43},
+    {"product": "OvuGen", "forecast_origin": 140402, "seed": 41},
+    {"product": "OvuGen", "forecast_origin": 140402, "seed": 42},
+    {"product": "OvuGen", "forecast_origin": 140402, "seed": 43},
+    {"product": "Canvert Fade", "forecast_origin": 140402, "seed": 41},
+    {"product": "Canvert Fade", "forecast_origin": 140402, "seed": 42},
+    {"product": "Canvert Fade", "forecast_origin": 140402, "seed": 43},
+    {"product": "Altebrel 25", "forecast_origin": 140401, "seed": 41},
+    {"product": "Altebrel 25", "forecast_origin": 140401, "seed": 42},
+    {"product": "Altebrel 25", "forecast_origin": 140401, "seed": 43}
   ]
 }

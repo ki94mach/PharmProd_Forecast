@@ -1,30 +1,11 @@
 {
   "n": 5,
+  "note": "VPS smoke gate v2: five product×origin cases (exact pairs).",
   "jobs": [
-    {
-      "product": "Ablyze",
-      "forecast_origin": 140104,
-      "seed": null
-    },
-    {
-      "product": "Alvinotec 100",
-      "forecast_origin": 140104,
-      "seed": null
-    },
-    {
-      "product": "Alvinotec 100",
-      "forecast_origin": 140101,
-      "seed": null
-    },
-    {
-      "product": "Recigen AutoInjector",
-      "forecast_origin": 140104,
-      "seed": null
-    },
-    {
-      "product": "Recigen AutoInjector",
-      "forecast_origin": 140101,
-      "seed": null
-    }
+    {"product": "Recigen AutoInjector", "forecast_origin": 140402, "seed": null},
+    {"product": "Cinnapoietin 4000", "forecast_origin": 140402, "seed": null},
+    {"product": "OvuGen", "forecast_origin": 140402, "seed": null},
+    {"product": "Canvert Fade", "forecast_origin": 140402, "seed": null},
+    {"product": "Altebrel 25", "forecast_origin": 140401, "seed": null}
   ]
 }

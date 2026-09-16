@@ -162,7 +162,16 @@ def history_hash(sales: pd.DataFrame, product: str, origin: int) -> str:
 
 
 def po_classify(g: Optional[pd.DataFrame], origin: int) -> str:
-    if g is None or g.empty or int(g["sales"].fillna(0).ne(0).sum()) == 0:
+    """Classify product×origin eligibility on dense sales.
+
+    ``NO_SALES`` means no positive sales available through the training cutoff
+    (origin−2) for this origin — not necessarily zero sales in the full extract.
+    """
+    if g is None or g.empty:
+        return "NO_SALES"
+    lc = shamsi_add_months(int(origin), -2)
+    before = g.loc[pd.to_numeric(g["date"], errors="coerce") <= lc]
+    if before.empty or int(before["sales"].fillna(0).gt(0).sum()) == 0:
         return "NO_SALES"
     if train_months(g, origin) < MIN_TRAIN:
         return "EXPECTED_MODEL_INELIGIBLE"
@@ -487,20 +496,46 @@ def main() -> int:
         base_cfg("portfolio_a0_backfill_v2", ["a0"], [41, 42, 43], locked, products, 4),
     )
 
-    smoke_products = ["Recigen AutoInjector", "Alvinotec 100", "Ablyze"]
-    smoke_origins = [140101, 140104]
+    smoke_products = [
+        "Recigen AutoInjector",
+        "Cinnapoietin 4000",
+        "OvuGen",
+        "Canvert Fade",
+        "Altebrel 25",
+    ]
+    smoke_origins = [140402, 140401]
+    # Exact five product×origin pairs (allowlist pins; configs list product/origin unions)
+    smoke_pairs = {
+        ("Recigen AutoInjector", 140402),
+        ("Cinnapoietin 4000", 140402),
+        ("OvuGen", 140402),
+        ("Canvert Fade", 140402),
+        ("Altebrel 25", 140401),
+    }
     smoke21 = [
         j
         for j in jobs21
-        if j["product"] in smoke_products and j["forecast_origin"] in smoke_origins
+        if (j["product"], int(j["forecast_origin"])) in smoke_pairs
     ]
     smoke_a0 = [
         j
         for j in jobs_a0
-        if j["product"] in smoke_products
-        and j["forecast_origin"] in smoke_origins
-        and int(j["seed"]) == 41
+        if (j["product"], int(j["forecast_origin"])) in smoke_pairs
     ]
+    # If missing jobs list does not yet contain a smoke pair, synthesize allowlist entries
+    have21 = {(j["product"], int(j["forecast_origin"])) for j in smoke21}
+    for product, origin in sorted(smoke_pairs):
+        if (product, origin) not in have21:
+            smoke21.append({"product": product, "forecast_origin": origin, "seed": None})
+    have_a0 = {
+        (j["product"], int(j["forecast_origin"]), int(j["seed"])) for j in smoke_a0
+    }
+    for product, origin in sorted(smoke_pairs):
+        for seed in A0_SEEDS:
+            if (product, origin, int(seed)) not in have_a0:
+                smoke_a0.append(
+                    {"product": product, "forecast_origin": origin, "seed": int(seed)}
+                )
     (CFG_DIR / "portfolio_v21_backfill_v2.smoke.allowlist.json").write_text(
         json.dumps({"n": len(smoke21), "jobs": smoke21}, indent=2) + "\n", encoding="utf-8"
     )
@@ -523,7 +558,7 @@ def main() -> int:
         base_cfg(
             "portfolio_a0_backfill_v2_smoke",
             ["a0"],
-            [41],
+            list(A0_SEEDS),
             smoke_origins,
             smoke_products,
             2,

@@ -39165,6 +39165,833 @@
       "product": "Zytux 500",
       "forecast_origin": 140401,
       "seed": 43
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140104,
+      "seed": 41
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140104,
+      "seed": 42
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140104,
+      "seed": 43
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140201,
+      "seed": 41
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140201,
+      "seed": 42
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140201,
+      "seed": 43
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140301,
+      "seed": 41
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140301,
+      "seed": 42
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140301,
+      "seed": 43
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Altebrel 50",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 100",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 30",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Alvopax 300",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 1",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Aryoseven 4.8",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Cinnatropin 10",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Cinnopar",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Clastoz",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/10",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Leudribine 10/5",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Lyratan",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Melitide",
+      "forecast_origin": 140402,
+      "seed": 43
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140402,
+      "seed": 41
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140402,
+      "seed": 42
+    },
+    {
+      "product": "Zakaria",
+      "forecast_origin": 140402,
+      "seed": 43
     }
-  ]
+  ],
+  "n_jobs": 7998,
+  "note": "Missing allowlist; includes effective-hash demotions from reuse audit v2."
 }

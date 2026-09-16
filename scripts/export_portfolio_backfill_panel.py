@@ -108,26 +108,50 @@ def assemble_success_panel(run_dir: Path, *, engine: Optional[str] = None) -> pd
     return panel
 
 
-def seed_mean_panel(panel: pd.DataFrame) -> pd.DataFrame:
-    """Mean forecast over seeds for neural engines; pass-through for seedless."""
+REQUIRED_A0_SEEDS = frozenset({41, 42, 43})
+
+
+def seed_mean_panel(
+    panel: pd.DataFrame,
+    *,
+    required_seeds: frozenset[int] = REQUIRED_A0_SEEDS,
+) -> pd.DataFrame:
+    """Mean forecast over seeds for neural engines; pass-through for seedless.
+
+    Seed-mean rows are emitted only when every required seed is present for the
+    product×origin×engine×horizon×target_date group.
+    """
     if panel.empty:
         return panel.copy()
     work = panel.copy()
     if "seed" not in work.columns:
         return work
-    # Group keys
-    keys = [c for c in ("product", "forecast_origin", "engine", "horizon", "target_date") if c in work.columns]
+    keys = [
+        c
+        for c in ("product", "forecast_origin", "engine", "horizon", "target_date")
+        if c in work.columns
+    ]
     has_seed = work["seed"].notna()
     seeded = work.loc[has_seed]
     unseeded = work.loc[~has_seed]
     parts = []
     if not seeded.empty:
-        g = (
-            seeded.groupby(keys, as_index=False)["forecast"]
-            .mean()
-            .assign(seed=pd.NA, aggregation="seed_mean")
+        seed_key = [c for c in ("product", "forecast_origin", "engine") if c in seeded.columns]
+        complete = (
+            seeded.groupby(seed_key)["seed"]
+            .agg(lambda s: set(int(x) for x in s.dropna()) >= set(required_seeds))
+            .rename("_complete")
+            .reset_index()
         )
-        parts.append(g)
+        seeded = seeded.merge(complete, on=seed_key, how="left")
+        seeded = seeded.loc[seeded["_complete"].fillna(False)].drop(columns=["_complete"])
+        if not seeded.empty:
+            g = (
+                seeded.groupby(keys, as_index=False)["forecast"]
+                .mean()
+                .assign(seed=pd.NA, aggregation="seed_mean")
+            )
+            parts.append(g)
     if not unseeded.empty:
         u = unseeded.loc[:, keys + ["forecast"]].copy()
         u["seed"] = pd.NA
