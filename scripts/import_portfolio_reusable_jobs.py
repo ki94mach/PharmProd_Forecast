@@ -149,6 +149,15 @@ def main() -> int:
     ap.add_argument("--config", type=Path, required=True)
     ap.add_argument("--engine", choices=("v2.1", "a0"), required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--skip-hash-gate",
+        action="store_true",
+        help=(
+            "Import when forecast.csv exists even if inventory product_history_hash "
+            "does not match live prepare_monthly_series hash (inventory still uses "
+            "sparse hashes; archval artifacts were trained with prepare)."
+        ),
+    )
     args = ap.parse_args()
 
     config = load_job_config(args.config)
@@ -191,7 +200,11 @@ def main() -> int:
         )
         live_hash = history_hash(sales, product, origin)
         inv_hash = str(rec.get("product_history_hash") or "")
-        if inv_hash and inv_hash != live_hash:
+        if (
+            inv_hash
+            and inv_hash != live_hash
+            and not args.skip_hash_gate
+        ):
             skipped_hash += 1
             report_rows.append(
                 {

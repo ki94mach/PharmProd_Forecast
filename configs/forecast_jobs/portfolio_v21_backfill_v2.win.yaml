@@ -413,5 +413,5 @@ execution:
   resume: true
   retry_failed: false
   force_job: false
-  workers: 8
+  workers: 12
   pool: processes
