@@ -92,9 +92,11 @@ Write-Host "Portfolio smoke v2 copy: $Source -> $Destination"
 Write-Host "(Progress every 25 files. \\tsclient is slow.)"
 Write-Host ""
 
-# --- Updated package code (SKIPPED status, resume, plan/runner) ---
+# --- Updated package code (SKIPPED status, resume, origin-qualified slug) ---
 @(
   'src\pkg\benchmark\backfill_runner\state.py',
+  'src\pkg\benchmark\backfill_runner\types.py',
+  'src\pkg\benchmark\backfill_runner\store.py',
   'src\pkg\forecast_jobs\plan.py',
   'src\pkg\forecast_jobs\runner.py'
 ) | ForEach-Object { Copy-OneFile $_ }
