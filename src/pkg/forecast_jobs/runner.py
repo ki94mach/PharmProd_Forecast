@@ -89,6 +89,10 @@ def _mp_run_one_job_exit(
 
     Keras/TF atexit handlers often hang on Windows after a successful fit.
     ``os._exit`` skips them so the parent can start the next wave.
+
+    Important: flush the multiprocessing queue feeder thread before
+    ``os._exit``. Otherwise Windows parents often see an empty queue even
+    when the job already marked SUCCESS in SQLite.
     """
     outcome = "failed"
     try:
@@ -101,8 +105,34 @@ def _mp_run_one_job_exit(
             pass
         outcome = "failed"
     finally:
+        try:
+            result_queue.close()
+            result_queue.join_thread()
+        except Exception:
+            pass
         # noqa: S110 — intentional hard exit to avoid TF teardown deadlock
         os._exit(0 if outcome in {"success", "ineligible", "skipped"} else 1)
+
+
+def _outcome_from_state(config: JobRunConfig, job: PlannedJob) -> Optional[str]:
+    """Read terminal job status from SQLite when the child queue was empty."""
+    try:
+        store = JobStateStore(run_dir(config.output_dir, config.run_id))
+        rec = store.get_job(job.identity.job_id)
+    except Exception:
+        return None
+    if rec is None:
+        return None
+    status = str(rec.status).upper()
+    if status == "SUCCESS":
+        return "success"
+    if status == "INELIGIBLE":
+        return "ineligible"
+    if status == "SKIPPED":
+        return "skipped"
+    if status == "FAILED":
+        return "failed"
+    return None
 
 
 def _run_jobs_in_process_waves(
@@ -163,12 +193,23 @@ def _run_jobs_in_process_waves(
             try:
                 status, payload = q.get_nowait()
             except Exception:
-                outcomes.append("failed")
-                print(
-                    f"no result queue for {job.product} @ {job.origin} "
-                    f"seed={job.seed} exitcode={proc.exitcode}",
-                    flush=True,
-                )
+                # Queue often empty on Windows after os._exit despite SUCCESS.
+                recovered = _outcome_from_state(config, job)
+                if recovered is not None and int(proc.exitcode or 1) == 0:
+                    outcomes.append(recovered)
+                    print(
+                        f"recovered outcome={recovered} from state for "
+                        f"{job.product} @ {job.origin} seed={job.seed} "
+                        f"(empty result queue, exitcode={proc.exitcode})",
+                        flush=True,
+                    )
+                else:
+                    outcomes.append("failed")
+                    print(
+                        f"no result queue for {job.product} @ {job.origin} "
+                        f"seed={job.seed} exitcode={proc.exitcode}",
+                        flush=True,
+                    )
                 continue
             if status == "ok":
                 outcomes.append(str(payload))

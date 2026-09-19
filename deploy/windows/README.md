@@ -36,8 +36,8 @@ If the laptop `sales.parquet` is missing, pull benchmarks from minos (`/opt/app/
 
 ### 2. Install Miniconda (if needed)
 
-- Download: https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe  
-- Install for **All Users** or current user; tick **Add to PATH** (or use the Anaconda Prompt).  
+- Download: https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe
+- Install for **All Users** or current user; tick **Add to PATH** (or use the Anaconda Prompt).
 - Open a **new** PowerShell after install.
 
 ### 3. Create the env + verify
