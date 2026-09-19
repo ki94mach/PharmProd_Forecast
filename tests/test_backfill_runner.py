@@ -471,6 +471,30 @@ class TestStartupReport(unittest.TestCase):
             self.assertEqual(plan.total_jobs, 4)
             self.assertEqual(plan.remaining, 4)
 
+    def test_job_identity_slug_includes_origin(self):
+        """Same-quarter origins must not share an artifact directory."""
+        a = JobIdentity(
+            experiment_id="e",
+            engine_version="a0",
+            config_hash="h",
+            quarter="1404Q1",
+            forecast_origin=140401,
+            product_id="Recigen AutoInjector__seed41",
+        )
+        b = JobIdentity(
+            experiment_id="e",
+            engine_version="a0",
+            config_hash="h",
+            quarter="1404Q1",
+            forecast_origin=140402,
+            product_id="Recigen AutoInjector__seed41",
+        )
+        self.assertNotEqual(a.slug, b.slug)
+        self.assertIn("140401", a.slug)
+        self.assertIn("140402", b.slug)
+        self.assertTrue(a.slug.startswith("1404Q1__140401__"))
+        self.assertTrue(b.slug.startswith("1404Q1__140402__"))
+
 
 if __name__ == "__main__":
     unittest.main()

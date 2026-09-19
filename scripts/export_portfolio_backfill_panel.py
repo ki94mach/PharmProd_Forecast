@@ -77,7 +77,12 @@ def assemble_success_panel(run_dir: Path, *, engine: Optional[str] = None) -> pd
 
             q = quarter_from_origin(int(origin))
             safe = product_id.replace("/", "_").replace("\\", "_")
-            cand = jobs_root / eng / f"{q}__{safe}"
+            # Prefer origin-qualified slug; fall back to legacy quarter__product.
+            cand = jobs_root / eng / f"{q}__{int(origin)}__{safe}"
+            if not (cand / "forecast.csv").is_file():
+                legacy = jobs_root / eng / f"{q}__{safe}"
+                if (legacy / "forecast.csv").is_file():
+                    cand = legacy
         fc = cand / "forecast.csv" if cand else None
         if fc is None or not fc.is_file():
             continue

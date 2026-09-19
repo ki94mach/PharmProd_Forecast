@@ -119,9 +119,10 @@ def _lookup_source_output(
 
         q = quarter_from_origin(int(origin))
         safe = product_id.replace("/", "_").replace("\\", "_")
-        cand = rel_jobs / f"{q}__{safe}"
-        if (cand / "forecast.csv").is_file():
-            return cand
+        for name in (f"{q}__{int(origin)}__{safe}", f"{q}__{safe}"):
+            cand = rel_jobs / name
+            if (cand / "forecast.csv").is_file():
+                return cand
     return path if path.exists() else None
 
 

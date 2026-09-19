@@ -188,8 +188,43 @@ def verify_run(*, run_id: str, engine: str, expect_pending_ok: bool = False) -> 
         }
 
     if not panel.empty:
-        for (product, origin), g in panel.groupby(["product", "forecast_origin"]):
-            errors.extend(_check_forecast_frame(g, str(product), int(origin)))
+        group_cols = ["product", "forecast_origin"]
+        if "seed" in panel.columns and panel["seed"].notna().any():
+            group_cols = ["product", "forecast_origin", "seed"]
+        for key, g in panel.groupby(group_cols):
+            if len(group_cols) == 3:
+                product, origin, seed = key
+                label = f"{product}@{origin} seed={seed}"
+            else:
+                product, origin = key
+                label = f"{product}@{origin}"
+            # Reuse checker; rewrite product label into messages via wrapper
+            frame_errs = _check_forecast_frame(g, str(product), int(origin))
+            if len(group_cols) == 3:
+                frame_errs = [
+                    e.replace(f"{product}@{origin}", label) for e in frame_errs
+                ]
+            errors.extend(frame_errs)
+
+        # CSV forecast_origin must match job origin (catches path-collision overwrites)
+        if "forecast_origin" in panel.columns:
+            for _, row in panel.drop_duplicates(
+                subset=[c for c in ("product", "forecast_origin", "seed", "artifact_path") if c in panel.columns]
+            ).iterrows():
+                # already stamped by exporter from sqlite; check raw file if present
+                art = Path(str(row.get("artifact_path") or ""))
+                if not art.is_file():
+                    continue
+                raw = pd.read_csv(art)
+                if "forecast_origin" not in raw.columns:
+                    continue
+                origins = set(int(x) for x in pd.to_numeric(raw["forecast_origin"], errors="coerce").dropna())
+                job_o = int(row["forecast_origin"])
+                if origins != {job_o}:
+                    errors.append(
+                        f"{row['product']}@{job_o}: artifact forecast_origin={origins} "
+                        f"(path collision / overwrite?)"
+                    )
 
     if engine.lower() == "a0" and n_success:
         # All three seeds for each case that has any SUCCESS

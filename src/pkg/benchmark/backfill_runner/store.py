@@ -6,12 +6,12 @@ Layout (isolated from production forecast CSVs)::
         manifest.json
         state.sqlite
         run.lock
-        forecasts/{quarter}__{product}/
+        forecasts/{quarter}__{origin}__{product}/
             forecast.csv
             result.json
             .complete
-        backtests/{quarter}__{product}/   # optional selection/CV summaries
-        logs/{quarter}__{product}/
+        backtests/{quarter}__{origin}__{product}/   # optional selection/CV summaries
+        logs/{quarter}__{origin}__{product}/
             job_log.json
             failure.json
         logs/run_meta.json

@@ -65,7 +65,8 @@ class JobKey:
 
     @property
     def slug(self) -> str:
-        return f"{self.quarter}__{self.product}"
+        safe = str(self.product).replace("/", "_").replace("\\", "_")
+        return f"{self.quarter}__{int(self.forecast_origin)}__{safe}"
 
 
 @dataclass

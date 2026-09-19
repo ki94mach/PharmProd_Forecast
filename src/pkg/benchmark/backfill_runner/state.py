@@ -124,8 +124,14 @@ class JobIdentity:
 
     @property
     def slug(self) -> str:
+        """Filesystem slug unique per origin (not merely per quarter).
+
+        Must include ``forecast_origin``: multiple locked origins can share a
+        Shamsi quarter (e.g. 140401 and 140402 → 1404Q1). Omitting origin
+        caused forecast_jobs to overwrite sibling artifacts.
+        """
         safe = self.product_id.replace("/", "_").replace("\\", "_")
-        return f"{self.quarter}__{safe}"
+        return f"{self.quarter}__{int(self.forecast_origin)}__{safe}"
 
 
 @dataclass
