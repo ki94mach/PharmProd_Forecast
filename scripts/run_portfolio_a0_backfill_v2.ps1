@@ -21,12 +21,13 @@ $env:NUMEXPR_NUM_THREADS = "1"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $launcher = Join-Path $here "run_forecast_jobs.ps1"
 
-$argsList = @("-Config", $Config)
-if ($Validate) { $argsList += "-Validate" }
-if ($DryRun) { $argsList += "-DryRun" }
-if ($Status) { $argsList += "-Status" }
-if ($Execute) { $argsList += "-Execute" }
-if ($Resume) { $argsList += "-Resume" }
+# Hashtable splat so -Execute binds as a switch, not as ForecastRoot.
+$params = @{ Config = $Config }
+if ($Validate) { $params['Validate'] = $true }
+if ($DryRun) { $params['DryRun'] = $true }
+if ($Status) { $params['Status'] = $true }
+if ($Execute) { $params['Execute'] = $true }
+if ($Resume) { $params['Resume'] = $true }
 
-& $launcher @argsList
+& $launcher @params
 exit $LASTEXITCODE
