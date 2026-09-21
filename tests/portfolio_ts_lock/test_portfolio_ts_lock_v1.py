@@ -140,11 +140,12 @@ def test_freeze_requires_both_panel_lifts():
         p95_v2=1.0,
         horizon_group_lifts={n: 0.5 for n, _ in HORIZON_GROUPS},
         unexplained_a0_defect=False,
+        pooled_deployable_lift_wmape=1.0,
     )
     assert rec["frozen_policy"] == "V2_POLICY"
     assert rec["gates"]["lift_common_native_positive"] is False
 
-    # both positive + all gates → hybrid
+    # both positive + pooled not worse → hybrid
     rec2 = make_recommendation(
         lift_deployable_wmape=1.0,
         lift_common_native_wmape=0.5,
@@ -157,8 +158,30 @@ def test_freeze_requires_both_panel_lifts():
         p95_v2=1.0,
         horizon_group_lifts={n: 0.5 for n, _ in HORIZON_GROUPS},
         unexplained_a0_defect=False,
+        pooled_deployable_lift_wmape=0.2,
     )
     assert rec2["frozen_policy"] == "A0_HYBRID_POLICY"
+
+    # unseen pass but pooled worse with 55 volume dominance → IE
+    rec3 = make_recommendation(
+        lift_deployable_wmape=1.0,
+        lift_common_native_wmape=0.5,
+        wins=wins,
+        bootstrap_frac_positive=0.95,
+        drop_top3_lift_positive=True,
+        rmse_hybrid=1.0,
+        rmse_v2=1.0,
+        p95_hybrid=1.0,
+        p95_v2=1.0,
+        horizon_group_lifts={n: 0.5 for n, _ in HORIZON_GROUPS},
+        unexplained_a0_defect=False,
+        pooled_deployable_lift_wmape=-1.0,
+        original55_volume_share=0.7,
+        original55_ae_reduction=-1e6,
+        unseen_ae_reduction=1e5,
+    )
+    assert rec3["choice"] == "INSUFFICIENT_EVIDENCE"
+    assert rec3["frozen_policy"] is None
 
 
 def test_horizon_groups_are_fixed():

@@ -58,6 +58,11 @@ from pkg.portfolio_ts_lock.dense_actuals import (  # noqa: E402
     assert_exported_actual_agreement,
     build_dense_actuals,
 )
+from pkg.portfolio_ts_lock.decomposition import (  # noqa: E402
+    build_impact_report,
+    residual_only,
+    resolve_naive_deployable_partials,
+)
 from pkg.portfolio_ts_lock.freeze import (  # noqa: E402
     horizon_group_wmape_lifts,
     make_recommendation,
@@ -228,6 +233,31 @@ def run_audit_and_eval(
         dense=dense,
         completeness_status=status,
     )
+
+    # Resolve partial POs into naive deployable when legitimate; never into common-native
+    naive_extra, no_forecast = resolve_naive_deployable_partials(
+        partial=partial, dense=dense
+    )
+    if not naive_extra.empty:
+        deployable = pd.concat([deployable, naive_extra], ignore_index=True)
+        # refresh fallback category counts
+        rows = []
+        for cat, g in deployable.groupby("fallback_category"):
+            n_po = int(g.groupby(["product", "forecast_origin"]).ngroups)
+            rows.append(
+                {
+                    "fallback_category": cat,
+                    "n_rows": int(len(g)),
+                    "n_product_origins": n_po,
+                    "n_product_origins_x_15": n_po * 15,
+                    "reconciled": int(len(g)) == n_po * 15,
+                }
+            )
+        cat_counts = pd.DataFrame(rows)
+    if not no_forecast.empty:
+        no_forecast.to_csv(out_dir / "no_forecast_available_product_origins.csv", index=False)
+    naive_extra.to_csv(out_dir / "resolved_naive_from_partials.csv", index=False)
+
     cat_counts.to_csv(out_dir / "audit_fallback_categories.csv", index=False)
     partial.to_csv(out_dir / "partial_product_origins_excluded.csv", index=False)
     common.to_parquet(out_dir / "policy_panel_common_native.parquet", index=False)
@@ -332,6 +362,39 @@ def run_audit_and_eval(
         or not v21_dense.get("dense_coverage_ok", True)
     )
 
+    impact = build_impact_report(deployable=deployable, common=common)
+    # Persist decomposition tables
+    impact["cohort_deployable"].to_csv(
+        out_dir / "impact_cohort_deployable_residual.csv", index=False
+    )
+    impact["cohort_common_native"].to_csv(
+        out_dir / "impact_cohort_common_native_residual.csv", index=False
+    )
+    dive = impact["original55_dive"]
+    if isinstance(dive.get("by_origin"), pd.DataFrame):
+        dive["by_origin"].to_csv(
+            out_dir / "impact_original55_by_origin.csv", index=False
+        )
+    if isinstance(dive.get("top10_regressing_products"), pd.DataFrame):
+        dive["top10_regressing_products"].to_csv(
+            out_dir / "impact_original55_top10_regressors.csv", index=False
+        )
+
+    cohort_dep = impact["cohort_deployable"]
+    share_55 = None
+    ae_red_55 = None
+    ae_red_unseen = None
+    if not cohort_dep.empty:
+        row55 = cohort_dep.loc[cohort_dep["cohort"] == "original_55"]
+        row_u = cohort_dep.loc[cohort_dep["cohort"] == "previously_unseen"]
+        if not row55.empty:
+            share_55 = float(row55["share_of_portfolio_actual_volume"].iloc[0])
+            ae_red_55 = float(row55["ae_reduction_v2_minus_hybrid"].iloc[0])
+        if not row_u.empty:
+            ae_red_unseen = float(row_u["ae_reduction_v2_minus_hybrid"].iloc[0])
+
+    pooled_lift = float(impact["pooled"]["deployable_residual"]["lift_wmape_pp"])
+
     rec = make_recommendation(
         lift_deployable_wmape=lift_d,
         lift_common_native_wmape=lift_n,
@@ -344,6 +407,46 @@ def run_audit_and_eval(
         p95_v2=float(s_v2_d["p95_ae"]),
         horizon_group_lifts=hz_lifts,
         unexplained_a0_defect=unexplained,
+        pooled_deployable_lift_wmape=pooled_lift,
+        original55_volume_share=share_55,
+        original55_ae_reduction=ae_red_55,
+        unseen_ae_reduction=ae_red_unseen,
+    )
+
+    # Serialize impact without raw DataFrames
+    impact_json = {
+        "pooled": impact["pooled"],
+        "cohort_deployable": cohort_dep.to_dict(orient="records"),
+        "cohort_common_native": impact["cohort_common_native"].to_dict(
+            orient="records"
+        ),
+        "original55_dive": {
+            "drop_top3": dive.get("drop_top3"),
+            "n_products": dive.get("n_products"),
+            "n_regressing_products": dive.get("n_regressing_products"),
+            "top3_share_of_negative_ae_reduction": dive.get(
+                "top3_share_of_negative_ae_reduction"
+            ),
+            "loss_pattern": dive.get("loss_pattern"),
+            "by_origin": dive["by_origin"].to_dict(orient="records")
+            if isinstance(dive.get("by_origin"), pd.DataFrame)
+            else [],
+            "top10_regressing_products": dive["top10_regressing_products"].to_dict(
+                orient="records"
+            )
+            if isinstance(dive.get("top10_regressing_products"), pd.DataFrame)
+            else [],
+        },
+        "resolved_naive_partial_po": int(
+            naive_extra.groupby(["product", "forecast_origin"]).ngroups
+        )
+        if not naive_extra.empty
+        else 0,
+        "no_forecast_available_po": int(len(no_forecast)),
+        "hb_unopened": True,
+    }
+    (out_dir / "impact_decomposition_residual.json").write_text(
+        json.dumps(impact_json, indent=2, default=str) + "\n", encoding="utf-8"
     )
 
     metrics = {
@@ -364,6 +467,7 @@ def run_audit_and_eval(
         "horizon_group_lifts": hz_lifts,
         "recommendation_provisional": rec,
         "reconcile": reconcile,
+        "impact_decomposition_residual": impact_json,
     }
     (out_dir / "metrics_primary.json").write_text(
         json.dumps(metrics, indent=2, default=str) + "\n", encoding="utf-8"
@@ -423,10 +527,16 @@ def run_audit_and_eval(
         "recommendation": rec,
         "lift_deployable_wmape_pp": lift_d,
         "lift_common_native_wmape_pp": lift_n,
+        "pooled_deployable_lift_wmape_pp": pooled_lift,
         "wins": wins,
         "bootstrap_frac_positive": boot["frac_positive"],
         "drop_top3": drop3,
         "horizon_group_lifts": hz_lifts,
+        "impact_pooled": impact["pooled"],
+        "cohort_deployable": cohort_dep.to_dict(orient="records"),
+        "original55_loss_pattern": dive.get("loss_pattern"),
+        "resolved_naive_partial_po": impact_json["resolved_naive_partial_po"],
+        "no_forecast_available_po": impact_json["no_forecast_available_po"],
         "reconcile": reconcile,
     }
 

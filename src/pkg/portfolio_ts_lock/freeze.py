@@ -90,8 +90,16 @@ def make_recommendation(
     p95_v2: float,
     horizon_group_lifts: dict[str, float],
     unexplained_a0_defect: bool,
+    pooled_deployable_lift_wmape: float | None = None,
+    original55_volume_share: float | None = None,
+    original55_ae_reduction: float | None = None,
+    unseen_ae_reduction: float | None = None,
 ) -> dict[str, Any]:
-    """Freeze hybrid only if all strengthened gates pass; else V2; IE only for defects."""
+    """Freeze hybrid only if unseen primary gates pass and pooled deployable not worse.
+
+    If primary (unseen) wins but pooled is worse because original_55 dominate volume,
+    return INSUFFICIENT_EVIDENCE for a single universal policy (no cohort-named rule).
+    """
     bullets: list[str] = []
 
     if unexplained_a0_defect:
@@ -125,28 +133,76 @@ def make_recommendation(
             (np.isnan(v) or v >= -2.0) for v in horizon_group_lifts.values()
         ),
     }
-    bullets.append(f"Deployable primary WMAPE lift (V2−hybrid) = {lift_deployable_wmape:+.4g} pp.")
-    bullets.append(
-        f"Common-native primary WMAPE lift (V2−hybrid) = {lift_common_native_wmape:+.4g} pp."
+    unseen_gates_pass = all(gates.values())
+    pooled = (
+        float(pooled_deployable_lift_wmape)
+        if pooled_deployable_lift_wmape is not None
+        else float("nan")
     )
+    gates["pooled_deployable_not_worse"] = bool(np.isnan(pooled) or pooled >= 0)
+
+    bullets.append(
+        f"Unseen primary deployable WMAPE lift (V2−hybrid) = {lift_deployable_wmape:+.4g} pp."
+    )
+    bullets.append(
+        f"Unseen primary common-native WMAPE lift (V2−hybrid) = {lift_common_native_wmape:+.4g} pp."
+    )
+    bullets.append(f"Pooled residual deployable WMAPE lift = {pooled:+.4g} pp.")
     bullets.append(
         f"SKU×origin wins hybrid/v2/ties = {wins.get('hybrid_wins')}/"
         f"{wins.get('v2_wins')}/{wins.get('ties')}."
     )
     bullets.append(f"Bootstrap P(lift>0) = {bootstrap_frac_positive:.2%}.")
     bullets.append(f"Drop-top-3 lift positive = {drop_top3_lift_positive}.")
-    bullets.append(f"Gates: {gates}")
+    if original55_volume_share is not None:
+        bullets.append(
+            f"Original-55 share of residual deployable |actual| volume = "
+            f"{float(original55_volume_share):.2%}."
+        )
+    bullets.append(f"Unseen gates: {gates}")
 
-    if all(gates.values()):
+    conflict_55 = (
+        unseen_gates_pass
+        and pooled < 0
+        and original55_volume_share is not None
+        and float(original55_volume_share) >= 0.50
+        and original55_ae_reduction is not None
+        and unseen_ae_reduction is not None
+        and float(original55_ae_reduction) < 0
+        and float(unseen_ae_reduction) > 0
+    )
+
+    if unseen_gates_pass and gates["pooled_deployable_not_worse"]:
         choice = CHOICE_HYBRID
         frozen = POLICY_HYBRID
-        bullets.append("All strengthened gates passed → freeze A0_HYBRID_POLICY.")
+        bullets.append(
+            "Unseen primary gates passed and pooled deployable WMAPE not worse "
+            "→ freeze A0_HYBRID_POLICY."
+        )
+    elif conflict_55:
+        choice = CHOICE_INSUFFICIENT
+        frozen = None
+        bullets.append(
+            "Unseen primary favors hybrid but pooled residual deployable is worse, "
+            "driven by original_55 volume dominance with negative AE reduction while "
+            "unseen gains — no cohort-named production rule; "
+            "INSUFFICIENT_EVIDENCE for a single universal TS policy."
+        )
+    elif unseen_gates_pass and pooled < 0:
+        choice = CHOICE_V2
+        frozen = POLICY_V2
+        bullets.append(
+            "Unseen primary gates passed but pooled residual deployable WMAPE is worse "
+            "→ conservative global freeze V2_POLICY."
+        )
     else:
         choice = CHOICE_V2
         frozen = POLICY_V2
-        failed = [k for k, v in gates.items() if not v]
+        failed = [k for k, v in gates.items() if not v and k != "pooled_deployable_not_worse"]
         bullets.append(
-            "Hybrid gates failed (" + ", ".join(failed) + ") → freeze V2_POLICY."
+            "Unseen hybrid gates failed ("
+            + ", ".join(failed)
+            + ") → freeze V2_POLICY."
         )
 
     return {
@@ -154,8 +210,11 @@ def make_recommendation(
         "frozen_policy": frozen,
         "rationale_bullets": bullets,
         "gates": gates,
+        "unseen_gates_pass": unseen_gates_pass,
+        "pooled_deployable_lift_wmape_pp": pooled,
         "lift_deployable_wmape_pp": float(lift_deployable_wmape),
         "lift_common_native_wmape_pp": float(lift_common_native_wmape),
+        "conflict_original55_volume": bool(conflict_55),
     }
 
 
