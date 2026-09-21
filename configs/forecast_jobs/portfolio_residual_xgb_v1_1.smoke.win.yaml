@@ -1,0 +1,26 @@
+# Residual-XGBoost v1.1 SMOKE — origin 140107 only. outer_workers=1.
+# Cursor: validate / dry-run only. VPS may --execute.
+schema_version: residual_xgb_v1_1
+run:
+  run_id: portfolio_residual_xgb_v1_1_smoke
+  output_dir: src/data/results/portfolio_residual_xgb_v1
+origins:
+  - 140107
+methods:
+  - FROZEN_TS
+  - TS_PLUS_TRAIN_MEDIAN_RESIDUAL_CORRECTION
+  - TS_PLUS_RESIDUAL_XGB
+HUMAN_XGB: BLOCKED_NO_DEVELOPMENT_VINTAGES
+hb_outcomes_inspected: false
+deterministic_seed: 42
+execution:
+  outer_workers: 1
+  resume: true
+  note: XGBoost uses n_jobs=-1; keep outer_workers=1 to avoid oversubscription.
+sales:
+  path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
+sources:
+  v21_export: src/data/results/product_universe/portfolio_v21_backfill_v2_export
+  a0_export: src/data/results/product_universe/portfolio_a0_backfill_v2_export
+  residual_contract: src/data/results/portfolio_residual_xgb_v1/residual_study_contract_v1_1.json
+  promotion_gates: src/data/results/portfolio_residual_xgb_v1/residual_promotion_gates_v1.json

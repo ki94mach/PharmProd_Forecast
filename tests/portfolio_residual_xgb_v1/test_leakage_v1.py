@@ -24,7 +24,6 @@ from pkg.research.portfolio_residual_xgb_v1.pit_features import (
     TS_RESID_FEATURE_LIST,
     assert_all_features_have_pit_rules,
     filter_train_rows_pit,
-    row_max_feature_as_of,
 )
 from pkg.research.portfolio_residual_xgb_v1.prepare import (
     audit_hb_availability_budget_origins_only,
@@ -43,26 +42,23 @@ def test_every_clean_quant_feature_has_pit_rule():
 
 
 def test_pit_filter_enforces_all_three_predicates():
-    # O=140107 → O-2=140105
+    # O=140107 → O-2=140105; sales last_complete = Fo-2
     o = 140107
     o2 = shamsi_add_months(o, -2)
     frame = pd.DataFrame(
         [
-            # valid: Fo < O, td <= O-2
             {
                 "product": "P",
                 "forecast_origin": 140104,
                 "target_date": 140104,
                 "horizon": 1,
             },
-            # bad: Fo >= O
             {
                 "product": "P",
                 "forecast_origin": 140107,
                 "target_date": 140105,
                 "horizon": 1,
             },
-            # bad: td > O-2
             {
                 "product": "P",
                 "forecast_origin": 140104,
@@ -75,7 +71,9 @@ def test_pit_filter_enforces_all_three_predicates():
     assert len(kept) == 1
     assert int(kept.iloc[0]["forecast_origin"]) == 140104
     assert int(kept.iloc[0]["target_date"]) <= o2
-    assert row_max_feature_as_of(kept.iloc[0]) <= o2
+    from pkg.research.portfolio_residual_xgb_v1.pit_features import last_complete_month
+
+    assert last_complete_month(int(kept.iloc[0]["forecast_origin"])) <= o2
 
 
 def test_no_random_split_path_in_classify():

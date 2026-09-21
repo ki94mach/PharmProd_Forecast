@@ -10,6 +10,13 @@ from pkg.portfolio_ts_lock.constants import (
 
 FAMILY = "portfolio_residual_xgb_v1"
 CONTRACT_VERSION = "residual_study_contract_v1"
+CONTRACT_VERSION_V1_1 = "residual_study_contract_v1_1"
+
+METHOD_FROZEN_TS = "FROZEN_TS"
+METHOD_MEDIAN = "TS_PLUS_TRAIN_MEDIAN_RESIDUAL_CORRECTION"
+METHOD_XGB = "TS_PLUS_RESIDUAL_XGB"
+
+DETERMINISTIC_SEED = 42
 
 MIN_PRIOR_MATURED_ORIGINS = 2
 MIN_TRAIN_ROWS = 500
