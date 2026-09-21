@@ -440,6 +440,7 @@ def build_reliability_label_contract_review(
             "rmse_ratio",
             "p95_ae_ratio",
             "p99_ae_ratio",
+            "max_ae_ratio",
             "sku_cluster_bootstrap",
             "drop_top_k_machine_advantage",
             "wmape_denominator_must_be_valid",
@@ -605,9 +606,53 @@ def build_reliability_label_contract_review(
                         "approve a map segment_id -> sku_group_machine_wmape_ceiling_pct "
                         "instead of a single global SKU×group ceiling."
                     ),
-                    "default_if_segment_missing": "INSUFFICIENT_EVIDENCE_or_block_MACHINE_RELIABLE",
+                    "must_define_before_opening_outcomes": True,
+                    "segment_assignment": {
+                        "required_if_map_used": True,
+                        "definition_required": (
+                            "Planning must define how each SKU maps to a segment_id "
+                            "before any HB outcomes are opened."
+                        ),
+                        "assignment_artifact": None,
+                        "stability": (
+                            "Segment assignment must be frozen and deterministic; "
+                            "no post-hoc reassignment that uses outcomes."
+                        ),
+                    },
+                    "ceiling_precedence": [
+                        (
+                            "If a segment-specific map is approved and the SKU has an "
+                            "assigned segment with a ceiling in the map → use that "
+                            "segment ceiling"
+                        ),
+                        (
+                            "Else if global sku_group_machine_wmape_ceiling_pct is "
+                            "approved → use the global ceiling"
+                        ),
+                        (
+                            "Else → no absolute SKU×group ceiling is available for "
+                            "that SKU×group"
+                        ),
+                    ],
+                    "missing_segment_behavior": {
+                        "when_sku_unassigned_or_segment_absent_from_map": (
+                            "Do not invent a ceiling. MACHINE_RELIABLE is blocked. "
+                            "Label INSUFFICIENT_EVIDENCE if treated as non-computable "
+                            "absolute gate; otherwise HUMAN_REVIEW_REQUIRED when "
+                            "n_complete_origins >= 2."
+                        ),
+                        "MACHINE_NONINFERIOR_TO_HUMAN": (
+                            "Only if allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling"
+                            "=true AND relative rules pass; else do not use MNIH."
+                        ),
+                    },
                     "proposed_map": None,
-                    "status": "PROPOSED_FOR_APPROVAL_OPTIONAL_BY_PLANNING",
+                    "status": "REQUIRES_PLANNING_DEFINITION_BEFORE_OUTCOMES",
+                    "note": (
+                        "If Planning chooses segment-specific ceilings, define the "
+                        "segment assignment, ceiling precedence, and missing-segment "
+                        "behavior before opening outcomes."
+                    ),
                 },
             },
             "min_complete_origins_per_group": {
@@ -660,8 +705,9 @@ def build_reliability_label_contract_review(
                 "value": True,
                 "unit": "boolean",
                 "definition": (
-                    "For any group WMAPE used in labeling: Σ|actual| must be finite and > 0. "
-                    "If denominator invalid → INSUFFICIENT_EVIDENCE for that SKU×group."
+                    "For any group WMAPE used in labeling: valid_wmape_denominator := "
+                    "sum(abs(actual)) > 1e-9 (finite). Invalid if Σ|actual| <= 1e-9 or "
+                    "non-finite → INSUFFICIENT_EVIDENCE for that SKU×group."
                 ),
                 "status": "PROPOSED_FOR_APPROVAL",
             },
@@ -673,7 +719,7 @@ def build_reliability_label_contract_review(
                     "label": "INSUFFICIENT_EVIDENCE",
                 },
                 {
-                    "when": "wmape_denominator_invalid (Σ|actual| <= 0 or non-finite)",
+                    "when": "wmape_denominator_invalid (Σ|actual| <= 1e-9 or non-finite)",
                     "label": "INSUFFICIENT_EVIDENCE",
                 },
                 {
@@ -690,9 +736,26 @@ def build_reliability_label_contract_review(
                         "AND portfolio_activation_gate_passed "
                         "AND deployable_branch != neither_naive "
                         "AND Planning has approved absolute SKU×group ceiling "
-                        "(global or segment-specific)"
+                        "(global or segment-specific per ceiling_precedence)"
                     ),
                     "label": "MACHINE_RELIABLE",
+                },
+                {
+                    "when": (
+                        "allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling=true "
+                        "AND n_complete_origins_in_group >= 3 "
+                        "AND wmape_denominator_valid "
+                        "AND WMAPE(machine)-WMAPE(human) <= 2.0 pp "
+                        "AND n_origins_noninferior >= ceil(0.75 * n_complete_origins) "
+                        "AND portfolio_activation_gate_passed "
+                        "AND deployable_branch != neither_naive "
+                        "AND sku_group absolute ceiling unavailable"
+                    ),
+                    "label": "MACHINE_NONINFERIOR_TO_HUMAN",
+                    "switch_default": False,
+                    "note": (
+                        "Canonical ordered branch even though the switch defaults to false."
+                    ),
                 },
                 {
                     "when": "otherwise (including neither_naive, failed absolute/relative gates)",
@@ -700,14 +763,15 @@ def build_reliability_label_contract_review(
                 },
             ],
             "label_naming_contingency": {
+                "allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling": False,
                 "if_sku_group_absolute_ceiling_cannot_be_supplied": (
-                    "Do not use MACHINE_RELIABLE. Scientifically accurate label is "
-                    "MACHINE_NONINFERIOR_TO_HUMAN for groups that pass relative "
-                    "non-inferiority + origin-count/stability rules only."
-                )
+                    "Do not use MACHINE_RELIABLE unless an absolute ceiling is approved. "
+                    "MACHINE_NONINFERIOR_TO_HUMAN applies only when "
+                    "allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling=true and "
+                    "relative non-inferiority + origin-count/stability rules pass."
+                ),
             },
-        },
-        "sku_validity_range": {
+        },        "sku_validity_range": {
             "definition": (
                 "Longest contiguous MACHINE_RELIABLE prefix of validity groups "
                 "starting at h1_3 (then h4_6, h7_12, h13_15). Human review required "
@@ -777,7 +841,8 @@ def build_reliability_label_contract_review(
         "INSUFFICIENT_EVIDENCE": {
             "meaning": (
                 "Fewer than 2 complete origins in the group, incomplete/missing group "
-                "coverage, invalid WMAPE denominator (Σ|actual|<=0), or non-computable metrics."
+                "coverage, invalid WMAPE denominator (Σ|actual| <= 1e-9 or non-finite), "
+                "or non-computable metrics."
             ),
         },
     }
@@ -789,7 +854,9 @@ def build_reliability_label_contract_review(
         "owner": "Planning",
         "note": (
             "Both portfolio and SKU×group absolute ceilings must be approved to retain "
-            "MACHINE_RELIABLE. Portfolio ceiling stays separate from SKU×group ceiling."
+            "MACHINE_RELIABLE. Portfolio ceiling stays separate from SKU×group ceiling. "
+            "If Planning chooses segment-specific ceilings, define segment assignment, "
+            "ceiling precedence, and missing-segment behavior before opening outcomes."
         ),
     }
 
