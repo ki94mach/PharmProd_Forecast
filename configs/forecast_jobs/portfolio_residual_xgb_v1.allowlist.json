@@ -1,0 +1,7 @@
+{
+  "run_id": "portfolio_residual_xgb_v1_prepare",
+  "note": "Prepare/validate/dry-run only. Do not execute. HUMAN_XGB blocked.",
+  "human_xgb": "BLOCKED_NO_DEVELOPMENT_VINTAGES",
+  "executable_residual_xgb_via_forecast_jobs": false,
+  "allowlist": []
+}

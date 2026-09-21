@@ -1,0 +1,58 @@
+# Prepare-only companion config for portfolio_residual_xgb_v1.
+# Validates sales pin + job planning against residual_development origins.
+# Do NOT --execute. Residual XGB training is outside forecast_jobs;
+# HUMAN_XGB is BLOCKED_NO_DEVELOPMENT_VINTAGES (zero jobs).
+schema_version: '1'
+run:
+  run_id: portfolio_residual_xgb_v1_prepare
+  output_dir: src/data/forecast_jobs
+cohort:
+  products:
+  - Recigen AutoInjector
+  - Cinnapoietin 4000
+  - OvuGen
+  - Canvert Fade
+  - Altebrel 25
+origins:
+  # residual_development only — never HB (140304/07/10/12) or post-HB (140401/140402)
+  - 140101
+  - 140104
+  - 140107
+  - 140110
+  - 140201
+  - 140204
+  - 140207
+  - 140210
+  - 140301
+architectures:
+  - v2.1
+seeds: []
+horizon: 15
+cutoff_policy:
+  name: production
+fallback:
+  policy: naive_last_value
+  version: v1
+sales:
+  path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
+  read_only: true
+  schema:
+    columns:
+      - product
+      - date
+      - sales
+    dtypes:
+      product: string
+      date: int64
+      sales: float64
+  expected:
+    content_sha256: b67382d451974271c209f3c371219505cfa3fe45e3ad43d9769a93dfc5f1cfcc
+    n_rows: 22041
+    size_bytes: 86185
+    mtime_ns: null
+execution:
+  resume: true
+  retry_failed: false
+  force_job: false
+  workers: 1
+  pool: threads
