@@ -21,8 +21,9 @@ smoke_acceptance:
   sales_feature_date_max: 140105
 execution:
   outer_workers: 1
+  xgb_n_jobs: -1
   resume: true
-  note: XGBoost uses n_jobs=-1; keep outer_workers=1 to avoid oversubscription.
+  note: Smoke keeps outer_workers=1; XGB may use all cores for the single fit (n_jobs=-1).
 sales:
   path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
 sources:

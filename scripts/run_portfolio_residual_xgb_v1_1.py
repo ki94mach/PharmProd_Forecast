@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -45,6 +46,16 @@ def _assert_origins_safe(origins: list[int]) -> None:
         raise SystemExit(f"HARD-FAIL: HB/post-HB origins in config: {bad}")
 
 
+def _exec_settings(cfg: dict) -> tuple[int, int | None]:
+    ex = cfg.get("execution") or {}
+    outer = int(ex.get("outer_workers", 1))
+    raw = ex.get("xgb_n_jobs", None)
+    xgb_n = int(raw) if raw is not None else None
+    if outer < 1:
+        raise SystemExit("execution.outer_workers must be >= 1")
+    return outer, xgb_n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", type=Path, required=True)
@@ -79,6 +90,7 @@ def main() -> int:
     )
     is_smoke = run_id == SMOKE_RUN_ID or origins == [140107]
     is_full = "full" in run_id or len(origins) > 1
+    outer_workers, xgb_n_jobs = _exec_settings(cfg)
 
     if args.action == "validate":
         print(
@@ -87,7 +99,8 @@ def main() -> int:
                     "ok": True,
                     "run_id": run_id,
                     "origins": origins,
-                    "outer_workers": cfg.get("execution", {}).get("outer_workers", 1),
+                    "outer_workers": outer_workers,
+                    "xgb_n_jobs": xgb_n_jobs,
                     "HUMAN_XGB": HUMAN_XGB_STATUS,
                     "hb_outcomes_inspected": False,
                     "methods": cfg.get("methods"),
@@ -107,6 +120,8 @@ def main() -> int:
                     "planned_origin_jobs": len(origins),
                     "planned_xgb_fits": len(origins),
                     "origins": origins,
+                    "outer_workers": outer_workers,
+                    "xgb_n_jobs": xgb_n_jobs,
                     "would_execute": False,
                     "full_blocked_until_smoke_acceptance": bool(is_full),
                 },
@@ -136,6 +151,8 @@ def main() -> int:
                     "n_planned": len(origins),
                     "done_files": [p.name for p in done],
                     "smoke_acceptance_present": smoke_ok,
+                    "outer_workers": outer_workers,
+                    "xgb_n_jobs": xgb_n_jobs,
                 },
                 indent=2,
             )
@@ -152,16 +169,40 @@ def main() -> int:
         residual, sales_df = _load_residual_panel(
             sales_path=sales, v21_export=v21, a0_export=a0
         )
-        for o in origins:
+        resume = bool(cfg.get("execution", {}).get("resume", True))
+        print(
+            json.dumps(
+                {
+                    "execute": True,
+                    "outer_workers": outer_workers,
+                    "xgb_n_jobs": xgb_n_jobs,
+                    "n_origins": len(origins),
+                }
+            )
+        )
+
+        def _one(o: int) -> tuple[int, str]:
             path = run_oof_origin(
                 residual_panel=residual,
                 sales=sales_df,
                 evaluation_origin=int(o),
                 out_dir=run_dir,
-                resume=bool(cfg.get("execution", {}).get("resume", True)),
+                resume=resume,
+                xgb_n_jobs=xgb_n_jobs,
             )
-            print(f"origin={o} wrote={path}")
-        # After smoke execute, remind acceptance is required next
+            return int(o), str(path)
+
+        if outer_workers <= 1 or len(origins) <= 1:
+            for o in origins:
+                o_i, path = _one(int(o))
+                print(f"origin={o_i} wrote={path}")
+        else:
+            with ThreadPoolExecutor(max_workers=outer_workers) as pool:
+                futs = {pool.submit(_one, int(o)): int(o) for o in origins}
+                for fut in as_completed(futs):
+                    o_i, path = fut.result()
+                    print(f"origin={o_i} wrote={path}")
+
         if is_smoke:
             print(
                 json.dumps(
@@ -184,7 +225,6 @@ def main() -> int:
         gates_sha_before = file_sha256(gates) if gates.is_file() else None
 
         if is_smoke:
-            # Diagnostic only — do not treat as promotion decision; never mutate gates.
             report = evaluate_oof_predictions(
                 pred_paths,
                 out_path=run_dir / "smoke_evaluation_diagnostic.json",
@@ -193,7 +233,6 @@ def main() -> int:
             report["diagnostic_only"] = True
             report["affects_promotion_gates"] = False
             report["parameters_tuned"] = False
-            # Rewrite without promotion_gates_pass as a lock decision
             report.pop("promotion_gates_pass", None)
             out = run_dir / "smoke_evaluation_diagnostic.json"
             out.write_text(

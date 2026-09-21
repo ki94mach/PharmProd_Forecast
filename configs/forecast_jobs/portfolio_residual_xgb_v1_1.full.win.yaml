@@ -1,5 +1,6 @@
 # Residual-XGBoost v1.1 FULL — seven EVALUABLE residual_development origins.
 # Cursor: validate / dry-run only. VPS may --execute / resume / evaluate.
+# 16-core VPS sizing: outer_workers * xgb_n_jobs = 4 * 4 = 16 (no oversubscription).
 schema_version: residual_xgb_v1_1
 run:
   run_id: portfolio_residual_xgb_v1_1_full
@@ -20,9 +21,13 @@ HUMAN_XGB: BLOCKED_NO_DEVELOPMENT_VINTAGES
 hb_outcomes_inspected: false
 deterministic_seed: 42
 execution:
-  outer_workers: 1
+  outer_workers: 4
+  xgb_n_jobs: 4
   resume: true
-  note: XGBoost uses n_jobs=-1; keep outer_workers=1 to avoid oversubscription.
+  target_cpu_cores: 16
+  note: >
+    Full run on 16-core VPS: 4 origin jobs in parallel, each XGB fit uses n_jobs=4.
+    Does not mutate frozen XGB_PARAMS; n_jobs override is residual-study only.
 sales:
   path: src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet
 sources:

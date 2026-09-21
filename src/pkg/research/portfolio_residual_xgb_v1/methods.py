@@ -51,10 +51,12 @@ def fit_predict_residual_xgb(
     test: pd.DataFrame,
     *,
     feature_cols: list[str] | None = None,
+    n_jobs: int | None = None,
 ) -> np.ndarray:
     """Fit residual XGB on train; return clipped corrected forecasts on test.
 
-    Import xgboost lazily so prepare/validate paths work without heavy deps load.
+    ``n_jobs`` overrides frozen ``XGB_PARAMS['n_jobs']`` for this study only
+    (does not mutate the frozen benchmark dict).
     """
     from xgboost import XGBRegressor
 
@@ -62,7 +64,10 @@ def fit_predict_residual_xgb(
     tr = train.dropna(subset=["actual", HYBRID_ANCHOR] + feats).copy()
     te = test.copy()
     y = tr["actual"].astype(float) - tr[HYBRID_ANCHOR].astype(float)
-    model = XGBRegressor(**dict(XGB_PARAMS))
+    params = dict(XGB_PARAMS)
+    if n_jobs is not None:
+        params["n_jobs"] = int(n_jobs)
+    model = XGBRegressor(**params)
     model.fit(tr[feats].astype(float), y)
     resid_hat = model.predict(te[feats].astype(float))
     pred = te[HYBRID_ANCHOR].astype(float).to_numpy() + np.asarray(resid_hat, dtype=float)

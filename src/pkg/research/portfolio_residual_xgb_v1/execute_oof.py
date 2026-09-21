@@ -90,6 +90,7 @@ def run_oof_origin(
     evaluation_origin: int,
     out_dir: Path,
     resume: bool = True,
+    xgb_n_jobs: int | None = None,
 ) -> Path:
     o = int(evaluation_origin)
     if o in HB_ORIGINS or o in POST_HB_ORIGINS:
@@ -119,7 +120,12 @@ def run_oof_origin(
 
     pred_ts = predict_frozen_ts(test_f)
     pred_med, med = predict_median_correction(train_f, test_f)
-    pred_xgb = fit_predict_residual_xgb(train_f, test_f, feature_cols=list(TS_RESID_FEATURE_LIST))
+    pred_xgb = fit_predict_residual_xgb(
+        train_f,
+        test_f,
+        feature_cols=list(TS_RESID_FEATURE_LIST),
+        n_jobs=xgb_n_jobs,
+    )
 
     out = test_f[
         ["product", "forecast_origin", "horizon", "target_date", "actual", HYBRID_ANCHOR]
@@ -150,6 +156,7 @@ def run_oof_origin(
         ),
         "median_residual": med,
         "seed": DETERMINISTIC_SEED,
+        "xgb_n_jobs": xgb_n_jobs,
         "encoder": enc.to_state(),
         "hb_outcomes_inspected": False,
         "methods": [METHOD_FROZEN_TS, METHOD_MEDIAN, METHOD_XGB],
