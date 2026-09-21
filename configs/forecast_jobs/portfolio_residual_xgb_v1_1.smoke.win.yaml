@@ -1,5 +1,6 @@
 # Residual-XGBoost v1.1 SMOKE — origin 140107 only. outer_workers=1.
-# Cursor: validate / dry-run only. VPS may --execute.
+# Cursor: validate / dry-run only. VPS: Execute → AcceptSmoke → (then Full).
+# Smoke Evaluate is diagnostic only and must not affect promotion gates.
 schema_version: residual_xgb_v1_1
 run:
   run_id: portfolio_residual_xgb_v1_1_smoke
@@ -13,6 +14,11 @@ methods:
 HUMAN_XGB: BLOCKED_NO_DEVELOPMENT_VINTAGES
 hb_outcomes_inspected: false
 deterministic_seed: 42
+smoke_acceptance:
+  required_before_full: true
+  expected_n_train: 880
+  expected_n_test: 2055
+  sales_feature_date_max: 140105
 execution:
   outer_workers: 1
   resume: true

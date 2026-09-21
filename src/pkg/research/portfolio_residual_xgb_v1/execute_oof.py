@@ -41,6 +41,7 @@ from pkg.research.portfolio_residual_xgb_v1.pit_features import (
     HYBRID_ANCHOR,
     TS_RESID_FEATURE_LIST,
     filter_train_rows_pit,
+    last_complete_month,
 )
 from pkg.research.portfolio_residual_xgb_v1.prepare_v1_1 import (  # noqa: E402
     hard_fail_hb,
@@ -141,11 +142,18 @@ def run_oof_origin(
         "origin_minus_2": o2,
         "n_train_rows": int(len(train_f)),
         "n_test_rows": int(len(test_f)),
+        "max_sales_feature_date_train": int(
+            train_f["forecast_origin"].astype(int).map(last_complete_month).max()
+        ),
+        "max_sales_feature_date_test": int(
+            test_f["forecast_origin"].astype(int).map(last_complete_month).max()
+        ),
         "median_residual": med,
         "seed": DETERMINISTIC_SEED,
         "encoder": enc.to_state(),
         "hb_outcomes_inspected": False,
         "methods": [METHOD_FROZEN_TS, METHOD_MEDIAN, METHOD_XGB],
+        "resume_safe": True,
     }
     meta_tmp = meta_path.with_suffix(meta_path.suffix + ".tmp")
     meta_tmp.write_text(json.dumps(meta, indent=2, sort_keys=True, default=str) + "\n")
