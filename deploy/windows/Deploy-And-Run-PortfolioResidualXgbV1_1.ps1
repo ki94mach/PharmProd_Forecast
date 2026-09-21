@@ -305,6 +305,7 @@ if (-not (Test-Path -LiteralPath $v1Contract)) {
 }
 
 Write-Host "=== 3. Prepare v1.1 artifacts on VPS (no training) ==="
+Write-Host "  (Immutable contracts/gates are reused if already present.)"
 if (-not $SkipPrepare) {
   & $py scripts\prepare_portfolio_residual_xgb_v1_1.py
   if ($LASTEXITCODE -ne 0) { throw "prepare_portfolio_residual_xgb_v1_1 failed: $LASTEXITCODE" }

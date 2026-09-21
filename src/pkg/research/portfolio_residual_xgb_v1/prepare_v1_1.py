@@ -70,6 +70,32 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
     tmp.replace(path)
 
 
+def ensure_immutable_json(path: Path, payload: dict[str, Any]) -> tuple[str, bool]:
+    """Create-only write, or reuse existing file if already present.
+
+    Returns (sha256, created_new).
+    When the file already exists (e.g. copied to VPS), do not overwrite;
+    verify/create sidecar hash and return the existing content hash.
+    """
+    path = Path(path)
+    sidecar = path.with_suffix(path.suffix + ".sha256")
+    if path.is_file():
+        sha = file_sha256(path)
+        if sidecar.is_file():
+            expected = sidecar.read_text(encoding="utf-8").strip()
+            if expected != sha:
+                raise RuntimeError(
+                    f"Immutable artifact sidecar mismatch: {path} "
+                    f"(file={sha} sidecar={expected})"
+                )
+        else:
+            sidecar.write_text(sha + "\n", encoding="utf-8")
+        return sha, False
+    sha = write_immutable_json(path, payload)
+    sidecar.write_text(sha + "\n", encoding="utf-8")
+    return sha, True
+
+
 def build_job_inventory_v1_1(*, eligible_origins: list[int]) -> dict[str, Any]:
     origins = [int(o) for o in eligible_origins]
     smoke_origin = 140107
@@ -279,9 +305,8 @@ def run_prepare_v1_1(
         oof_split_manifest=oof,
     )
     contract_v11_path = out_dir / "residual_study_contract_v1_1.json"
-    contract_v11_sha = write_immutable_json(contract_v11_path, resid_contract)
-    (contract_v11_path.with_suffix(contract_v11_path.suffix + ".sha256")).write_text(
-        contract_v11_sha + "\n", encoding="utf-8"
+    contract_v11_sha, contract_created = ensure_immutable_json(
+        contract_v11_path, resid_contract
     )
 
     gates = build_promotion_gate_artifact(
@@ -289,10 +314,7 @@ def run_prepare_v1_1(
         eligible_evaluation_origins=eligible,
     )
     gates_path = out_dir / "residual_promotion_gates_v1.json"
-    gates_sha = write_immutable_json(gates_path, gates)
-    (gates_path.with_suffix(gates_path.suffix + ".sha256")).write_text(
-        gates_sha + "\n", encoding="utf-8"
-    )
+    gates_sha, gates_created = ensure_immutable_json(gates_path, gates)
 
     leakage = {
         "version": "v1_1",
@@ -344,8 +366,12 @@ def run_prepare_v1_1(
         "job_inventory": {
             "smoke_n_xgb_fits": inventory["smoke"]["n_xgb_fits"],
             "full_n_xgb_fits": inventory["full"]["n_xgb_fits"],
-            "outer_workers": 1,
+            "outer_workers_note": "Configured per smoke/full YAML (smoke=1; full=4 on 16-core VPS)",
             "HUMAN_XGB_jobs": 0,
+        },
+        "immutable_artifacts": {
+            "residual_study_contract_v1_1_created": contract_created,
+            "residual_promotion_gates_v1_created": gates_created,
         },
         "methods": list(EXECUTABLE_METHODS),
         "hb_outcomes_inspected": False,
