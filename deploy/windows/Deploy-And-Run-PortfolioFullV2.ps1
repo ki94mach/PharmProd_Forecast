@@ -30,6 +30,7 @@ param(
   [string]$Source = '\\tsclient\C\Users\Mohajeri.K\MyProjects\Forecast',
   [string]$Destination = 'C:\Forecast',
   [switch]$ForceCopyTrees,
+  [switch]$ForceCopyPkgs,
   [switch]$RebuildFromArchval,
   [switch]$SkipRegister,
   [switch]$ParallelA0,
@@ -54,38 +55,65 @@ function Copy-OneFile {
 }
 
 function Copy-DirWithProgress {
-  param([string]$RelDir)
+  param(
+    [string]$RelDir,
+    [string]$ProbeRel = ''
+  )
   $from = Join-Path $Source $RelDir
   $to = Join-Path $Destination $RelDir
   if (-not (Test-Path -LiteralPath $from)) {
     Write-Warning "Skip missing dir: $RelDir"
     return
   }
-  Write-Host "dir   $RelDir ..."
-  New-Item -ItemType Directory -Force -Path $to | Out-Null
-  $files = Get-ChildItem -LiteralPath $from -Recurse -File -Force -ErrorAction SilentlyContinue |
-    Where-Object {
-      $p = $_.FullName
-      if ($p -like '*\__pycache__\*') { return $false }
-      if ($_.Extension -in @('.pyc', '.pyo')) { return $false }
-      return $true
-    }
-  $total = @($files).Count
-  $i = 0
-  foreach ($f in $files) {
-    $i++
-    $rel = $f.FullName.Substring($from.Length).TrimStart('\')
-    $destPath = Join-Path $to $rel
-    $parent = Split-Path $destPath -Parent
-    if (-not (Test-Path -LiteralPath $parent)) {
-      New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    }
-    Copy-Item -LiteralPath $f.FullName -Destination $destPath -Force
-    if (($i % 50 -eq 0) -or ($i -eq $total)) {
-      Write-Host ("      {0}/{1}  {2}" -f $i, $total, $rel)
+
+  # Prefer local VPS copy over slow/fragile tsclient recurse (smoke already deployed these).
+  if (-not $ForceCopyPkgs -and $ProbeRel) {
+    $probe = Join-Path $Destination $ProbeRel
+    if (Test-Path -LiteralPath $probe) {
+      Write-Host "dir   $RelDir ... skip (already on VPS; pass -ForceCopyPkgs to refresh)"
+      return
     }
   }
-  Write-Host ("      done {0} files" -f $total)
+
+  Write-Host "dir   $RelDir ..."
+  New-Item -ItemType Directory -Force -Path $to | Out-Null
+
+  # robocopy is more reliable than Get-ChildItem over \\tsclient\
+  $robolog = Join-Path $env:TEMP ("forecast_robocopy_" + [Guid]::NewGuid().ToString('N') + ".log")
+  $rc = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
+    $from, $to, '/E', '/XO', '/R:2', '/W:2', '/NFL', '/NDL', '/NJH', '/NJS',
+    '/XD', '__pycache__', '/XF', '*.pyc', '*.pyo'
+  ) -Wait -PassThru -NoNewWindow
+  # robocopy exit 0-7 = success/partial; >=8 = failure
+  if ($rc.ExitCode -ge 8) {
+    Write-Warning "robocopy failed for $RelDir (exit=$($rc.ExitCode)); falling back to file loop"
+    $files = @(Get-ChildItem -LiteralPath $from -Recurse -File -Force -ErrorAction SilentlyContinue |
+      Where-Object {
+        $p = $_.FullName
+        if ($p -like '*\__pycache__\*') { return $false }
+        if ($_.Extension -in @('.pyc', '.pyo')) { return $false }
+        return $true
+      })
+    $total = $files.Count
+    $i = 0
+    foreach ($f in $files) {
+      $i++
+      $rel = $f.FullName.Substring($from.Length).TrimStart('\')
+      $destPath = Join-Path $to $rel
+      $parent = Split-Path $destPath -Parent
+      if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      }
+      Copy-Item -LiteralPath $f.FullName -Destination $destPath -Force
+      if (($i % 50 -eq 0) -or ($i -eq $total)) {
+        Write-Host ("      {0}/{1}  {2}" -f $i, $total, $rel)
+      }
+    }
+    Write-Host ("      done {0} files (fallback)" -f $total)
+  } else {
+    Write-Host ("      done via robocopy (exit={0})" -f $rc.ExitCode)
+  }
+  Remove-Item -LiteralPath $robolog -Force -ErrorAction SilentlyContinue
 }
 
 function Register-PortfolioTask {
@@ -220,10 +248,11 @@ Write-Host "=== 1. Copy fixed code + configs + inventory ==="
   'deploy\windows\Deploy-And-Run-PortfolioFullV2.ps1'
 ) | ForEach-Object { Copy-OneFile $_ }
 
-Copy-DirWithProgress -RelDir 'src\pkg\forecast_jobs'
-Copy-DirWithProgress -RelDir 'src\pkg\ts_v2'
-Copy-DirWithProgress -RelDir 'src\pkg\ts_v3a'
-Copy-DirWithProgress -RelDir 'src\data\results\product_universe\sales_full_portfolio_v1'
+Copy-DirWithProgress -RelDir 'src\pkg\forecast_jobs' -ProbeRel 'src\pkg\forecast_jobs\runner.py'
+Copy-DirWithProgress -RelDir 'src\pkg\ts_v2' -ProbeRel 'src\pkg\ts_v2\data.py'
+Copy-DirWithProgress -RelDir 'src\pkg\ts_v3a' -ProbeRel 'src\pkg\ts_v3a\__init__.py'
+Copy-DirWithProgress -RelDir 'src\data\results\product_universe\sales_full_portfolio_v1' `
+  -ProbeRel 'src\data\results\product_universe\sales_full_portfolio_v1\sales.parquet'
 
 $v21Rel = 'src\data\forecast_jobs\portfolio_v21_backfill_v2'
 $a0Rel = 'src\data\forecast_jobs\portfolio_a0_backfill_v2'
