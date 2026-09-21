@@ -5,9 +5,9 @@
 
 .DESCRIPTION
   Smoke profile: origin 140107 only.
-  Full profile: seven EVALUABLE origins — blocked until smoke acceptance passes.
+  Full profile: seven EVALUABLE origins - blocked until smoke acceptance passes.
   outer_workers=1. HUMAN_XGB blocked. Never opens HB outcomes.
-  Cursor should use Validate / DryRun / AcceptSmoke checks only — do not Execute training locally.
+  Cursor should use Validate / DryRun / AcceptSmoke checks only - do not Execute training locally.
 
 .EXAMPLE
   .\deploy\windows\PortfolioResidualXgbV1_1.ps1 -Action Validate -Profile Smoke
@@ -24,13 +24,30 @@ param(
   [string]$Profile = 'Smoke',
 
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
-  [string]$Python = 'python'
+  [string]$Python = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Resolve-ForecastPython {
+  foreach ($c in @(
+    "$env:LOCALAPPDATA\anaconda3\envs\forecast\python.exe",
+    "$env:USERPROFILE\anaconda3\envs\forecast\python.exe",
+    "$env:USERPROFILE\miniconda3\envs\forecast\python.exe",
+    'python'
+  )) {
+    if ($c -eq 'python') { return $c }
+    if (Test-Path -LiteralPath $c) { return $c }
+  }
+  throw 'forecast python not found'
+}
+
+if (-not $Python) { $Python = Resolve-ForecastPython }
+
 Push-Location $RepoRoot
 try {
   $env:PYTHONPATH = 'src'
+  Write-Host "Python=$Python"
 
   $cfg = if ($Profile -eq 'Smoke') {
     'configs\forecast_jobs\portfolio_residual_xgb_v1_1.smoke.win.yaml'
@@ -51,7 +68,7 @@ try {
     & $Python scripts\run_portfolio_residual_xgb_v1_1.py `
       --config configs\forecast_jobs\portfolio_residual_xgb_v1_1.smoke.win.yaml `
       --action accept-smoke
-    if ($LASTEXITCODE -ne 0) { throw "smoke acceptance FAILED — do not run Full" }
+    if ($LASTEXITCODE -ne 0) { throw "smoke acceptance FAILED - do not run Full" }
     Write-Host "Smoke acceptance PASSED."
     return
   }

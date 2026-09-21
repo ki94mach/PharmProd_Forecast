@@ -37,13 +37,12 @@ def evaluate_oof_predictions(
 ) -> dict[str, Any]:
     frames = [pd.read_parquet(p) for p in pred_paths]
     pooled = pd.concat(frames, ignore_index=True)
-    # Adapt bootstrap helpers that expect f_v2_policy / f_a0_hybrid naming
-    boot_df = pooled.rename(
-        columns={
-            METHOD_FROZEN_TS: "f_v2_policy",
-            METHOD_XGB: "f_a0_hybrid",
-        }
-    )
+    # Bootstrap/horizon helpers expect f_v2_policy / f_a0_hybrid naming.
+    # OOF already has anchor column f_a0_hybrid - assign explicitly so we do not
+    # create duplicate column names via rename (which yields 2-D selections).
+    boot_df = pooled.copy()
+    boot_df["f_v2_policy"] = pooled[METHOD_FROZEN_TS].astype(float)
+    boot_df["f_a0_hybrid"] = pooled[METHOD_XGB].astype(float)
 
     scores = {
         METHOD_FROZEN_TS: _score_method(pooled, METHOD_FROZEN_TS),
