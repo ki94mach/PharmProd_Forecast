@@ -1,4 +1,4 @@
-"""Reliability label contract v1 — review now; immutable freeze only after Planning ceilings.
+"""Reliability label contract v1 — MNIH-primary review; freeze only later.
 
 Family: portfolio_forecast_reliability_v1 (not residual-XGB).
 Does not inspect HB forecast/outcome columns.
@@ -12,29 +12,40 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-from pkg.portfolio_ts_lock.constants import HB_ORIGINS, HORIZON_GROUPS
+from pkg.portfolio_ts_lock.constants import HORIZON_GROUPS
 from pkg.portfolio_ts_lock.lock_io import LockExistsError
 from pkg.portfolio_ts_lock.production_contract import (
     file_sha256,
     write_immutable_json,
 )
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
-    ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-    ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY,
     CONTRACT_FILENAME,
     CONTRACT_VERSION,
+    EVIDENCE_STRENGTH_LIMITED,
     FAMILY,
     FAMILY_DIR_REL,
+    HUMAN_COMPARABLE_COHORT,
+    LABEL_HR,
+    LABEL_IHE,
+    LABEL_MNIH,
+    LABEL_MR_OUT_OF_SCOPE,
+    LEGACY_TS_LOCK_HB_ORIGINS_KEY,
+    MAPPING_AUDIT_FILENAME,
+    PROTECTED_HB_ORIGINS,
+    PROTECTED_ORIGIN_VALIDATION_FILENAME,
+    REPRESENTATIVENESS_AUDIT_FILENAME,
     REVIEW_FILENAME,
+    STALE_COVERAGE_AUDIT_FILENAME,
+    STALE_COVERAGE_FIGURES_FORBIDDEN,
     UPSTREAM_RESIDUAL_PIPELINE_LOCK_REL,
+    VALIDITY_GROUPS,
     WMAPE_DENOM_EPS,
     WMAPE_DENOM_RULE,
 )
 
-LABEL_MR = "MACHINE_RELIABLE"
-LABEL_MNIH = "MACHINE_NONINFERIOR_TO_HUMAN"
-LABEL_HR = "HUMAN_REVIEW_REQUIRED"
-LABEL_IE = "INSUFFICIENT_EVIDENCE"
+# Back-compat aliases used by older imports/tests during transition.
+LABEL_IE = LABEL_IHE  # INSUFFICIENT_HUMAN_EVIDENCE
+LABEL_MR = LABEL_MR_OUT_OF_SCOPE  # not an executable v1 label
 
 GROUP_ORDER: tuple[str, ...] = ("h1_3", "h4_6", "h7_12", "h13_15")
 GROUP_WIDTH: dict[str, int] = {
@@ -44,7 +55,6 @@ GROUP_WIDTH: dict[str, int] = {
     "h13_15": 3,
 }
 
-# Scopes that must each apply the WMAPE denominator rule independently.
 WMAPE_DENOM_SCOPES: tuple[str, ...] = (
     "portfolio",
     "sku_x_validity_group",
@@ -70,178 +80,180 @@ def wmape_denominator_valid(sum_abs_actual: float) -> bool:
     return v > WMAPE_DENOM_EPS
 
 
-def segment_specific_ceiling_contract() -> dict[str, Any]:
-    """Required Planning definitions if segment-specific ceilings are chosen."""
+def evidence_strength_for_n_origins(n_complete: int) -> str | None:
+    """LIMITED_3_OR_4_ORIGINS when n in {3,4}; None otherwise."""
+    if n_complete in (3, 4):
+        return EVIDENCE_STRENGTH_LIMITED
+    return None
+
+
+def mnih_label_meaning() -> dict[str, Any]:
     return {
-        "allowed": True,
-        "proposed_map": None,
-        "status": "REQUIRES_PLANNING_DEFINITION_BEFORE_OUTCOMES",
-        "must_define_before_opening_outcomes": True,
-        "when": (
-            "If demand segments need different tolerances, Planning may approve a map "
-            "segment_id -> sku_group_machine_wmape_ceiling_pct instead of (or in addition "
-            "to) a single global SKU×group ceiling."
+        "meaning": (
+            "Passed the preregistered noninferiority rule on available origins "
+            "(not absolute reliability)."
         ),
-        "segment_assignment": {
-            "required_if_map_used": True,
-            "definition_required": (
-                "Planning must define how each SKU maps to a segment_id before any "
-                "HB outcomes are opened."
-            ),
-            "assignment_artifact": None,
-            "stability": (
-                "Segment assignment must be frozen and deterministic; no post-hoc "
-                "reassignment that uses outcomes."
-            ),
-        },
-        "ceiling_precedence": [
-            (
-                "If a segment-specific map is approved and the SKU has an assigned "
-                "segment with a ceiling in the map → use that segment ceiling"
-            ),
-            (
-                "Else if global sku_group_machine_wmape_ceiling_pct is approved → "
-                "use the global ceiling"
-            ),
-            "Else → no absolute SKU×group ceiling is available for that SKU×group",
-        ],
-        "missing_segment_behavior": {
-            "when_sku_unassigned_or_segment_absent_from_map": (
-                "Do not invent a ceiling. MACHINE_RELIABLE is blocked for that "
-                "SKU×group. Label INSUFFICIENT_EVIDENCE if the gap is treated as "
-                "non-computable absolute gate; otherwise HUMAN_REVIEW_REQUIRED when "
-                "n_complete_origins >= 2."
-            ),
-            "MACHINE_NONINFERIOR_TO_HUMAN": (
-                f"Only if {ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}=true AND relative "
-                "non-inferiority + stability rules pass; else do not use MNIH."
-            ),
-        },
+        "evidence_strength_when_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
+        "requires_HUMAN_COMPARABLE_COHORT": True,
+        "blocked_if_any_evaluated_origin_neither_naive": True,
+        "only_positive_executable_label_v1": True,
+    }
+
+
+def future_out_of_scope_absolute_ceilings() -> dict[str, Any]:
+    return {
+        "MACHINE_RELIABLE": LABEL_MR_OUT_OF_SCOPE,
+        "portfolio_machine_wmape_ceiling_pct": None,
+        "sku_group_machine_wmape_ceiling_pct": None,
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
         "note": (
-            "If Planning chooses segment-specific ceilings, define the segment "
-            "assignment, ceiling precedence, and missing-segment behavior before "
-            "opening outcomes."
+            "Absolute WMAPE ceilings and MACHINE_RELIABLE are not executable v1 "
+            "activation gates. They may return in a later contract revision."
         ),
     }
 
 
 def canonical_per_group_label_rules() -> dict[str, Any]:
-    """Ordered SKU×group label rules (includes MNIH branch; switch defaults false)."""
+    """Ordered SKU×group label rules — MNIH is the only positive executable label."""
     return {
         "ordered": [
             {
-                "when": "n_complete_origins_in_group < 2",
-                "label": LABEL_IE,
+                "when": "n_complete_matched_origins_in_group in {0,1}",
+                "label": LABEL_IHE,
             },
             {
                 "when": "wmape_denominator_invalid (Σ|actual| <= 1e-9 or non-finite)",
-                "label": LABEL_IE,
+                "label": LABEL_IHE,
             },
             {
-                "when": "n_complete_origins_in_group == 2",
+                "when": "group_horizons_incomplete OR metrics_noncomputable",
+                "label": LABEL_IHE,
+            },
+            {
+                "when": "n_complete_matched_origins_in_group == 2",
                 "label": LABEL_HR,
             },
             {
                 "when": (
-                    "n_complete_origins_in_group >= 3 "
-                    "AND wmape_denominator_valid "
-                    "AND machine_group_wmape <= approved_sku_group_wmape_ceiling "
-                    "AND WMAPE(machine)-WMAPE(human) <= 2.0 pp "
-                    "AND n_origins_noninferior >= ceil(0.75 * n_complete_origins) "
-                    "AND portfolio_activation_gate_passed "
-                    "AND deployable_branch != neither_naive "
-                    "AND Planning has approved absolute SKU×group ceiling "
-                    "(global or segment-specific per ceiling_precedence)"
+                    "any evaluated origin for SKU×group has deployable_branch="
+                    "neither_naive"
                 ),
-                "label": LABEL_MR,
+                "label": LABEL_HR,
+                "blocks": LABEL_MNIH,
             },
             {
                 "when": (
-                    f"{ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}=true "
-                    "AND n_complete_origins_in_group >= 3 "
+                    "SKU in HUMAN_COMPARABLE_COHORT "
+                    "AND n_complete_matched_origins_in_group >= 3 "
                     "AND wmape_denominator_valid "
                     "AND WMAPE(machine)-WMAPE(human) <= 2.0 pp "
                     "AND n_origins_noninferior >= ceil(0.75 * n_complete_origins) "
                     "AND portfolio_activation_gate_passed "
-                    "AND deployable_branch != neither_naive "
-                    "AND sku_group absolute ceiling unavailable"
+                    "AND no evaluated origin is neither_naive"
                 ),
                 "label": LABEL_MNIH,
-                "switch_default": ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-                "note": (
-                    "Canonical ordered branch even though the switch defaults to false."
-                ),
+                "evidence_strength": EVIDENCE_STRENGTH_LIMITED,
+                "evidence_strength_applies_when": "n_complete in {3,4}",
             },
             {
-                "when": "otherwise (including neither_naive, failed absolute/relative gates)",
+                "when": "otherwise (failed relative/portfolio gates)",
                 "label": LABEL_HR,
             },
         ],
-        "label_naming_contingency": {
-            ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY: ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-            "if_sku_group_absolute_ceiling_cannot_be_supplied": (
-                "Do not use MACHINE_RELIABLE unless an absolute ceiling is approved. "
-                f"MACHINE_NONINFERIOR_TO_HUMAN applies only when "
-                f"{ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}=true and relative "
-                "non-inferiority + origin-count/stability rules pass."
-            ),
-        },
+        "not_in_executable_v1": future_out_of_scope_absolute_ceilings(),
     }
 
 
 def apply_review_structure_corrections(review: dict[str, Any]) -> None:
-    """Four structural corrections to the review artifact (in place)."""
+    """Structural corrections for MNIH-primary review (in place)."""
     two = review.setdefault("two_scopes", {})
     port = two.setdefault("portfolio_activation_gate", {})
     gates = list(port.get("gates_apply_here_only") or [])
-    if "max_ae_ratio" not in gates:
-        # Place with the other AE-ratio gates when present; else append before denom.
-        if "p99_ae_ratio" in gates:
-            i = gates.index("p99_ae_ratio") + 1
-            gates.insert(i, "max_ae_ratio")
-        elif "wmape_denominator_must_be_valid" in gates:
-            gates.insert(gates.index("wmape_denominator_must_be_valid"), "max_ae_ratio")
-        else:
-            gates.append("max_ae_ratio")
+    required_gates = [
+        "complete_1_15_required_never_silent_drop",
+        "primary_population_skus_ge3_complete_matched_origins",
+        "wmape_noninferiority_le_2pp",
+        "rmse_p95_p99_le_1_02x",
+        "max_ae_ratio",
+        "sku_cluster_bootstrap",
+        "drop_top3_remaining_noninferior",
+        "wmape_denominator_must_be_valid",
+    ]
+    for g in required_gates:
+        if g not in gates:
+            gates.append(g)
+    # Ensure max_ae_ratio sits near other AE gates
+    if "p99_ae_ratio" in gates and "max_ae_ratio" in gates:
+        gates = [x for x in gates if x != "max_ae_ratio"]
+        gates.insert(gates.index("p99_ae_ratio") + 1, "max_ae_ratio")
     port["gates_apply_here_only"] = gates
+    port["primary_population"] = (
+        f"{HUMAN_COMPARABLE_COHORT} SKUs with ≥3 complete matched origins"
+    )
+    port["sensitivity_population"] = (
+        "all complete matched product×origin cases + leave-one-origin"
+    )
+    port["absolute_wmape_ceilings"] = "OUT_OF_EXECUTABLE_V1_SCOPE"
 
     sku = two.setdefault("sku_validity_group_labels", {})
     sku["per_group_label_rule"] = canonical_per_group_label_rules()
-
     thr = sku.setdefault("proposed_numeric_thresholds", {})
-    ceil = thr.setdefault("sku_group_machine_wmape_ceiling_pct", {})
-    if not isinstance(ceil, dict):
-        ceil = {}
-        thr["sku_group_machine_wmape_ceiling_pct"] = ceil
-    ceil["segment_specific_ceilings"] = segment_specific_ceiling_contract()
+    thr["sku_group_machine_wmape_ceiling_pct"] = {
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+        "value": None,
+    }
 
     flat = review.setdefault("proposed_numeric_thresholds_flat_for_approval", {})
-    flat_key = "sku_group.sku_group_machine_wmape_ceiling_pct"
-    if flat_key in flat and isinstance(flat[flat_key], dict):
-        flat[flat_key]["segment_specific_ceilings"] = segment_specific_ceiling_contract()
+    flat["sku_group.sku_group_machine_wmape_ceiling_pct"] = {
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+        "value": None,
+    }
+    flat["portfolio.portfolio_machine_wmape_ceiling_pct"] = {
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+        "value": None,
+    }
 
-    pending = review.setdefault("planning_ceilings_pending", {})
-    pending["segment_specific_sku_group_ceilings"] = segment_specific_ceiling_contract()
-    pending["note"] = (
-        "Immutable reliability_label_contract_v1.json is written only after Planning "
-        "supplies absolute ceilings. If Planning chooses segment-specific ceilings, "
-        "define segment assignment, ceiling precedence, and missing-segment behavior "
-        "before opening outcomes."
-    )
+    review["future_out_of_scope"] = future_out_of_scope_absolute_ceilings()
+    review["planning_ceilings_pending"] = {
+        "status": "NOT_REQUIRED_FOR_MNIH_V1",
+        "note": (
+            "Absolute ceilings are out of executable v1 scope. "
+            "Do not block MNIH review on Planning ceilings."
+        ),
+    }
 
     labels = review.setdefault("labels", {})
-    if LABEL_IE in labels and isinstance(labels[LABEL_IE], dict):
-        labels[LABEL_IE]["meaning"] = (
-            "Fewer than 2 complete origins in the group, incomplete/missing group "
+    labels[LABEL_MNIH] = mnih_label_meaning()
+    labels[LABEL_HR] = {
+        "meaning": (
+            "Two complete matched origins, relative/portfolio/branch failure, "
+            "or any evaluated origin with neither_naive."
+        )
+    }
+    labels[LABEL_IHE] = {
+        "meaning": (
+            "0–1 complete matched HB origins in the group, incomplete/missing "
             "coverage, invalid WMAPE denominator (Σ|actual| <= 1e-9 or non-finite) "
             "at the relevant scope, or non-computable metrics."
         )
+    }
+    if LABEL_MR_OUT_OF_SCOPE in labels:
+        labels[LABEL_MR_OUT_OF_SCOPE] = {
+            "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+            **future_out_of_scope_absolute_ceilings(),
+        }
 
     checklist = list(review.get("approval_checklist") or [])
     for item in (
-        "Confirm gates_apply_here_only includes max_ae_ratio",
-        "Confirm per_group_label_rule ordered list includes MACHINE_NONINFERIOR_TO_HUMAN branch (switch default false)",
-        "If segment-specific ceilings: define assignment, precedence, and missing-segment behavior before opening outcomes",
+        "Confirm MACHINE_NONINFERIOR_TO_HUMAN is the only positive executable label",
+        "Confirm HUMAN_COMPARABLE_COHORT gate for MNIH",
+        "Confirm 0–1→INSUFFICIENT_HUMAN_EVIDENCE, 2→HUMAN_REVIEW_REQUIRED, ≥3 MNIH-eligible",
+        "Confirm neither_naive on any evaluated origin blocks MNIH → HUMAN_REVIEW_REQUIRED",
+        "Confirm validity_range_prefix uses MNIH (not MACHINE_RELIABLE)",
+        "Confirm WMAPE denom applies separately at portfolio, SKU×group, SKU×origin",
+        "Confirm protected HB origins include 140401 (not 140312) for reliability joins",
+        "Confirm representativeness audit limits portfolio conclusions if non-representative",
+        "Confirm no HB outcomes opened; no router trained; no final contract yet",
     ):
         if item not in checklist:
             checklist.append(item)
@@ -249,17 +261,20 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
 
 
 def validity_range_prefix(group_labels: Sequence[str]) -> dict[str, Any]:
-    """Longest contiguous MACHINE_RELIABLE prefix starting at h1_3."""
+    """Longest contiguous MACHINE_NONINFERIOR_TO_HUMAN prefix starting at h1_3."""
     prefix: list[str] = []
     for name, lab in zip(GROUP_ORDER, group_labels):
-        if lab != LABEL_MR:
+        if lab != LABEL_MNIH:
             break
         prefix.append(name)
     human_from = GROUP_ORDER[len(prefix)] if len(prefix) < len(GROUP_ORDER) else None
     return {
+        "machine_noninferior_groups": prefix,
+        # legacy key kept for readers; mirrors MNIH prefix
         "machine_reliable_groups": prefix,
         "n_groups": len(prefix),
         "human_review_from_group": human_from,
+        "positive_label": LABEL_MNIH,
         "display_range": (
             "empty"
             if not prefix
@@ -288,68 +303,80 @@ def decide_sku_group_label(
     n_origins_noninferior: int,
     portfolio_activation_passed: bool,
     deployable_branch: str,
-    sku_group_ceiling_pct: float | None,
-    portfolio_ceiling_pct: float | None,
-    allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling: bool = (
-        ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT
-    ),
+    in_human_comparable_cohort: bool = True,
+    any_evaluated_origin_neither_naive: bool | None = None,
+    # Deprecated kwargs retained for call-site compatibility; ignored for gates.
+    sku_group_ceiling_pct: float | None = None,
+    portfolio_ceiling_pct: float | None = None,
+    allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling: bool = True,
 ) -> str:
-    """Apply SKU×validity-group decision table (no HB I/O)."""
-    contingency = bool(allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling)
+    """Apply SKU×validity-group decision table (MNIH-primary; no HB I/O)."""
+    del sku_group_ceiling_pct, portfolio_ceiling_pct
+    del allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling
 
     if not group_horizons_exact:
-        return LABEL_IE
-    if n_complete_origins < 2:
-        return LABEL_IE
+        return LABEL_IHE
+    if n_complete_origins <= 1:
+        return LABEL_IHE
     if not wmape_denominator_valid(sum_abs_actual):
-        return LABEL_IE
+        return LABEL_IHE
     if machine_group_wmape is None or human_group_wmape is None:
-        return LABEL_IE
+        return LABEL_IHE
     if machine_group_wmape != machine_group_wmape or human_group_wmape != human_group_wmape:
-        return LABEL_IE
+        return LABEL_IHE
 
     if n_complete_origins == 2:
         return LABEL_HR
 
+    # neither_naive: single-branch arg OR explicit any-origin flag
+    neither = bool(any_evaluated_origin_neither_naive)
+    if any_evaluated_origin_neither_naive is None:
+        neither = deployable_branch == "neither_naive"
+    else:
+        neither = bool(any_evaluated_origin_neither_naive) or (
+            deployable_branch == "neither_naive"
+        )
+    if neither:
+        return LABEL_HR
+
+    if not in_human_comparable_cohort:
+        return LABEL_HR
+
     rel_ok = (machine_group_wmape - human_group_wmape) <= 2.0
     stab_ok = n_origins_noninferior >= required_noninferior_origins(n_complete_origins)
-    branch_ok = deployable_branch != "neither_naive"
     port_ok = bool(portfolio_activation_passed)
 
-    if not (rel_ok and stab_ok and branch_ok and port_ok):
-        return LABEL_HR
-
-    if sku_group_ceiling_pct is None:
-        if contingency:
-            return LABEL_MNIH
-        return LABEL_HR
-
-    abs_ok = machine_group_wmape <= float(sku_group_ceiling_pct)
-    if portfolio_ceiling_pct is None:
-        if contingency:
-            return LABEL_MNIH
-        return LABEL_HR
-
-    if abs_ok:
-        return LABEL_MR
+    if rel_ok and stab_ok and port_ok:
+        return LABEL_MNIH
     return LABEL_HR
 
 
-def locked_thresholds(
-    *,
-    allow_mnih: bool = ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-    portfolio_ceiling: float | None = None,
-    sku_group_ceiling: float | None = None,
-) -> dict[str, Any]:
-    """Structural/relative thresholds; Planning ceilings only when supplied."""
+def decide_sku_group_label_with_meta(**kwargs: Any) -> dict[str, Any]:
+    """Label plus evidence_strength metadata."""
+    label = decide_sku_group_label(**kwargs)
+    n = int(kwargs.get("n_complete_origins") or 0)
+    meta: dict[str, Any] = {"label": label, "evidence_strength": None}
+    if label == LABEL_MNIH:
+        meta["evidence_strength"] = evidence_strength_for_n_origins(n)
+        meta["meaning"] = mnih_label_meaning()["meaning"]
+    return meta
+
+
+def locked_thresholds() -> dict[str, Any]:
+    """Structural/relative thresholds only (no absolute ceilings)."""
     return {
         "wmape_denominator": {
             "rule": WMAPE_DENOM_RULE,
             "eps": WMAPE_DENOM_EPS,
             "applies_separately_to_scopes": list(WMAPE_DENOM_SCOPES),
         },
-        ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY: allow_mnih,
         "portfolio": {
+            "primary_population": (
+                f"{HUMAN_COMPARABLE_COHORT} with ≥3 complete matched origins"
+            ),
+            "sensitivity_population": (
+                "all complete matched product×origin + leave-one-origin"
+            ),
             "min_skus_with_at_least_3_complete_origins": 40,
             "machine_vs_human_noninferiority_wmape_margin_pp": 2.0,
             "machine_vs_human_noninferiority_rmse_ratio_max": 1.02,
@@ -363,28 +390,29 @@ def locked_thresholds(
             "drop_top_k_rank_metric": "sum_ae_human_minus_sum_ae_machine",
             "drop_top_k_remaining_noninferiority_required": True,
             "wmape_denominator_rule": WMAPE_DENOM_RULE,
-            "portfolio_machine_wmape_ceiling_pct": portfolio_ceiling,
-            "portfolio_machine_wmape_ceiling_status": (
-                "APPROVED"
-                if portfolio_ceiling is not None
-                else "REQUIRES_PLANNING_VALUE"
-            ),
+            "absolute_wmape_ceiling": "OUT_OF_EXECUTABLE_V1_SCOPE",
         },
         "sku_group": {
-            "min_complete_origins_per_group": 3,
+            "min_complete_origins_per_group_for_mnih": 3,
+            "origin_count_labels": {
+                "0_or_1": LABEL_IHE,
+                "2": LABEL_HR,
+                "ge_3": "eligible_for_locked_MNIH_rules",
+            },
             "machine_vs_human_noninferiority_wmape_margin_pp": 2.0,
             "origin_stability_frac": 0.75,
             "origin_stability_rule": "required_noninferior_origins=ceil(0.75*complete_origins)",
             "wmape_denominator_rule": WMAPE_DENOM_RULE,
-            "sku_group_machine_wmape_ceiling_pct": sku_group_ceiling,
-            "sku_group_machine_wmape_ceiling_status": (
-                "APPROVED" if sku_group_ceiling is not None else "REQUIRES_PLANNING_VALUE"
-            ),
-            "segment_specific_sku_group_ceilings": None,
+            "neither_naive_blocks_mnih": True,
+            "evidence_strength_when_mnih_and_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
+            "absolute_wmape_ceiling": "OUT_OF_EXECUTABLE_V1_SCOPE",
         },
         "sku_x_origin": {
             "wmape_denominator_rule": WMAPE_DENOM_RULE,
-            "note": "Origin-stability per-origin WMAPE uses the same denominator rule independently.",
+            "note": (
+                "Origin-stability per-origin WMAPE uses the same denominator rule "
+                "independently."
+            ),
         },
     }
 
@@ -419,39 +447,33 @@ def upstream_residual_pipeline_evidence(repo_root: Path) -> dict[str, Any]:
     return evidence
 
 
-def build_decision_table(
-    *,
-    allow_mnih: bool = ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-) -> dict[str, Any]:
-    mnih_when = (
-        "same as MR relative rules but sku_ceiling unavailable "
-        f"AND {ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}=true"
-    )
+def build_decision_table() -> dict[str, Any]:
     return {
         "portfolio_activation_gate": {
             "order": [
                 "complete_1_15_required_never_silent_drop",
-                "coverage_distribution_min_skus_ge3_origins",
+                "primary_population_HUMAN_COMPARABLE_COHORT_ge3_origins",
                 "valid_wmape_denominator_per_portfolio_scope",
-                "portfolio_machine_wmape_ceiling_pct_when_set",
                 "wmape_noninferiority_le_2pp",
                 "rmse_p95_p99_le_1_02x",
                 "max_ae_le_1_10x",
                 "sku_cluster_bootstrap_frac_ge_0_90",
                 "drop_top3_by_sum_ae_machine_advantage_remaining_noninferior",
             ],
-            "if_fails": "no_MACHINE_RELIABLE_anywhere",
-            "primary_population": "deployable_frozen_policy_vs_human_budget",
-            "diagnostic_population": "common_native_vs_human_budget",
-            "wmape_denominator": {
-                "rule": WMAPE_DENOM_RULE,
-                "scope": "portfolio",
-            },
+            "if_fails": "no_MACHINE_NONINFERIOR_TO_HUMAN_anywhere",
+            "primary_population": (
+                f"{HUMAN_COMPARABLE_COHORT} with ≥3 complete matched origins"
+            ),
+            "sensitivity_population": (
+                "all complete matched product×origin + leave-one-origin"
+            ),
+            "wmape_denominator": {"rule": WMAPE_DENOM_RULE, "scope": "portfolio"},
             "drop_top_k": {
                 "k": 3,
                 "rank": "ΣAE(human)−ΣAE(machine)",
                 "not": "mean_AE",
             },
+            "absolute_ceilings": "OUT_OF_EXECUTABLE_V1_SCOPE",
         },
         "sku_x_validity_group": {
             "group_order": list(GROUP_ORDER),
@@ -459,26 +481,29 @@ def build_decision_table(
                 "rule": WMAPE_DENOM_RULE,
                 "scope": "sku_x_validity_group",
             },
-            ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY: allow_mnih,
             "branches": [
-                {"when": "group_horizons_not_exact", "label": LABEL_IE},
-                {"when": "n_complete_origins < 2", "label": LABEL_IE},
+                {"when": "group_horizons_not_exact", "label": LABEL_IHE},
+                {"when": "n_complete_origins <= 1", "label": LABEL_IHE},
                 {
                     "when": f"not ({WMAPE_DENOM_RULE}) at sku×group scope",
-                    "label": LABEL_IE,
+                    "label": LABEL_IHE,
                 },
-                {"when": "metrics_noncomputable", "label": LABEL_IE},
+                {"when": "metrics_noncomputable", "label": LABEL_IHE},
                 {"when": "n_complete_origins == 2", "label": LABEL_HR},
                 {
-                    "when": (
-                        "n>=3 AND denom_ok AND machine_wmape<=sku_ceiling "
-                        "AND (machine-human)<=2pp AND origin_stability "
-                        "AND portfolio_gate_passed AND branch!=neither_naive "
-                        "AND both_ceilings_approved"
-                    ),
-                    "label": LABEL_MR,
+                    "when": "any_evaluated_origin_neither_naive",
+                    "label": LABEL_HR,
+                    "blocks": LABEL_MNIH,
                 },
-                {"when": mnih_when, "label": LABEL_MNIH},
+                {
+                    "when": (
+                        "in_HUMAN_COMPARABLE_COHORT AND n>=3 AND denom_ok "
+                        "AND (machine-human)<=2pp AND origin_stability "
+                        "AND portfolio_gate_passed AND no neither_naive"
+                    ),
+                    "label": LABEL_MNIH,
+                    "evidence_strength": EVIDENCE_STRENGTH_LIMITED,
+                },
                 {"when": "otherwise", "label": LABEL_HR},
             ],
             "origin_stability": {
@@ -488,10 +513,9 @@ def build_decision_table(
                 "per_origin_wmape_denominator": WMAPE_DENOM_RULE,
             },
             "validity_range": (
-                "longest contiguous MACHINE_RELIABLE prefix from h1_3; "
-                "MR,IE → range h1–3; human review from h4"
+                "longest contiguous MACHINE_NONINFERIOR_TO_HUMAN prefix from h1_3"
             ),
-            "neither_naive": "cannot_receive_MACHINE_RELIABLE",
+            "neither_naive": "blocks_MACHINE_NONINFERIOR_TO_HUMAN_assign_HUMAN_REVIEW_REQUIRED",
             "incomplete_later_group_does_not_discard_earlier": True,
         },
         "sku_x_origin": {
@@ -508,16 +532,10 @@ def build_reliability_label_contract_v1(
     *,
     repo_root: Path,
     review_sha256: str | None = None,
-    coverage_audit_sha256: str | None = None,
-    portfolio_ceiling_pct: float,
-    sku_group_ceiling_pct: float,
-    allow_mnih: bool = ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
+    mapping_audit_sha256: str | None = None,
+    representativeness_audit_sha256: str | None = None,
 ) -> dict[str, Any]:
-    thr = locked_thresholds(
-        allow_mnih=allow_mnih,
-        portfolio_ceiling=float(portfolio_ceiling_pct),
-        sku_group_ceiling=float(sku_group_ceiling_pct),
-    )
+    thr = locked_thresholds()
     validity_groups = [
         {
             "name": name,
@@ -542,7 +560,7 @@ def build_reliability_label_contract_v1(
         "immutable": True,
         "fail_if_exists": True,
         "router_trained": False,
-        "protected_hb_origins": sorted(HB_ORIGINS),
+        "protected_hb_origins_reliability": sorted(PROTECTED_HB_ORIGINS),
         "machine_policy": "FROZEN_TS = A0_HYBRID_POLICY",
         "deployable_branches": [
             "both_native",
@@ -552,108 +570,67 @@ def build_reliability_label_contract_v1(
         ],
         "validity_groups": validity_groups,
         "labels": {
-            LABEL_MR: {
-                "requires_portfolio_and_sku_group_absolute_ceilings": True,
-                "blocked_if_neither_naive": True,
-                "blocked_if_portfolio_gate_fails": True,
-            },
-            LABEL_MNIH: {
-                "enabled_only_when": ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY,
-                "default_enabled": ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-                "proves": "relative_noninferiority_only",
-            },
+            LABEL_MNIH: mnih_label_meaning(),
             LABEL_HR: {},
-            LABEL_IE: {
+            LABEL_IHE: {
                 "includes": [
                     "incomplete_group_horizons",
-                    "n_origins_lt_2",
+                    "n_origins_0_or_1",
                     f"invalid_wmape_denominator_not_{WMAPE_DENOM_RULE}",
                 ]
             },
         },
+        "future_out_of_scope": future_out_of_scope_absolute_ceilings(),
         "locked_thresholds": thr,
-        "planning_ceilings": {
-            "portfolio_machine_wmape_ceiling_pct": float(portfolio_ceiling_pct),
-            "sku_group_machine_wmape_ceiling_pct": float(sku_group_ceiling_pct),
-            "segment_specific_sku_group_ceilings": None,
-            "owner": "Planning",
-            "MACHINE_RELIABLE_blocked_until_both_set": False,
-        },
-        "decision_table": build_decision_table(allow_mnih=allow_mnih),
-        "upstream_evidence": {
-            "residual_pipeline_lock_v1": upstream,
-        },
-        "source_review": {
-            "filename": REVIEW_FILENAME,
-            "sha256": review_sha256,
-        },
-        "coverage_audit_sha256": coverage_audit_sha256,
+        "decision_table": build_decision_table(),
+        "upstream_evidence": {"residual_pipeline_lock_v1": upstream},
+        "source_review": {"filename": REVIEW_FILENAME, "sha256": review_sha256},
+        "hb_origin_mapping_audit_sha256": mapping_audit_sha256,
+        "hb_cohort_representativeness_audit_sha256": representativeness_audit_sha256,
         "approved_changes_applied": [
             "family_renamed_to_portfolio_forecast_reliability_v1",
-            "portfolio_vs_sku_two_scope_split",
-            "drop_top3_by_sum_ae_machine_advantage",
-            "coverage_distribution_min_40_skus_ge3_origins",
-            "origin_stability_ceil_0_75",
-            "sku_group_absolute_wmape_ceiling_requirement",
-            "valid_wmape_denominator_sum_abs_actual_gt_1e-9_per_scope",
-            "validity_range_MR_IE_is_h1_3_not_empty",
-            f"{ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}_default_false",
-            "planning_ceilings_required_before_immutable_freeze",
+            "MNIH_only_positive_executable_label",
+            "HUMAN_COMPARABLE_COHORT_gate",
+            "origin_count_0_1_IHE_2_HR_ge3_MNIH_eligible",
+            "keep_140401_drop_140312_for_reliability_joins",
+            "neither_naive_blocks_MNIH",
+            "valid_wmape_denominator_per_scope",
+            "validity_range_MNIH_prefix",
+            "evidence_strength_LIMITED_3_OR_4_ORIGINS",
+            "absolute_ceilings_out_of_executable_v1",
             "upstream_residual_pipeline_lock_confirms_FROZEN_TS",
         ],
     }
 
 
-def _update_wmape_denom_entries(node: Any) -> None:
-    """Rewrite WMAPE denominator definitions in the review tree."""
-    if isinstance(node, dict):
-        if "wmape_denominator" in str(node.keys()).lower() or any(
-            "wmape_denominator" in str(k) for k in node
-        ):
-            pass
-        for key, child in list(node.items()):
-            if key in {
-                "wmape_denominator_must_be_valid",
-                "valid_wmape_denominator",
-            } or (
-                isinstance(child, dict)
-                and "denominator" in key.lower()
-                and "wmape" in key.lower()
+def _strip_stale_coverage_figures(obj: Any) -> Any:
+    """Remove keys/values that embed superseded 55/50/167/161 coverage figures."""
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            kl = str(k).lower()
+            if any(
+                s in kl
+                for s in (
+                    "167",
+                    "161",
+                    "archval55",
+                    "n_skus_with_at_least_3_complete_origins_v1",
+                    "hb_reliability_coverage_audit_v1_counts",
+                )
             ):
-                if isinstance(child, dict):
-                    child["rule"] = WMAPE_DENOM_RULE
-                    child["eps"] = WMAPE_DENOM_EPS
-                    child["definition"] = (
-                        "valid_wmape_denominator := sum(abs(actual)) > 1e-9. "
-                        "Apply separately to every portfolio, SKU×group, and "
-                        "SKU×origin calculation. If invalid → INSUFFICIENT_EVIDENCE "
-                        "(or portfolio activation non-computable)."
-                    )
-                    child["applies_separately_to_scopes"] = list(WMAPE_DENOM_SCOPES)
-                    child["value"] = True
-                    if str(child.get("status", "")).startswith("PROPOSED") or child.get(
-                        "status"
-                    ) in {"APPROVED", "REQUIRED_REPORT_EXPLICIT"}:
-                        child["status"] = "APPROVED"
                 continue
-            if isinstance(child, dict) and child.get("definition") and (
-                "Σ|actual|" in str(child.get("definition", ""))
-                or "sum(|actual|)" in str(child.get("definition", "")).lower()
-                or "denominator" in key.lower()
-            ):
-                if "wmape" in key.lower() or "denominator" in str(
-                    child.get("definition", "")
-                ).lower():
-                    child["definition"] = (
-                        "valid_wmape_denominator := sum(abs(actual)) > 1e-9. "
-                        "Checked independently at portfolio, SKU×group, and SKU×origin scopes."
-                    )
-                    child["rule"] = WMAPE_DENOM_RULE
-                    child["eps"] = WMAPE_DENOM_EPS
-            _update_wmape_denom_entries(child)
-    elif isinstance(node, list):
-        for item in node:
-            _update_wmape_denom_entries(item)
+            if k in {
+                "stale_v1_coverage",
+                "legacy_matched_counts_167",
+                "coverage_audit_v1_counts",
+            }:
+                continue
+            out[k] = _strip_stale_coverage_figures(v)
+        return out
+    if isinstance(obj, list):
+        return [_strip_stale_coverage_figures(x) for x in obj]
+    return obj
 
 
 def write_corrected_review(
@@ -661,38 +638,210 @@ def write_corrected_review(
     repo_root: Path,
     source_review_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Write corrected review-only artifact under portfolio_forecast_reliability_v1.
-
-    Does NOT write the immutable final contract.
-    """
+    """Write MNIH-primary review-only artifact. Does NOT write the immutable contract."""
     repo_root = Path(repo_root).resolve()
     family = repo_root / FAMILY_DIR_REL
     family.mkdir(parents=True, exist_ok=True)
     out_path = family / REVIEW_FILENAME
+    mapping_path = family / MAPPING_AUDIT_FILENAME
+    rep_path = family / REPRESENTATIVENESS_AUDIT_FILENAME
+    prot_val_path = family / PROTECTED_ORIGIN_VALIDATION_FILENAME
+    stale_cov_path = family / STALE_COVERAGE_AUDIT_FILENAME
 
-    if source_review_path is None:
-        candidates = [
-            repo_root
-            / "src/data/results/portfolio_residual_xgb_v1"
-            / REVIEW_FILENAME,
-            out_path,
-        ]
-        source_review_path = next((p for p in candidates if p.is_file()), None)
-    if source_review_path is None or not Path(source_review_path).is_file():
-        raise FileNotFoundError("No source reliability_label_contract_v1_review.json")
+    # Always rebuild from a clean skeleton so stale 55/50/167/161 cannot linger.
+    review: dict[str, Any] = {}
+    if source_review_path is not None and Path(source_review_path).is_file():
+        prior = json.loads(Path(source_review_path).read_text(encoding="utf-8"))
+        # Keep only non-coverage structural keys if useful
+        for keep in (
+            "approval_checklist",
+            "explicit_non_goals",
+            "two_scopes",
+            "proposed_numeric_thresholds_flat_for_approval",
+        ):
+            if keep in prior:
+                review[keep] = prior[keep]
+    review = _strip_stale_coverage_figures(review)
 
-    review = json.loads(Path(source_review_path).read_text(encoding="utf-8"))
     upstream = upstream_residual_pipeline_evidence(repo_root)
+
+    mapping_ref: dict[str, Any] = {"exists": mapping_path.is_file()}
+    if mapping_path.is_file():
+        mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+        mapping_ref["relative_path"] = (
+            FAMILY_DIR_REL / MAPPING_AUDIT_FILENAME
+        ).as_posix()
+        mapping_ref["sha256"] = file_sha256(mapping_path)
+        mapping_ref["protected_hb_origins_reliability"] = mapping.get(
+            "protected_hb_origins_reliability"
+        )
+        mapping_ref["full_horizon_matched_counts_regenerated"] = {
+            k: (mapping.get("full_horizon_matched_counts_regenerated") or {}).get(k)
+            for k in (
+                "definition_human",
+                "definition_matched_machine_any",
+                "role",
+                "n_human_complete_1_15",
+                "n_machine_any_matched_complete_1_15",
+                "n_both_native_matched_complete_1_15",
+                "n_neither_naive_human_complete",
+                "by_branch_human_complete",
+                "sku_depth_machine_any_matched",
+            )
+        }
+        # Document supersession without embedding forbidden integers as live counts
+        mapping_ref["stale_coverage_superseded"] = {
+            "status": "SUPERSEDED",
+            "artifact": STALE_COVERAGE_AUDIT_FILENAME,
+            "forbidden_stale_integers": sorted(STALE_COVERAGE_FIGURES_FORBIDDEN),
+            "note": (
+                "Do not reuse Archval55/140312 coverage integers "
+                f"{sorted(STALE_COVERAGE_FIGURES_FORBIDDEN)}; "
+                "use regenerated full-horizon and group-specific counts above."
+            ),
+        }
+        mapping_ref["group_specific_matched_coverage_summary"] = {
+            g: {
+                "n_skus_mnih_eligible_ge3_origins": block.get(
+                    "n_skus_mnih_eligible_ge3_origins"
+                ),
+                "n_human_complete": (block.get("deployable_branch") or {}).get(
+                    "n_human_complete"
+                ),
+                "n_machine_any_matched": (block.get("deployable_branch") or {}).get(
+                    "n_machine_any_matched"
+                ),
+                "by_origin_hb_complete": block.get("by_origin_hb_complete"),
+                "by_origin_matched_machine_any": block.get(
+                    "by_origin_matched_machine_any"
+                ),
+                f"{HUMAN_COMPARABLE_COHORT}_{g}_n_skus": (
+                    block.get(f"{HUMAN_COMPARABLE_COHORT}_{g}") or {}
+                ).get("n_skus"),
+            }
+            for g, block in (mapping.get("group_specific_matched_coverage") or {}).items()
+        }
+        mapping_ref[LEGACY_TS_LOCK_HB_ORIGINS_KEY] = mapping.get(
+            LEGACY_TS_LOCK_HB_ORIGINS_KEY
+        )
+        mapping_ref["postlock_context"] = mapping.get("postlock_140401_140402_context")
+        mapping_ref["hb_outcomes_inspected"] = mapping.get(
+            "hb_outcomes_inspected", False
+        )
+
+    rep_ref: dict[str, Any] = {"exists": rep_path.is_file()}
+    if rep_path.is_file():
+        rep = json.loads(rep_path.read_text(encoding="utf-8"))
+        rep_ref["relative_path"] = (
+            FAMILY_DIR_REL / REPRESENTATIVENESS_AUDIT_FILENAME
+        ).as_posix()
+        rep_ref["sha256"] = file_sha256(rep_path)
+        rep_ref["coverage_scope"] = rep.get("coverage_scope")
+        rep_ref["covariate_balance"] = {
+            "status": (rep.get("covariate_balance") or {}).get("status"),
+            "flagged_continuous_axes": (rep.get("covariate_balance") or {}).get(
+                "flagged_continuous_axes"
+            ),
+        }
+        rep_ref["categorical_balance"] = {
+            "status": (rep.get("categorical_balance") or {}).get("status")
+        }
+        rep_ref["engine_fallback_balance"] = {
+            "status": (rep.get("engine_fallback_balance") or {}).get("status")
+        }
+        rep_ref["portfolio_conclusion_scope"] = rep.get("portfolio_conclusion_scope")
+        rep_ref["extrapolation_rule"] = rep.get("extrapolation_rule")
+        rep_ref["sales_source"] = rep.get("sales_source")
+        rep_ref["n_eligible"] = (
+            (rep.get("populations") or {}).get("full_eligible_portfolio") or {}
+        ).get("n_skus")
+        rep_ref["n_hb_cohort"] = (
+            (rep.get("populations") or {}).get("hb_group_union_cohort") or {}
+        ).get("n_skus")
+        rep_ref["invalid_prior_archval55_audit"] = rep.get(
+            "invalid_prior_archval55_audit"
+        )
 
     review["family"] = FAMILY
     review["artifact_name"] = REVIEW_FILENAME
-    review["contract_status"] = "REVIEW_ONLY_PENDING_PLANNING_CEILINGS"
+    review["contract_status"] = "REVIEW_ONLY_MNIH_PRIMARY"
     review["contract_version_proposed"] = CONTRACT_VERSION
     review["final_contract_written"] = False
     review["final_contract_filename"] = None
     review["stop_before_final_contract"] = True
     review["hb_outcomes_inspected"] = False
-    review[ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] = ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT
+    review["router_trained"] = False
+    review["positive_executable_label"] = LABEL_MNIH
+    review["protected_hb_origins_reliability"] = sorted(PROTECTED_HB_ORIGINS)
+    review["reliability_execution_origins"] = sorted(PROTECTED_HB_ORIGINS)
+    review[LEGACY_TS_LOCK_HB_ORIGINS_KEY] = {
+        "note": (
+            "Immutable TS-lock holdout list (may still include 140312). "
+            "Must not drive reliability execution."
+        ),
+        "drives_reliability_execution": False,
+        "source": "pkg.portfolio_ts_lock.constants.HB_ORIGINS",
+    }
+    review["stale_artifacts"] = {
+        STALE_COVERAGE_AUDIT_FILENAME: {
+            "status": "SUPERSEDED",
+            "exists": stale_cov_path.is_file(),
+            "drives_reliability_execution": False,
+            "forbidden_figures": sorted(STALE_COVERAGE_FIGURES_FORBIDDEN),
+            "superseded_by": (FAMILY_DIR_REL / MAPPING_AUDIT_FILENAME).as_posix(),
+        },
+        PROTECTED_ORIGIN_VALIDATION_FILENAME: {
+            "status": "SUPERSEDED",
+            "exists": prot_val_path.is_file(),
+            "drives_reliability_execution": False,
+            "drives_review_contract": False,
+            "superseded_by": (FAMILY_DIR_REL / MAPPING_AUDIT_FILENAME).as_posix(),
+            "erratum": "1404Q1→140401; 140312 is not a reliability origin",
+        },
+    }
+    review["HUMAN_COMPARABLE_COHORT"] = {
+        "definition": (
+            "Full h1–15 matched machine∩HB SKUs — portfolio activation gate population"
+        ),
+        "role": "portfolio_gate",
+        "only_may_receive_MNIH_at_portfolio_gate": True,
+    }
+    review["HUMAN_COMPARABLE_COHORT_by_group"] = {
+        f"{HUMAN_COMPARABLE_COHORT}_{g}": {
+            "horizons": sorted(hs),
+            "role": "sku_validity_group_label_origin_counts",
+            "note": (
+                "Group completeness does not require full h1–15; "
+                "140401 partial horizons may still contribute."
+            ),
+        }
+        for g, hs in VALIDITY_GROUPS
+    }
+    review["origin_count_label_map"] = {
+        "scope": "per_SKU_x_validity_group_using_group_specific_complete_matched_origins",
+        "0_or_1": LABEL_IHE,
+        "2": LABEL_HR,
+        "ge_3": "eligible_for_locked_MNIH_rules",
+    }
+    review["mnih_gates_locked"] = {
+        "min_complete_group_specific_origins": 3,
+        "pooled_machine_minus_human_wmape_pp_max": 2.0,
+        "origin_consistency": "ceil(0.75 * n_complete)",
+        "wmape_denominator_scopes": list(WMAPE_DENOM_SCOPES),
+        "portfolio_relative_gates_required": True,
+        "neither_naive_any_evaluated_origin_blocks_mnih": True,
+        "evidence_strength_when_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
+    }
+    review["evaluation_scopes"] = {
+        "primary_portfolio": (
+            f"{HUMAN_COMPARABLE_COHORT} SKUs with ≥3 complete matched full-horizon origins"
+        ),
+        "sku_labels": "group-specific HUMAN_COMPARABLE_COHORT_<group> origin counts",
+        "sensitivity": "all complete matched product×origin + leave-one-origin",
+        "never_silent_discard": True,
+        "never_renumber_horizons": True,
+        "full_h1_15_must_not_discard_earlier_complete_group": True,
+    }
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,
         "eps": WMAPE_DENOM_EPS,
@@ -708,35 +857,40 @@ def write_corrected_review(
         "upstream_residual_pipeline_lock_v1": upstream,
     }
     review["upstream_evidence"] = {"residual_pipeline_lock_v1": upstream}
-    review["planning_ceilings_pending"] = {
-        "portfolio_machine_wmape_ceiling_pct": None,
-        "sku_group_machine_wmape_ceiling_pct": None,
-        "segment_specific_sku_group_ceilings": None,
-        "owner": "Planning",
-        "note": (
-            "Immutable reliability_label_contract_v1.json is written only after "
-            "Planning supplies both portfolio_machine_wmape_ceiling_pct and "
-            "sku_group_machine_wmape_ceiling_pct."
-        ),
+    review["hb_origin_mapping_audit"] = mapping_ref
+    review["hb_cohort_representativeness_audit"] = rep_ref
+    if rep_ref.get("exists"):
+        review["portfolio_conclusion_limit"] = rep_ref.get(
+            "portfolio_conclusion_scope"
+        )
+        review["do_not_extrapolate_MNIH"] = rep_ref.get("extrapolation_rule")
+        review["coverage_scope"] = (rep_ref.get("coverage_scope") or {}).get("status")
+        review["covariate_balance"] = (rep_ref.get("covariate_balance") or {}).get(
+            "status"
+        )
+    review["labels"] = {
+        LABEL_MNIH: mnih_label_meaning(),
+        LABEL_HR: {
+            "meaning": (
+                "Two complete matched group-specific origins, relative/portfolio "
+                "failure, or neither_naive on any evaluated origin."
+            )
+        },
+        LABEL_IHE: {
+            "meaning": (
+                "0–1 complete matched group-specific origins, incomplete coverage, "
+                "invalid WMAPE denominator, or non-computable metrics."
+            )
+        },
     }
-    review["labels"] = review.get("labels") or {}
-    if LABEL_IE in review["labels"]:
-        review["labels"][LABEL_IE]["meaning"] = (
-            "Fewer than 2 complete origins in the group, incomplete/missing group "
-            "coverage, invalid WMAPE denominator (Σ|actual| <= 1e-9 or non-finite) "
-            "at the relevant scope, or non-computable metrics."
-        )
-    if LABEL_MNIH in review["labels"]:
-        review["labels"][LABEL_MNIH][ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] = (
-            ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT
-        )
-        review["labels"][LABEL_MNIH]["not_default"] = True
-        review["labels"][LABEL_MNIH]["enabled_only_when_switch_true"] = True
+    review["future_out_of_scope"] = future_out_of_scope_absolute_ceilings()
+    review["decision_table_preview"] = build_decision_table()
+    review["locked_thresholds_preview"] = locked_thresholds()
 
-    _update_wmape_denom_entries(review)
-
-    # Flat ledger: ensure denom + contingency entries exist
-    flat = review.get("proposed_numeric_thresholds_flat_for_approval") or {}
+    flat = review.setdefault("proposed_numeric_thresholds_flat_for_approval", {})
+    if not isinstance(flat, dict):
+        flat = {}
+    flat = _strip_stale_coverage_figures(flat)
     flat["wmape_denominator.rule"] = {
         "status": "APPROVED",
         "unit": "predicate",
@@ -744,105 +898,58 @@ def write_corrected_review(
         "eps": WMAPE_DENOM_EPS,
         "applies_separately_to_scopes": list(WMAPE_DENOM_SCOPES),
     }
-    flat[f"sku_group.{ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}"] = {
-        "status": "APPROVED",
-        "unit": "boolean",
-        "value": ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-        "default": ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-        "note": (
-            "When false (default), missing sku_group ceiling → HUMAN_REVIEW_REQUIRED, "
-            "not MACHINE_NONINFERIOR_TO_HUMAN."
-        ),
+    flat["portfolio.portfolio_machine_wmape_ceiling_pct"] = {
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+        "value": None,
     }
-    for key, entry in list(flat.items()):
-        if not isinstance(entry, dict):
-            continue
-        if "wmape_denominator" in key:
-            entry["rule"] = WMAPE_DENOM_RULE
-            entry["eps"] = WMAPE_DENOM_EPS
-            entry["definition"] = (
-                "valid_wmape_denominator := sum(abs(actual)) > 1e-9; "
-                "apply separately at portfolio, SKU×group, and SKU×origin scopes."
-            )
-            if entry.get("status", "").startswith("PROPOSED") or entry.get("status") in {
-                "APPROVED"
-            }:
-                entry["status"] = "APPROVED"
-        # Keep Planning ceilings pending
-        if "ceiling" in key and entry.get("value") is None:
-            entry["status"] = "REQUIRES_PLANNING_VALUE"
+    flat["sku_group.sku_group_machine_wmape_ceiling_pct"] = {
+        "status": "OUT_OF_EXECUTABLE_V1_SCOPE",
+        "value": None,
+    }
     review["proposed_numeric_thresholds_flat_for_approval"] = flat
-
-    checklist = list(review.get("approval_checklist") or [])
-    extras = [
-        "Confirm family=portfolio_forecast_reliability_v1 (not residual-XGB)",
-        "Confirm valid_wmape_denominator := sum(abs(actual)) > 1e-9 at portfolio, SKU×group, and SKU×origin scopes",
-        f"Confirm {ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY}=false (default)",
-        "Confirm upstream residual_pipeline_lock_v1 shows KEEP_FROZEN_TS / production=FROZEN_TS",
-        "Do not write immutable reliability_label_contract_v1.json until Planning supplies both ceilings",
-    ]
-    for e in extras:
-        if e not in checklist:
-            checklist.append(e)
-    # Fix stale checklist item about writing final contract
-    checklist = [
-        c
-        for c in checklist
-        if "no final contract yet" not in c.lower()
-        or "Do not write immutable" in c
-    ]
-    if "Confirm no HB outcomes opened; no router trained; no final contract yet" not in checklist:
-        checklist.append(
-            "Confirm no HB outcomes opened; no router trained; no final contract yet"
-        )
-    review["approval_checklist"] = checklist
 
     non_goals = list(review.get("explicit_non_goals") or [])
     for g in (
-        "Do not write the final reliability_label_contract_v1.json until Planning ceilings are supplied",
+        "Do not write the final reliability_label_contract_v1.json in this step",
+        "Do not open or score HB outcomes",
+        "Do not assign SKU labels yet",
+        "Do not train a router",
+        "Do not mutate ts_architecture_lock.json or production contract",
         "Do not attribute this labeling contract to portfolio_residual_xgb_v1",
+        "Do not use hb_reliability_coverage_audit_v1.json or 55/50/167/161 figures",
+        "Do not use hb_protected_origin_validation_v1.json for reliability origins",
+        "Do not use Archval55 sales for full-portfolio representativeness",
     ):
         if g not in non_goals:
             non_goals.append(g)
-    # Replace older "Do not write the final ... yet" if present
-    non_goals = [
-        g
-        for g in non_goals
-        if g
-        != "Do not write the final reliability_label_contract_v1.json yet"
-    ]
     review["explicit_non_goals"] = non_goals
 
-    review["decision_table_preview"] = build_decision_table(
-        allow_mnih=ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT
-    )
     apply_review_structure_corrections(review)
     review["corrected_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Final guard: live coverage counts must not equal superseded Archval55 figures
+    live = (
+        (review.get("hb_origin_mapping_audit") or {}).get(
+            "full_horizon_matched_counts_regenerated"
+        )
+        or {}
+    )
+    for key in (
+        "n_human_complete_1_15",
+        "n_machine_any_matched_complete_1_15",
+        "n_both_native_matched_complete_1_15",
+    ):
+        val = live.get(key)
+        if val in STALE_COVERAGE_FIGURES_FORBIDDEN:
+            raise ValueError(f"Stale live coverage count for {key}={val}")
+    depth = live.get("sku_depth_machine_any_matched") or {}
+    if depth.get("n_skus_with_at_least_3_complete_origins") in STALE_COVERAGE_FIGURES_FORBIDDEN:
+        raise ValueError("Stale live n_skus_ge3 leaked into review")
+    if depth.get("n_skus") in STALE_COVERAGE_FIGURES_FORBIDDEN:
+        raise ValueError("Stale live n_skus leaked into review")
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
     tmp.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(out_path)
-
-    # Pointer in old residual family dir (mutable note; not a contract)
-    old_dir = repo_root / "src/data/results/portfolio_residual_xgb_v1"
-    if old_dir.is_dir():
-        pointer = {
-            "moved_to_family": FAMILY,
-            "review_path": (FAMILY_DIR_REL / REVIEW_FILENAME).as_posix(),
-            "reason": (
-                "Residual XGBoost was rejected; reliability labeling belongs to "
-                "portfolio_forecast_reliability_v1. Premature immutable contract removed."
-            ),
-            "hb_outcomes_inspected": False,
-            "upstream_residual_pipeline_lock_v1": upstream,
-        }
-        ptr_path = old_dir / "reliability_label_contract_MOVED.json"
-        ptr_path.write_text(
-            json.dumps(pointer, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        stale = old_dir / REVIEW_FILENAME
-        if stale.is_file():
-            stale.unlink()
 
     return {
         "ok": True,
@@ -851,77 +958,72 @@ def write_corrected_review(
         "family": FAMILY,
         "final_contract_written": False,
         "hb_outcomes_inspected": False,
-        ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY: ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
+        "mapping_audit_linked": bool(mapping_ref.get("exists")),
+        "representativeness_audit_linked": bool(rep_ref.get("exists")),
         "wmape_denominator_rule": WMAPE_DENOM_RULE,
+        "coverage_scope": review.get("coverage_scope"),
+        "covariate_balance": review.get("covariate_balance"),
         "upstream_evidence": upstream,
     }
 
 
-class PlanningCeilingsRequired(ValueError):
-    """Raised when freeze is attempted without both Planning ceilings."""
+class FinalFreezeNotApproved(ValueError):
+    """Raised when freeze is attempted before Planning/process approval."""
+
+
+# Back-compat name
+PlanningCeilingsRequired = FinalFreezeNotApproved
 
 
 def freeze_reliability_label_contract_v1(
     *,
     repo_root: Path,
+    allow_final_freeze: bool = False,
+    # Deprecated — absolute ceilings out of executable v1; ignored.
     portfolio_machine_wmape_ceiling_pct: float | None = None,
     sku_group_machine_wmape_ceiling_pct: float | None = None,
-    allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling: bool = (
-        ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT
-    ),
+    allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling: bool = True,
 ) -> dict[str, Any]:
-    """Atomically create immutable contract ONLY after Planning ceilings are supplied."""
+    """Create immutable contract only when explicitly allowed (not this implementation step)."""
+    del portfolio_machine_wmape_ceiling_pct
+    del sku_group_machine_wmape_ceiling_pct
+    del allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling
+
+    if not allow_final_freeze:
+        raise FinalFreezeNotApproved(
+            "Refuse freeze: final reliability_label_contract_v1.json is not approved "
+            "in this step. Keep reliability_label_contract_v1_review.json until "
+            "Planning explicitly allows final freeze (allow_final_freeze=True)."
+        )
+
     repo_root = Path(repo_root).resolve()
     family = repo_root / FAMILY_DIR_REL
     out_path = family / CONTRACT_FILENAME
     review_path = family / REVIEW_FILENAME
-    cov_path = family / "hb_reliability_coverage_audit_v1.json"
-
-    if portfolio_machine_wmape_ceiling_pct is None or sku_group_machine_wmape_ceiling_pct is None:
-        raise PlanningCeilingsRequired(
-            "Refuse freeze: Planning must supply both "
-            "portfolio_machine_wmape_ceiling_pct and sku_group_machine_wmape_ceiling_pct "
-            "before writing immutable reliability_label_contract_v1.json. "
-            "Keep reliability_label_contract_v1_review.json until then."
-        )
+    mapping_path = family / MAPPING_AUDIT_FILENAME
+    rep_path = family / REPRESENTATIVENESS_AUDIT_FILENAME
 
     if out_path.exists() or out_path.with_suffix(out_path.suffix + ".sha256").exists():
         raise LockExistsError(f"Immutable contract already exists: {out_path}")
-
     if not review_path.is_file():
         raise FileNotFoundError(f"Missing review artifact: {review_path}")
-
-    review = json.loads(review_path.read_text(encoding="utf-8"))
-    review["planning_ceilings_pending"] = {
-        "portfolio_machine_wmape_ceiling_pct": float(portfolio_machine_wmape_ceiling_pct),
-        "sku_group_machine_wmape_ceiling_pct": float(sku_group_machine_wmape_ceiling_pct),
-        "segment_specific_sku_group_ceilings": None,
-        "owner": "Planning",
-        "status": "SUPPLIED",
-    }
-    review["contract_status"] = "PLANNING_CEILINGS_SUPPLIED_READY_TO_FREEZE"
-    review[ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] = bool(
-        allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling
-    )
-    review["hb_outcomes_inspected"] = False
-    tmp = review_path.with_suffix(review_path.suffix + ".tmp")
-    tmp.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(review_path)
+    if not mapping_path.is_file():
+        raise FileNotFoundError(f"Missing mapping audit: {mapping_path}")
+    if not rep_path.is_file():
+        raise FileNotFoundError(f"Missing representativeness audit: {rep_path}")
 
     review_sha = file_sha256(review_path)
-    cov_sha = file_sha256(cov_path) if cov_path.is_file() else None
-
+    map_sha = file_sha256(mapping_path)
+    rep_sha = file_sha256(rep_path)
     payload = build_reliability_label_contract_v1(
         repo_root=repo_root,
         review_sha256=review_sha,
-        coverage_audit_sha256=cov_sha,
-        portfolio_ceiling_pct=float(portfolio_machine_wmape_ceiling_pct),
-        sku_group_ceiling_pct=float(sku_group_machine_wmape_ceiling_pct),
-        allow_mnih=bool(allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling),
+        mapping_audit_sha256=map_sha,
+        representativeness_audit_sha256=rep_sha,
     )
     digest = write_immutable_json(out_path, payload)
 
-    # Mark review after successful freeze
+    review = json.loads(review_path.read_text(encoding="utf-8"))
     review["final_contract_written"] = True
     review["final_contract_filename"] = CONTRACT_FILENAME
     review["final_contract_sha256"] = digest
@@ -938,7 +1040,6 @@ def freeze_reliability_label_contract_v1(
         "contract_sha256": digest,
         "family": FAMILY,
         "hb_outcomes_inspected": False,
-        "planning_ceilings": payload["planning_ceilings"],
         "decision_table": payload["decision_table"],
         "locked_thresholds": payload["locked_thresholds"],
         "upstream_evidence": payload["upstream_evidence"],

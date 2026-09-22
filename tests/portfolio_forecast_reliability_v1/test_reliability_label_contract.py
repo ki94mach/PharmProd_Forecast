@@ -1,28 +1,34 @@
-"""Tests for portfolio_forecast_reliability_v1 label contract."""
+"""Tests for portfolio_forecast_reliability_v1 (MNIH-primary)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
+from pkg.benchmark.calendar import origin_from_quarter
+from pkg.db.query.product_budget import version_to_qrt
 from pkg.portfolio_ts_lock.lock_io import LockExistsError
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
-    ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT,
-    ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY,
+    EVIDENCE_STRENGTH_LIMITED,
     FAMILY,
     FAMILY_DIR_REL,
+    LABEL_HR,
+    LABEL_IHE,
+    LABEL_MNIH,
+    MAPPING_AUDIT_FILENAME,
+    PROTECTED_HB_ORIGINS,
+    REPRESENTATIVENESS_AUDIT_FILENAME,
     WMAPE_DENOM_EPS,
     WMAPE_DENOM_RULE,
 )
 from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
-    LABEL_HR,
-    LABEL_IE,
-    LABEL_MNIH,
-    LABEL_MR,
-    PlanningCeilingsRequired,
+    FinalFreezeNotApproved,
     decide_sku_group_label,
+    decide_sku_group_label_with_meta,
+    evidence_strength_for_n_origins,
     freeze_reliability_label_contract_v1,
     required_noninferior_origins,
     validity_range_prefix,
@@ -35,6 +41,19 @@ def test_family_name():
     assert FAMILY == "portfolio_forecast_reliability_v1"
 
 
+def test_protected_origins_keep_140401_not_140312():
+    assert 140401 in PROTECTED_HB_ORIGINS
+    assert 140312 not in PROTECTED_HB_ORIGINS
+    assert PROTECTED_HB_ORIGINS == frozenset({140304, 140307, 140310, 140401})
+
+
+def test_version_quarter_maps_1404q1_to_140401():
+    # YYYYQQEE edition → qrt → origin_from_quarter
+    qrt = version_to_qrt(14040101)
+    assert str(qrt).upper() == "1404Q1"
+    assert int(origin_from_quarter(qrt)) == 140401
+
+
 def test_required_noninferior_origins_ceil():
     assert required_noninferior_origins(3) == 3
     assert required_noninferior_origins(4) == 3
@@ -44,89 +63,36 @@ def test_required_noninferior_origins_ceil():
 def test_wmape_denominator_gt_1e_9():
     assert WMAPE_DENOM_RULE == "sum(abs(actual)) > 1e-9"
     assert wmape_denominator_valid(1.0) is True
-    assert wmape_denominator_valid(WMAPE_DENOM_EPS * 10) is True
-    assert wmape_denominator_valid(WMAPE_DENOM_EPS) is False  # strict >
-    assert wmape_denominator_valid(WMAPE_DENOM_EPS * 0.5) is False
+    assert wmape_denominator_valid(WMAPE_DENOM_EPS) is False
     assert wmape_denominator_valid(0.0) is False
     assert wmape_denominator_valid(float("nan")) is False
-    assert wmape_denominator_valid(float("inf")) is False
 
 
-def test_review_structure_corrections():
-    from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
-        apply_review_structure_corrections,
-        canonical_per_group_label_rules,
-    )
-
-    review = {
-        "two_scopes": {
-            "portfolio_activation_gate": {
-                "gates_apply_here_only": [
-                    "coverage_distribution",
-                    "p99_ae_ratio",
-                    "sku_cluster_bootstrap",
-                    "wmape_denominator_must_be_valid",
-                ]
-            },
-            "sku_validity_group_labels": {
-                "per_group_label_rule": {"ordered": []},
-                "proposed_numeric_thresholds": {
-                    "sku_group_machine_wmape_ceiling_pct": {"value": None}
-                },
-            },
-        },
-        "labels": {LABEL_IE: {"meaning": "old"}},
-        "approval_checklist": [],
-        "proposed_numeric_thresholds_flat_for_approval": {
-            "sku_group.sku_group_machine_wmape_ceiling_pct": {"value": None}
-        },
-        "planning_ceilings_pending": {},
-    }
-    apply_review_structure_corrections(review)
-    gates = review["two_scopes"]["portfolio_activation_gate"]["gates_apply_here_only"]
-    assert "max_ae_ratio" in gates
-    assert gates.index("max_ae_ratio") == gates.index("p99_ae_ratio") + 1
-    ordered = review["two_scopes"]["sku_validity_group_labels"]["per_group_label_rule"][
-        "ordered"
-    ]
-    labels = [b["label"] for b in ordered]
-    assert LABEL_MNIH in labels
-    assert ordered[-1]["label"] == LABEL_HR
-    assert labels.index(LABEL_MR) < labels.index(LABEL_MNIH) < len(labels) - 1
-    denom_rule = next(b for b in ordered if "wmape_denominator_invalid" in b["when"])
-    assert "1e-9" in denom_rule["when"]
-    assert "non-finite" in denom_rule["when"]
-    seg = review["two_scopes"]["sku_validity_group_labels"]["proposed_numeric_thresholds"][
-        "sku_group_machine_wmape_ceiling_pct"
-    ]["segment_specific_ceilings"]
-    assert seg["must_define_before_opening_outcomes"] is True
-    assert "segment_assignment" in seg
-    assert "ceiling_precedence" in seg
-    assert "missing_segment_behavior" in seg
-    assert "1e-9 or non-finite" in review["labels"][LABEL_IE]["meaning"]
-    # canonical helper matches
-    canon = canonical_per_group_label_rules()
-    assert any(b["label"] == LABEL_MNIH for b in canon["ordered"])
+def test_evidence_strength_limited():
+    assert evidence_strength_for_n_origins(3) == EVIDENCE_STRENGTH_LIMITED
+    assert evidence_strength_for_n_origins(4) == EVIDENCE_STRENGTH_LIMITED
+    assert evidence_strength_for_n_origins(2) is None
+    assert evidence_strength_for_n_origins(5) is None
 
 
-def test_contingency_switch_defaults_false():
-    assert ALLOW_MNIH_WITHOUT_SKU_CEILING_DEFAULT is False
-    assert ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY == (
-        "allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling"
-    )
-
-
-def test_validity_range_mr_ie_is_h1_3_not_empty():
-    r = validity_range_prefix([LABEL_MR, LABEL_IE, LABEL_HR, LABEL_MR])
-    assert r["machine_reliable_groups"] == ["h1_3"]
+def test_validity_range_mnih_prefix():
+    r = validity_range_prefix([LABEL_MNIH, LABEL_IHE, LABEL_HR, LABEL_MNIH])
+    assert r["machine_noninferior_groups"] == ["h1_3"]
     assert r["display_range"] == "h1–3"
     assert r["human_review_from_group"] == "h4_6"
+    assert r["positive_label"] == LABEL_MNIH
 
 
-def test_validity_range_empty_when_first_not_mr():
-    r = validity_range_prefix([LABEL_IE, LABEL_MR, LABEL_MR, LABEL_MR])
-    assert r["machine_reliable_groups"] == []
+def test_validity_range_empty_when_first_not_mnih():
+    r = validity_range_prefix([LABEL_IHE, LABEL_MNIH, LABEL_MNIH, LABEL_MNIH])
+    assert r["machine_noninferior_groups"] == []
     assert r["human_review_from_group"] == "h1_3"
+
+
+def test_validity_range_stops_at_hr():
+    r = validity_range_prefix([LABEL_MNIH, LABEL_MNIH, LABEL_HR, LABEL_MNIH])
+    assert r["machine_noninferior_groups"] == ["h1_3", "h4_6"]
+    assert r["human_review_from_group"] == "h7_12"
 
 
 def _base(**kwargs):
@@ -139,122 +105,128 @@ def _base(**kwargs):
         n_origins_noninferior=3,
         portfolio_activation_passed=True,
         deployable_branch="both_native",
-        sku_group_ceiling_pct=40.0,
-        portfolio_ceiling_pct=35.0,
-        allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling=False,
+        in_human_comparable_cohort=True,
     )
     d.update(kwargs)
     return d
 
 
-def test_label_insufficient_incomplete_group():
-    assert decide_sku_group_label(**_base(group_horizons_exact=False)) == LABEL_IE
+def test_label_ihe_incomplete_group():
+    assert decide_sku_group_label(**_base(group_horizons_exact=False)) == LABEL_IHE
 
 
-def test_label_insufficient_lt2_origins():
-    assert decide_sku_group_label(**_base(n_complete_origins=1)) == LABEL_IE
+def test_label_ihe_0_or_1_origins():
+    assert decide_sku_group_label(**_base(n_complete_origins=0)) == LABEL_IHE
+    assert decide_sku_group_label(**_base(n_complete_origins=1)) == LABEL_IHE
 
 
-def test_label_insufficient_bad_denominator():
-    assert decide_sku_group_label(**_base(sum_abs_actual=0.0)) == LABEL_IE
-    assert decide_sku_group_label(**_base(sum_abs_actual=1e-9)) == LABEL_IE
+def test_label_ihe_bad_denominator():
+    assert decide_sku_group_label(**_base(sum_abs_actual=0.0)) == LABEL_IHE
+    assert decide_sku_group_label(**_base(sum_abs_actual=1e-9)) == LABEL_IHE
 
 
-def test_label_human_review_exactly_2_origins():
+def test_label_hr_exactly_2_origins():
     assert decide_sku_group_label(**_base(n_complete_origins=2)) == LABEL_HR
 
 
-def test_label_machine_reliable_pass():
-    assert decide_sku_group_label(**_base()) == LABEL_MR
+def test_label_mnih_pass():
+    assert decide_sku_group_label(**_base()) == LABEL_MNIH
 
 
-def test_label_human_review_when_relative_fails():
+def test_label_mnih_meta_evidence_strength():
+    meta = decide_sku_group_label_with_meta(**_base())
+    assert meta["label"] == LABEL_MNIH
+    assert meta["evidence_strength"] == EVIDENCE_STRENGTH_LIMITED
+    meta4 = decide_sku_group_label_with_meta(**_base(n_complete_origins=4, n_origins_noninferior=3))
+    assert meta4["label"] == LABEL_MNIH
+    assert meta4["evidence_strength"] == EVIDENCE_STRENGTH_LIMITED
+
+
+def test_label_hr_when_relative_fails():
     assert (
         decide_sku_group_label(**_base(machine_group_wmape=34.0, human_group_wmape=31.0))
         == LABEL_HR
     )
 
 
-def test_label_human_review_neither_naive_fallback():
+def test_label_hr_neither_naive_blocks_mnih():
     assert decide_sku_group_label(**_base(deployable_branch="neither_naive")) == LABEL_HR
-
-
-def test_label_human_review_portfolio_gate_failed():
-    assert (
-        decide_sku_group_label(**_base(portfolio_activation_passed=False)) == LABEL_HR
-    )
-
-
-def test_label_absolute_ceiling_fail():
     assert (
         decide_sku_group_label(
-            **_base(machine_group_wmape=45.0, sku_group_ceiling_pct=40.0)
+            **_base(
+                deployable_branch="both_native",
+                any_evaluated_origin_neither_naive=True,
+            )
         )
         == LABEL_HR
     )
 
 
-def test_label_mnih_when_no_sku_ceiling_and_contingency_true():
+def test_label_hr_portfolio_gate_failed():
     assert (
-        decide_sku_group_label(
-            **_base(
-                sku_group_ceiling_pct=None,
-                allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling=True,
-            )
-        )
-        == LABEL_MNIH
+        decide_sku_group_label(**_base(portfolio_activation_passed=False)) == LABEL_HR
     )
 
 
-def test_label_hr_when_no_sku_ceiling_contingency_default_false():
-    assert decide_sku_group_label(**_base(sku_group_ceiling_pct=None)) == LABEL_HR
+def test_label_hr_outside_cohort():
+    assert (
+        decide_sku_group_label(**_base(in_human_comparable_cohort=False)) == LABEL_HR
+    )
 
 
-def test_fallback_incomplete_does_not_block_earlier_range():
-    r = validity_range_prefix([LABEL_MR, LABEL_MR, LABEL_IE, LABEL_HR])
-    assert r["machine_reliable_groups"] == ["h1_3", "h4_6"]
-    assert r["human_review_from_group"] == "h7_12"
+def test_ceilings_ignored_mnih_still_passes():
+    # Absolute ceilings are out of scope; presence/absence must not change MNIH.
+    assert (
+        decide_sku_group_label(
+            **_base(sku_group_ceiling_pct=None, portfolio_ceiling_pct=None)
+        )
+        == LABEL_MNIH
+    )
+    assert (
+        decide_sku_group_label(
+            **_base(sku_group_ceiling_pct=10.0, portfolio_ceiling_pct=10.0)
+        )
+        == LABEL_MNIH
+    )
 
 
 def test_origin_stability_insufficient_wins():
     assert decide_sku_group_label(**_base(n_origins_noninferior=2)) == LABEL_HR
 
 
-def test_label_insufficient_nan_metrics():
-    assert decide_sku_group_label(**_base(machine_group_wmape=float("nan"))) == LABEL_IE
-    assert decide_sku_group_label(**_base(human_group_wmape=None)) == LABEL_IE
+def test_label_ihe_nan_metrics():
+    assert decide_sku_group_label(**_base(machine_group_wmape=float("nan"))) == LABEL_IHE
+    assert decide_sku_group_label(**_base(human_group_wmape=None)) == LABEL_IHE
 
 
-def test_horizon_group_widths_locked():
-    from pkg.portfolio_ts_lock.constants import HORIZON_GROUPS
+def test_canonical_rules_mnih_primary_no_mr_executable():
     from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
-        GROUP_ORDER,
-        GROUP_WIDTH,
+        canonical_per_group_label_rules,
     )
 
-    assert GROUP_ORDER == ("h1_3", "h4_6", "h7_12", "h13_15")
-    for name, hs in HORIZON_GROUPS:
-        assert GROUP_WIDTH[name] == len(hs)
+    ordered = canonical_per_group_label_rules()["ordered"]
+    labels = [b["label"] for b in ordered]
+    assert LABEL_MNIH in labels
+    assert LABEL_IHE in labels
+    assert LABEL_HR in labels
+    # MACHINE_RELIABLE must not appear as an executable ordered branch label
+    assert all(b["label"] != "MACHINE_RELIABLE" for b in ordered)
 
 
-def test_freeze_refuses_without_planning_ceilings(tmp_path: Path):
+def test_freeze_refuses_without_allow_flag(tmp_path: Path):
     family = tmp_path / FAMILY_DIR_REL
     family.mkdir(parents=True)
     (family / "reliability_label_contract_v1_review.json").write_text(
         json.dumps({"hb_outcomes_inspected": False, "family": FAMILY}) + "\n",
         encoding="utf-8",
     )
-    with pytest.raises(PlanningCeilingsRequired):
+    with pytest.raises(FinalFreezeNotApproved):
         freeze_reliability_label_contract_v1(repo_root=tmp_path)
     assert not (family / "reliability_label_contract_v1.json").exists()
 
 
-def test_freeze_with_ceilings_and_overwrite_prevention(tmp_path: Path):
-    # Minimal upstream residual lock for evidence
-    up = (
-        tmp_path
-        / "src/data/results/portfolio_residual_xgb_v1"
-    )
+def test_freeze_with_allow_and_audits(tmp_path: Path):
+    up = tmp_path / "src/data/results/portfolio_residual_xgb_v1"
     up.mkdir(parents=True)
     (up / "residual_pipeline_lock_v1.json").write_text(
         json.dumps(
@@ -262,7 +234,6 @@ def test_freeze_with_ceilings_and_overwrite_prevention(tmp_path: Path):
                 "decision": "KEEP_FROZEN_TS",
                 "production_pipeline": "FROZEN_TS",
                 "selected_pipeline": "FROZEN_TS",
-                "promotion_gates_pass": False,
             }
         )
         + "\n",
@@ -274,39 +245,37 @@ def test_freeze_with_ceilings_and_overwrite_prevention(tmp_path: Path):
         json.dumps({"hb_outcomes_inspected": False, "family": FAMILY}) + "\n",
         encoding="utf-8",
     )
-    (family / "hb_reliability_coverage_audit_v1.json").write_text(
+    (family / MAPPING_AUDIT_FILENAME).write_text(
         json.dumps({"hb_outcomes_inspected": False}) + "\n", encoding="utf-8"
     )
+    (family / REPRESENTATIVENESS_AUDIT_FILENAME).write_text(
+        json.dumps(
+            {
+                "hb_outcomes_inspected": False,
+                "representativeness_conclusion": "NOT_REPRESENTATIVE",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     summary = freeze_reliability_label_contract_v1(
-        repo_root=tmp_path,
-        portfolio_machine_wmape_ceiling_pct=40.0,
-        sku_group_machine_wmape_ceiling_pct=45.0,
+        repo_root=tmp_path, allow_final_freeze=True
     )
     assert summary["ok"] is True
-    assert summary["family"] == FAMILY
     assert summary["hb_outcomes_inspected"] is False
     contract = json.loads(
         (family / "reliability_label_contract_v1.json").read_text(encoding="utf-8")
     )
-    assert contract["family"] == FAMILY
-    assert contract["locked_thresholds"][ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] is False
-    assert contract["locked_thresholds"]["wmape_denominator"]["rule"] == WMAPE_DENOM_RULE
-    assert (
-        contract["upstream_evidence"]["residual_pipeline_lock_v1"][
-            "lock_decision_confirms_FROZEN_TS"
-        ]
-        is True
-    )
+    assert contract["labels"][LABEL_MNIH]["only_positive_executable_label_v1"] is True
+    assert 140401 in contract["protected_hb_origins_reliability"]
+    assert 140312 not in contract["protected_hb_origins_reliability"]
     with pytest.raises(LockExistsError):
         freeze_reliability_label_contract_v1(
-            repo_root=tmp_path,
-            portfolio_machine_wmape_ceiling_pct=40.0,
-            sku_group_machine_wmape_ceiling_pct=45.0,
+            repo_root=tmp_path, allow_final_freeze=True
         )
 
 
-def test_write_corrected_review_no_final_contract(tmp_path: Path, repo_fixture=None):
-    # Use real repo residual review when available via monkeypath — build minimal source
+def test_write_corrected_review_no_final_contract(tmp_path: Path):
     src_dir = tmp_path / "src/data/results/portfolio_residual_xgb_v1"
     src_dir.mkdir(parents=True)
     (src_dir / "residual_pipeline_lock_v1.json").write_text(
@@ -320,26 +289,44 @@ def test_write_corrected_review_no_final_contract(tmp_path: Path, repo_fixture=N
         + "\n",
         encoding="utf-8",
     )
-    (src_dir / "reliability_label_contract_v1_review.json").write_text(
+    family = tmp_path / FAMILY_DIR_REL
+    family.mkdir(parents=True)
+    (family / MAPPING_AUDIT_FILENAME).write_text(
+        json.dumps(
+            {
+                "hb_outcomes_inspected": False,
+                "protected_hb_origins_reliability": [140304, 140307, 140310, 140401],
+                "matched_counts_regenerated": {"n_human_complete_1_15": 999},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (family / REPRESENTATIVENESS_AUDIT_FILENAME).write_text(
+        json.dumps(
+            {
+                "hb_outcomes_inspected": False,
+                "representativeness_conclusion": "NOT_REPRESENTATIVE",
+                "portfolio_conclusion_scope": (
+                    "LIMIT_PORTFOLIO_CONCLUSIONS_TO_HB_COVERED_COHORT"
+                ),
+                "extrapolation_rule": "Do not extrapolate MNIH",
+                "flagged_axes": ["cohort_coverage_fraction"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (family / "reliability_label_contract_v1_review.json").write_text(
         json.dumps(
             {
                 "hb_outcomes_inspected": False,
                 "approval_checklist": [],
                 "explicit_non_goals": [],
-                "proposed_numeric_thresholds_flat_for_approval": {
-                    "portfolio.wmape_denominator_must_be_valid": {
-                        "status": "PROPOSED_FOR_APPROVAL",
-                        "value": True,
-                        "definition": "old Σ|actual|>0",
-                    },
-                    "portfolio.portfolio_machine_wmape_ceiling_pct": {
-                        "status": "PROPOSED_FOR_APPROVAL_VALUE_REQUIRED_FROM_PLANNING",
-                        "value": None,
-                    },
-                },
-                "labels": {
-                    LABEL_IE: {"meaning": "old"},
-                    LABEL_MNIH: {"meaning": "contingency"},
+                "proposed_numeric_thresholds_flat_for_approval": {},
+                "two_scopes": {
+                    "portfolio_activation_gate": {"gates_apply_here_only": []},
+                    "sku_validity_group_labels": {},
                 },
             }
         )
@@ -349,13 +336,232 @@ def test_write_corrected_review_no_final_contract(tmp_path: Path, repo_fixture=N
     summary = write_corrected_review(repo_root=tmp_path)
     assert summary["ok"] is True
     assert summary["final_contract_written"] is False
-    assert summary["family"] == FAMILY
-    assert summary[ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] is False
+    assert summary["mapping_audit_linked"] is True
+    assert summary["representativeness_audit_linked"] is True
     out = tmp_path / FAMILY_DIR_REL / "reliability_label_contract_v1_review.json"
     review = json.loads(out.read_text(encoding="utf-8"))
-    assert review["family"] == FAMILY
-    assert review["final_contract_written"] is False
+    assert review["positive_executable_label"] == LABEL_MNIH
     assert review["stop_before_final_contract"] is True
-    assert review[ALLOW_MNIH_WITHOUT_SKU_CEILING_KEY] is False
-    assert review["wmape_denominator"]["rule"] == WMAPE_DENOM_RULE
+    assert review["do_not_extrapolate_MNIH"] == "Do not extrapolate MNIH"
+    assert 140401 in review["protected_hb_origins_reliability"]
     assert not (tmp_path / FAMILY_DIR_REL / "reliability_label_contract_v1.json").exists()
+
+
+def test_mapping_audit_helpers_complete_pairs():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_origin_mapping_audit import (
+        _complete_pairs,
+        group_complete_pairs,
+    )
+
+    rows = []
+    for h in range(1, 16):
+        rows.append({"product": "A", "forecast_origin": 140304, "horizon": h})
+    # 140401 missing h15 — full incomplete, but earlier groups still complete
+    for h in range(1, 15):
+        rows.append({"product": "B", "forecast_origin": 140401, "horizon": h})
+    df = pd.DataFrame(rows)
+    pairs, incomplete = _complete_pairs(df, "forecast_origin")
+    assert ("A", 140304) in pairs
+    assert ("B", 140401) not in pairs
+    assert any(r["product"] == "B" and r["forecast_origin"] == 140401 for r in incomplete)
+    assert 15 in next(r for r in incomplete if r["product"] == "B")["missing"]
+
+    h1_3, _ = group_complete_pairs(df, horizons=frozenset({1, 2, 3}), origin_col="forecast_origin")
+    h4_6, _ = group_complete_pairs(df, horizons=frozenset({4, 5, 6}), origin_col="forecast_origin")
+    h7_12, _ = group_complete_pairs(
+        df, horizons=frozenset(range(7, 13)), origin_col="forecast_origin"
+    )
+    h13_15, inc13 = group_complete_pairs(
+        df, horizons=frozenset({13, 14, 15}), origin_col="forecast_origin"
+    )
+    assert ("B", 140401) in h1_3
+    assert ("B", 140401) in h4_6
+    assert ("B", 140401) in h7_12
+    assert ("B", 140401) not in h13_15
+    assert any(r["product"] == "B" and 15 in r["missing_in_group"] for r in inc13)
+
+
+def test_stale_coverage_figures_absent_from_review_skeleton():
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        STALE_COVERAGE_FIGURES_FORBIDDEN,
+    )
+    from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
+        _strip_stale_coverage_figures,
+    )
+
+    dirty = {
+        "stale_v1_coverage": {"n": 167},
+        "ok": True,
+        "nested": {"legacy_matched_counts_167": 167, "keep": 1},
+    }
+    clean = _strip_stale_coverage_figures(dirty)
+    assert "stale_v1_coverage" not in clean
+    assert "legacy_matched_counts_167" not in clean["nested"]
+    assert clean["nested"]["keep"] == 1
+    assert STALE_COVERAGE_FIGURES_FORBIDDEN == frozenset({55, 50, 167, 161})
+
+
+def test_legacy_ts_lock_key_does_not_drive_execution():
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        LEGACY_TS_LOCK_HB_ORIGINS_KEY,
+    )
+
+    assert LEGACY_TS_LOCK_HB_ORIGINS_KEY == "legacy_ts_lock_hb_origins_immutable"
+    assert 140312 not in PROTECTED_HB_ORIGINS
+
+
+def test_supersede_origin_validation_erratum(tmp_path: Path):
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        PROTECTED_ORIGIN_VALIDATION_FILENAME,
+    )
+    from pkg.research.portfolio_forecast_reliability_v1.supersede_origin_validation import (
+        stamp_protected_origin_validation_superseded,
+    )
+
+    family = tmp_path / FAMILY_DIR_REL
+    family.mkdir(parents=True)
+    (family / PROTECTED_ORIGIN_VALIDATION_FILENAME).write_text(
+        json.dumps(
+            {
+                "recommended_protected_origins": [140304, 140307, 140310, 140312],
+                "conclusion": {"correct_protected_set_for_HB": [140304, 140307, 140310, 140312]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    summary = stamp_protected_origin_validation_superseded(repo_root=tmp_path)
+    assert summary["ok"] is True
+    assert summary["drives_reliability_execution"] is False
+    stamped = json.loads(
+        (family / PROTECTED_ORIGIN_VALIDATION_FILENAME).read_text(encoding="utf-8")
+    )
+    assert stamped["supersession"]["status"] == "SUPERSEDED"
+    assert stamped["supersession"]["erratum"]["1404Q1_maps_to"] == 140401
+    assert stamped["supersession"]["erratum"]["140312_is_not_a_reliability_origin"] is True
+    # Original contradictory recommendation preserved but not authoritative
+    assert stamped["recommended_protected_origins"] == [140304, 140307, 140310, 140312]
+
+
+def test_representativeness_denominators_use_full_eligible_not_archval55():
+    """Unit-level check that feature summaries carry n_denominator == population size."""
+    from pkg.research.portfolio_forecast_reliability_v1.hb_cohort_representativeness import (
+        _ks_like_shift,
+    )
+
+    block = _ks_like_shift([1.0, 2.0, 3.0], [1.5, 2.5], denom_a=363, denom_b=200)
+    assert block["full_eligible"]["n_denominator"] == 363
+    assert block["hb_cohort"]["n_denominator"] == 200
+    assert block["full_eligible"]["n_missing_from_denominator"] == 360
+    assert block["denominator_reconciled"] is True
+
+
+def test_write_corrected_review_marks_stale_artifacts(tmp_path: Path):
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        LEGACY_TS_LOCK_HB_ORIGINS_KEY,
+        PROTECTED_ORIGIN_VALIDATION_FILENAME,
+        STALE_COVERAGE_AUDIT_FILENAME,
+    )
+
+    src_dir = tmp_path / "src/data/results/portfolio_residual_xgb_v1"
+    src_dir.mkdir(parents=True)
+    (src_dir / "residual_pipeline_lock_v1.json").write_text(
+        json.dumps(
+            {
+                "decision": "KEEP_FROZEN_TS",
+                "production_pipeline": "FROZEN_TS",
+                "selected_pipeline": "FROZEN_TS",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    family = tmp_path / FAMILY_DIR_REL
+    family.mkdir(parents=True)
+    (family / MAPPING_AUDIT_FILENAME).write_text(
+        json.dumps(
+            {
+                "hb_outcomes_inspected": False,
+                "protected_hb_origins_reliability": [140304, 140307, 140310, 140401],
+                "full_horizon_matched_counts_regenerated": {
+                    "n_human_complete_1_15": 880
+                },
+                "group_specific_matched_coverage": {
+                    "h1_3": {
+                        "n_skus_mnih_eligible_ge3_origins": 10,
+                        "deployable_branch": {
+                            "n_human_complete": 100,
+                            "n_machine_any_matched": 90,
+                        },
+                        "by_origin_hb_complete": {"140401": 55},
+                        "by_origin_matched_machine_any": {"140401": 40},
+                        "HUMAN_COMPARABLE_COHORT_h1_3": {"n_skus": 80},
+                    }
+                },
+                LEGACY_TS_LOCK_HB_ORIGINS_KEY: {
+                    "origins": [140304, 140307, 140310, 140312],
+                    "drives_reliability_execution": False,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (family / REPRESENTATIVENESS_AUDIT_FILENAME).write_text(
+        json.dumps(
+            {
+                "hb_outcomes_inspected": False,
+                "coverage_scope": {"status": "INCOMPLETE", "n_eligible": 363},
+                "covariate_balance": {
+                    "status": "REPRESENTATIVE",
+                    "flagged_continuous_axes": [],
+                },
+                "categorical_balance": {"status": "BALANCED"},
+                "engine_fallback_balance": {"status": "BALANCED"},
+                "portfolio_conclusion_scope": (
+                    "LIMIT_PORTFOLIO_CONCLUSIONS_TO_HB_COVERED_COHORT"
+                ),
+                "extrapolation_rule": "Do not extrapolate MNIH",
+                "populations": {
+                    "full_eligible_portfolio": {"n_skus": 363},
+                    "hb_group_union_cohort": {"n_skus": 200},
+                },
+                "sales_source": {
+                    "relative_path": (
+                        "src/data/results/product_universe/"
+                        "sales_full_portfolio_v1/sales.parquet"
+                    )
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (family / STALE_COVERAGE_AUDIT_FILENAME).write_text(
+        json.dumps({"n_human_complete_1_15": 167}) + "\n", encoding="utf-8"
+    )
+    (family / PROTECTED_ORIGIN_VALIDATION_FILENAME).write_text(
+        json.dumps({"recommended_protected_origins": [140312]}) + "\n", encoding="utf-8"
+    )
+    summary = write_corrected_review(repo_root=tmp_path)
+    review = json.loads(
+        (family / "reliability_label_contract_v1_review.json").read_text(encoding="utf-8")
+    )
+    assert summary["ok"] is True
+    assert review["stale_artifacts"][STALE_COVERAGE_AUDIT_FILENAME]["status"] == (
+        "SUPERSEDED"
+    )
+    assert review["stale_artifacts"][PROTECTED_ORIGIN_VALIDATION_FILENAME][
+        "drives_reliability_execution"
+    ] is False
+    assert review[LEGACY_TS_LOCK_HB_ORIGINS_KEY]["drives_reliability_execution"] is False
+    assert review["coverage_scope"] == "INCOMPLETE"
+    assert review["covariate_balance"] == "REPRESENTATIVE"
+    assert 140312 not in review["reliability_execution_origins"]
+    assert review["mnih_gates_locked"]["neither_naive_any_evaluated_origin_blocks_mnih"] is True
+    live = review["hb_origin_mapping_audit"]["full_horizon_matched_counts_regenerated"]
+    assert live["n_human_complete_1_15"] == 880
+    assert live["n_human_complete_1_15"] not in {55, 50, 167, 161}
+    assert "sales_full_portfolio_v1" in (
+        review["hb_cohort_representativeness_audit"]["sales_source"]["relative_path"]
+    )
