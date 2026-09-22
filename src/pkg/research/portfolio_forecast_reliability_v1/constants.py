@@ -38,6 +38,15 @@ VALIDITY_GROUPS: tuple[tuple[str, frozenset[int]], ...] = (
 
 STALE_COVERAGE_FIGURES_FORBIDDEN = frozenset({55, 50, 167, 161})
 
+# Point-in-time representativeness: earliest HB origin 140304 minus 2 months.
+PIT_REPRESENTATIVENESS_CUTOFF = 140302
+EARLIEST_HB_ORIGIN_FOR_PIT = 140304
+
+DEPLOYABLE_BRANCH_BOTH = "both_native"
+DEPLOYABLE_BRANCH_V21 = "v21_only"
+DEPLOYABLE_BRANCH_A0 = "a0_only"
+DEPLOYABLE_BRANCH_NEITHER_NAIVE = "neither_naive"
+
 WMAPE_DENOM_EPS = 1e-9
 WMAPE_DENOM_RULE = "sum(abs(actual)) > 1e-9"
 

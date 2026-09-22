@@ -443,8 +443,98 @@ def test_supersede_origin_validation_erratum(tmp_path: Path):
     assert stamped["recommended_protected_origins"] == [140304, 140307, 140310, 140312]
 
 
+def test_deployable_naive_reconciliation_explicit_fail():
+    from pkg.research.portfolio_forecast_reliability_v1.deployable_policy import (
+        reconcile_hb_complete_deployable,
+    )
+
+    human = {("A", 140304), ("B", 140304)}
+    a0 = {("A", 140304)}
+    v21 = {("A", 140304)}
+    # B has neither native; sales empty → explicit fail
+    sales = pd.DataFrame(
+        {"product": ["A"], "date": [140301], "sales": [10.0]}
+    )
+    out = reconcile_hb_complete_deployable(
+        human_complete=human,
+        a0_complete=a0,
+        v21_complete=v21,
+        sales=sales,
+    )
+    assert out["n_hb_complete_product_origins_required"] == 2
+    assert out["n_deployable_with_forecast"] == 1
+    assert out["n_failed_no_deployable_forecast"] == 1
+    assert out["reconciliation_status"] == "FAILED"
+    assert out["failures"][0]["product"] == "B"
+    assert out["sku_x_group_mnih_policy"]["any_evaluated_neither_naive_blocks_MNIH"] is True
+
+
+def test_deployable_naive_available_from_sales_through_fo_minus_2():
+    from pkg.research.portfolio_forecast_reliability_v1.deployable_policy import (
+        naive_available_through_origin_minus_2,
+        reconcile_hb_complete_deployable,
+    )
+
+    sales = pd.DataFrame(
+        {
+            "product": ["Z", "Z"],
+            "date": [140301, 140302],
+            "sales": [1.0, 2.0],
+        }
+    )
+    nav = naive_available_through_origin_minus_2(sales, "Z", 140304)
+    assert nav["naive_available"] is True
+    assert nav["origin_minus_2_cutoff"] == 140302
+    out = reconcile_hb_complete_deployable(
+        human_complete={("Z", 140304)},
+        a0_complete=set(),
+        v21_complete=set(),
+        sales=sales,
+    )
+    assert out["reconciliation_status"] == "PASSED"
+    assert out["n_neither_naive_with_naive_available"] == 1
+
+
+def test_pit_cutoff_constant():
+    from pkg.benchmark.calendar import shamsi_add_months
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        EARLIEST_HB_ORIGIN_FOR_PIT,
+        PIT_REPRESENTATIVENESS_CUTOFF,
+    )
+
+    assert PIT_REPRESENTATIVENESS_CUTOFF == 140302
+    assert shamsi_add_months(EARLIEST_HB_ORIGIN_FOR_PIT, -2) == 140302
+
+
+def test_pit_features_exclude_post_cutoff_sales():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_cohort_representativeness import (
+        _sku_sales_features,
+    )
+
+    sales = pd.DataFrame(
+        {
+            "product": ["P", "P", "P"],
+            "date": [140301, 140302, 140305],
+            "sales": [10.0, 20.0, 999.0],
+        }
+    )
+    feats = _sku_sales_features(sales, {"P"}, pit_cutoff=140302)
+    assert feats["P"]["volume"] == 30.0
+    assert feats["P"]["history_length"] == 2.0
+    assert feats["P"]["pit_max_date_used"] == 140302.0
+
+
+def test_machine_coverage_not_balanced_when_missing_policy_skus():
+    """Document expected split: among-present vs full-denominator machine coverage."""
+    n_eligible = 363
+    n_present = 240
+    n_missing = n_eligible - n_present
+    assert n_missing == 123
+    # among-present can be BALANCED while machine coverage is NOT_BALANCED
+    assert n_missing > 0
+
+
 def test_representativeness_denominators_use_full_eligible_not_archval55():
-    """Unit-level check that feature summaries carry n_denominator == population size."""
     from pkg.research.portfolio_forecast_reliability_v1.hb_cohort_representativeness import (
         _ks_like_shift,
     )

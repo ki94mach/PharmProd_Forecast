@@ -685,9 +685,27 @@ def write_corrected_review(
                 "n_machine_any_matched_complete_1_15",
                 "n_both_native_matched_complete_1_15",
                 "n_neither_naive_human_complete",
+                "n_portfolio_activation_deployable",
                 "by_branch_human_complete",
                 "sku_depth_machine_any_matched",
             )
+        }
+        mapping_ref["deployable_frozen_policy_reconciliation"] = {
+            "reconciliation_status": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("reconciliation_status"),
+            "n_hb_complete_product_origins_required": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("n_hb_complete_product_origins_required"),
+            "n_deployable_with_forecast": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("n_deployable_with_forecast"),
+            "n_failed_no_deployable_forecast": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("n_failed_no_deployable_forecast"),
+            "sku_x_group_mnih_policy": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("sku_x_group_mnih_policy"),
         }
         # Document supersession without embedding forbidden integers as live counts
         mapping_ref["stale_coverage_superseded"] = {
@@ -742,13 +760,20 @@ def write_corrected_review(
             "flagged_continuous_axes": (rep.get("covariate_balance") or {}).get(
                 "flagged_continuous_axes"
             ),
+            "point_in_time_cutoff": (rep.get("covariate_balance") or {}).get(
+                "point_in_time_cutoff"
+            ),
         }
         rep_ref["categorical_balance"] = {
             "status": (rep.get("categorical_balance") or {}).get("status")
         }
-        rep_ref["engine_fallback_balance"] = {
-            "status": (rep.get("engine_fallback_balance") or {}).get("status")
+        rep_ref["native_fallback_balance_among_present"] = {
+            "status": (rep.get("native_fallback_balance_among_present") or {}).get(
+                "status"
+            )
         }
+        rep_ref["machine_coverage_balance"] = rep.get("machine_coverage_balance")
+        rep_ref["point_in_time"] = rep.get("point_in_time")
         rep_ref["portfolio_conclusion_scope"] = rep.get("portfolio_conclusion_scope")
         rep_ref["extrapolation_rule"] = rep.get("extrapolation_rule")
         rep_ref["sales_source"] = rep.get("sales_source")
@@ -829,18 +854,24 @@ def write_corrected_review(
         "origin_consistency": "ceil(0.75 * n_complete)",
         "wmape_denominator_scopes": list(WMAPE_DENOM_SCOPES),
         "portfolio_relative_gates_required": True,
+        "portfolio_activation_uses_deployable_incl_naive": True,
         "neither_naive_any_evaluated_origin_blocks_mnih": True,
         "evidence_strength_when_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
     }
     review["evaluation_scopes"] = {
-        "primary_portfolio": (
-            f"{HUMAN_COMPARABLE_COHORT} SKUs with ≥3 complete matched full-horizon origins"
+        "primary_portfolio_activation": (
+            "HB-complete product×origins with deployable frozen-policy forecast "
+            "(native V2.1/A0 or production naive_last_value from sales through origin−2)"
         ),
-        "sku_labels": "group-specific HUMAN_COMPARABLE_COHORT_<group> origin counts",
+        "sku_labels": (
+            "group-specific HUMAN_COMPARABLE_COHORT_<group> native-matched origin "
+            "counts; any neither_naive evaluated origin blocks MNIH"
+        ),
         "sensitivity": "all complete matched product×origin + leave-one-origin",
         "never_silent_discard": True,
         "never_renumber_horizons": True,
         "full_h1_15_must_not_discard_earlier_complete_group": True,
+        "deployable_reconciliation_must_cover_all_hb_complete": True,
     }
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,
@@ -868,6 +899,15 @@ def write_corrected_review(
         review["covariate_balance"] = (rep_ref.get("covariate_balance") or {}).get(
             "status"
         )
+        review["native_fallback_balance_among_present"] = (
+            rep_ref.get("native_fallback_balance_among_present") or {}
+        ).get("status")
+        review["machine_coverage_balance"] = (
+            rep_ref.get("machine_coverage_balance") or {}
+        ).get("status")
+        review["point_in_time_representativeness_cutoff"] = (
+            rep_ref.get("point_in_time") or {}
+        ).get("cutoff")
     review["labels"] = {
         LABEL_MNIH: mnih_label_meaning(),
         LABEL_HR: {
@@ -919,6 +959,8 @@ def write_corrected_review(
         "Do not use hb_reliability_coverage_audit_v1.json or 55/50/167/161 figures",
         "Do not use hb_protected_origin_validation_v1.json for reliability origins",
         "Do not use Archval55 sales for full-portfolio representativeness",
+        "Do not use post-PIT-cutoff (after 140302) sales for representativeness features",
+        "Do not treat among-present native/fallback balance as full eligible machine coverage",
     ):
         if g not in non_goals:
             non_goals.append(g)

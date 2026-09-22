@@ -20,12 +20,14 @@ from pkg.portfolio_ts_lock.production_contract import file_sha256
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
     A0_PANEL_REL,
     BUDGET_UNIVERSE_V2_REL,
+    EARLIEST_HB_ORIGIN_FOR_PIT,
     ELIGIBLE_UNIVERSE_REL,
     FAMILY,
     FAMILY_DIR_REL,
     FORBIDDEN_OUTCOME_COLS,
     HUMAN_COMPARABLE_COHORT,
     MAPPING_AUDIT_FILENAME,
+    PIT_REPRESENTATIVENESS_CUTOFF,
     POLICY_PANEL_REL,
     PROTECTED_HB_ORIGINS,
     REPRESENTATIVENESS_AUDIT_FILENAME,
@@ -109,14 +111,22 @@ def _ks_like_shift(
 
 
 def _sku_sales_features(
-    sales: pd.DataFrame, products: set[str]
+    sales: pd.DataFrame,
+    products: set[str],
+    *,
+    pit_cutoff: int,
 ) -> dict[str, dict[str, float]]:
+    """Point-in-time features using only sales with date ≤ pit_cutoff."""
     out: dict[str, dict[str, float]] = {}
     sub = sales.loc[sales["product"].astype(str).isin(products)].copy()
     if sub.empty:
         return out
     sub["date"] = pd.to_numeric(sub["date"], errors="coerce")
     sub["sales"] = pd.to_numeric(sub["sales"], errors="coerce")
+    # Hard PIT filter — prohibit target-period / post-cutoff sales
+    sub = sub.loc[sub["date"] <= int(pit_cutoff)]
+    if sub.empty:
+        return out
     for product, g in sub.groupby(sub["product"].astype(str), sort=False):
         g = g.sort_values("date")
         vals = g["sales"]
@@ -139,6 +149,7 @@ def _sku_sales_features(
             else float("nan"),
             "volatility_std": vol,
             "trend_slope": slope,
+            "pit_max_date_used": float(pd.to_numeric(g["date"], errors="coerce").max()),
         }
     return out
 
@@ -226,8 +237,22 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
 
     sales = pd.read_parquet(sales_path, columns=["product", "date", "sales"])
     sales_products = set(sales["product"].astype(str).unique())
-    # Features for ALL eligible SKUs that appear in sales; missing sales = missing feature
-    feats = _sku_sales_features(sales, full_skus)
+    pit_cutoff = int(PIT_REPRESENTATIVENESS_CUTOFF)
+    # Sanity: cutoff == earliest HB origin − 2
+    from pkg.benchmark.calendar import shamsi_add_months
+
+    expected_cut = int(shamsi_add_months(EARLIEST_HB_ORIGIN_FOR_PIT, -2))
+    if pit_cutoff != expected_cut:
+        raise AssertionError(
+            f"PIT cutoff {pit_cutoff} != {EARLIEST_HB_ORIGIN_FOR_PIT}-2 ({expected_cut})"
+        )
+    # Guard: no post-cutoff rows enter features
+    n_post_cutoff_rows = int(
+        (
+            pd.to_numeric(sales["date"], errors="coerce") > pit_cutoff
+        ).sum()
+    )
+    feats = _sku_sales_features(sales, full_skus, pit_cutoff=pit_cutoff)
 
     metric_names = [
         "history_length",
@@ -301,9 +326,11 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         if tvd > 0.20:
             cat_flags.append(f"categorical:{col}")
 
-    # Engine / fallback vs ALL eligible, accounting for missing forecasts
+    # Engine / fallback: SEPARATE among-present balance from machine coverage balance
     native_block: dict[str, Any] = {"exists": False}
-    engine_flags: list[str] = []
+    native_fallback_flags: list[str] = []
+    n_missing_policy = None
+    n_present_policy = None
     if policy_path.is_file():
         cols_available = pd.read_parquet(policy_path, columns=None).columns.tolist()
         safe = [
@@ -322,6 +349,8 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         pol = pd.read_parquet(policy_path, columns=safe)
         pol_products = set(pol["product"].astype(str).unique())
         missing_forecasts = sorted(full_skus - pol_products)
+        n_missing_policy = len(missing_forecasts)
+        n_present_policy = len(full_skus & pol_products)
 
         if "fallback_category" in pol.columns:
             prod_fb = pol.groupby(pol["product"].astype(str))[
@@ -330,70 +359,41 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         else:
             prod_fb = pd.Series(dtype=object)
 
-        def _fallback_rates(sku_set: set[str]) -> dict[str, Any]:
+        def _fallback_among_present(sku_set: set[str]) -> dict[str, Any]:
             present = prod_fb.loc[prod_fb.index.isin(sku_set)]
-            n_set = len(sku_set)
             n_present = int(len(present))
-            n_missing = n_set - n_present
             if n_present == 0:
-                by_cat: dict[str, float] = {}
-                both = 0.0
-            else:
-                by_cat = {
-                    str(k): float(v)
-                    for k, v in present.value_counts(normalize=True).to_dict().items()
-                }
-                both = float(by_cat.get("both_native", 0.0))
-            # Rates over full denominator including missing forecasts
-            missing_share = n_missing / max(n_set, 1)
-            return {
-                "n_denominator": n_set,
-                "n_with_policy_rows": n_present,
-                "n_missing_forecasts": n_missing,
-                "missing_forecast_share": float(missing_share),
-                "by_category_among_present": by_cat,
-                "both_native_rate_among_present": both,
-                "fallback_rate_non_both_native_among_present": float(1.0 - both)
-                if n_present
-                else None,
-                # Treat missing forecasts as non-native coverage gap
-                "effective_both_native_rate_full_denominator": float(
-                    both * (n_present / max(n_set, 1))
-                ),
-            }
-
-        full_fb = _fallback_rates(full_skus)
-        coh_fb = _fallback_rates(hb_cohort)
-
-        def _eng_rate(sku_set: set[str]) -> dict[str, Any]:
-            s = pol.loc[pol["product"].astype(str).isin(sku_set)]
-            n_set = len(sku_set)
-            n_present = int(s["product"].astype(str).nunique()) if len(s) else 0
-            if s.empty:
                 return {
-                    "n_denominator": n_set,
-                    "n_with_rows": 0,
-                    "n_missing_forecasts": n_set,
-                    "v21_ok_rate_among_present": None,
-                    "a0_ok_rate_among_present": None,
-                    "v21_ok_rate_full_denominator": 0.0,
-                    "a0_ok_rate_full_denominator": 0.0,
+                    "n_present": 0,
+                    "by_category": {},
+                    "both_native_rate": None,
+                    "fallback_rate_non_both_native": None,
                 }
-            v21_m = float(pd.to_numeric(s["v21_ok"], errors="coerce").mean())
-            a0_m = float(pd.to_numeric(s["a0_ok"], errors="coerce").mean())
-            return {
-                "n_denominator": n_set,
-                "n_with_rows": n_present,
-                "n_missing_forecasts": n_set - n_present,
-                "v21_ok_rate_among_present": v21_m,
-                "a0_ok_rate_among_present": a0_m,
-                "v21_ok_rate_full_denominator": float(
-                    v21_m * (n_present / max(n_set, 1))
-                ),
-                "a0_ok_rate_full_denominator": float(
-                    a0_m * (n_present / max(n_set, 1))
-                ),
+            by_cat = {
+                str(k): float(v)
+                for k, v in present.value_counts(normalize=True).to_dict().items()
             }
+            both = float(by_cat.get("both_native", 0.0))
+            return {
+                "n_present": n_present,
+                "by_category": by_cat,
+                "both_native_rate": both,
+                "fallback_rate_non_both_native": float(1.0 - both),
+            }
+
+        full_among = _fallback_among_present(full_skus)
+        coh_among = _fallback_among_present(hb_cohort)
+        fb_diff = None
+        if (
+            full_among["fallback_rate_non_both_native"] is not None
+            and coh_among["fallback_rate_non_both_native"] is not None
+        ):
+            fb_diff = abs(
+                float(coh_among["fallback_rate_non_both_native"])
+                - float(full_among["fallback_rate_non_both_native"])
+            )
+            if fb_diff > 0.15:
+                native_fallback_flags.append("fallback_rate_among_present")
 
         native_block = {
             "exists": True,
@@ -403,29 +403,13 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
             "forecast_or_outcome_columns_read": [],
             "outcome_columns_present_but_not_read": forbidden_present,
             "n_eligible_denominator": n_eligible,
-            "n_eligible_missing_from_policy_panel": len(missing_forecasts),
+            "n_eligible_with_policy_rows": n_present_policy,
+            "n_eligible_missing_from_policy_panel": n_missing_policy,
             "missing_forecast_products_sample": missing_forecasts[:40],
-            "full_eligible": full_fb,
-            "hb_cohort": coh_fb,
-            "engine_availability": {
-                "full_eligible": _eng_rate(full_skus),
-                "hb_cohort": _eng_rate(hb_cohort),
-            },
-            "fallback_rate_abs_diff_among_present": (
-                None
-                if full_fb["fallback_rate_non_both_native_among_present"] is None
-                or coh_fb["fallback_rate_non_both_native_among_present"] is None
-                else abs(
-                    float(coh_fb["fallback_rate_non_both_native_among_present"])
-                    - float(full_fb["fallback_rate_non_both_native_among_present"])
-                )
-            ),
+            "among_present_full_eligible": full_among,
+            "among_present_hb_cohort": coh_among,
+            "fallback_rate_abs_diff_among_present": fb_diff,
         }
-        if (
-            native_block["fallback_rate_abs_diff_among_present"] is not None
-            and native_block["fallback_rate_abs_diff_among_present"] > 0.15
-        ):
-            engine_flags.append("fallback_rate")
 
     coverage_frac = len(hb_cohort) / max(n_eligible, 1)
     coverage_scope = {
@@ -438,7 +422,7 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         "threshold_complete_ge": 0.70,
         "note": (
             "Low coverage alone does not imply covariate non-representativeness. "
-            "See covariate_balance separately."
+            "See covariate_balance and machine_coverage_balance separately."
         ),
         "by_group_cohort_n_skus_in_eligible": {
             g: len(s & full_skus) for g, s in cohorts["group_cohorts"].items()
@@ -446,35 +430,73 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
     }
 
     # Covariate balance independent of coverage
-    if covariate_flags or cat_flags:
+    if covariate_flags:
         covariate_status = "NOT_REPRESENTATIVE"
     else:
         covariate_status = "REPRESENTATIVE"
-
-    if engine_flags:
-        engine_balance = "NOT_BALANCED"
-    else:
-        engine_balance = "BALANCED" if native_block.get("exists") else "UNKNOWN"
 
     if cat_flags:
         categorical_balance = "NOT_BALANCED"
     else:
         categorical_balance = "BALANCED"
 
+    # among-present native/fallback only (does NOT imply overall machine coverage)
+    if native_fallback_flags:
+        native_fallback_balance = "NOT_BALANCED"
+    else:
+        native_fallback_balance = (
+            "BALANCED" if native_block.get("exists") else "UNKNOWN"
+        )
+
+    # machine coverage over ALL eligible — missing policy rows force incompleteness
+    if n_missing_policy is None:
+        machine_coverage_balance = {
+            "status": "UNKNOWN",
+            "n_eligible": n_eligible,
+        }
+    elif n_missing_policy > 0:
+        machine_coverage_balance = {
+            "status": "NOT_BALANCED",
+            "coverage_status": "INCOMPLETE",
+            "n_eligible": n_eligible,
+            "n_with_machine_policy_rows": n_present_policy,
+            "n_missing_machine_policy_rows": n_missing_policy,
+            "missing_share": float(n_missing_policy / max(n_eligible, 1)),
+            "note": (
+                f"{n_missing_policy}/{n_eligible} eligible SKUs lack machine-policy "
+                "rows. Do not report overall balance from the present subset alone."
+            ),
+        }
+    else:
+        machine_coverage_balance = {
+            "status": "BALANCED",
+            "coverage_status": "COMPLETE",
+            "n_eligible": n_eligible,
+            "n_with_machine_policy_rows": n_present_policy,
+            "n_missing_machine_policy_rows": 0,
+            "missing_share": 0.0,
+        }
+
     # Portfolio conclusion: limit if coverage incomplete OR covariates not representative
-    if coverage_scope["status"] == "INCOMPLETE":
+    # OR machine coverage incomplete
+    machine_incomplete = (
+        isinstance(machine_coverage_balance, dict)
+        and machine_coverage_balance.get("coverage_status") == "INCOMPLETE"
+    )
+    if (
+        coverage_scope["status"] == "INCOMPLETE"
+        or machine_incomplete
+        or covariate_status == "NOT_REPRESENTATIVE"
+    ):
         portfolio_scope = "LIMIT_PORTFOLIO_CONCLUSIONS_TO_HB_COVERED_COHORT"
         extrapolation = (
             "Do not extrapolate MACHINE_NONINFERIOR_TO_HUMAN to the remaining "
             f"~{len(outside)} eligible SKUs outside HB-covered cohorts. "
-            "Coverage is incomplete; this does not by itself prove covariate "
-            f"non-representativeness (covariate_balance={covariate_status})."
-        )
-    elif covariate_status == "NOT_REPRESENTATIVE":
-        portfolio_scope = "LIMIT_PORTFOLIO_CONCLUSIONS_TO_HB_COVERED_COHORT"
-        extrapolation = (
-            "HB cohort covariates are not representative of the full eligible "
-            f"portfolio; do not extrapolate MNIH to the remaining ~{len(outside)} SKUs."
+            f"coverage_scope={coverage_scope['status']}; "
+            f"covariate_balance={covariate_status}; "
+            f"machine_coverage_balance="
+            f"{machine_coverage_balance.get('status')}; "
+            f"native_fallback_balance_among_present={native_fallback_balance}."
         )
     else:
         portfolio_scope = "COHORT_MAY_INFORM_PORTFOLIO_DISCUSSION_WITH_CAVEATS"
@@ -490,12 +512,33 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         ).as_posix()
         mapping_ref["sha256"] = file_sha256(mapping_path)
 
+    feature_definitions = {
+        "history_length": "count of finite sales months with date ≤ PIT cutoff",
+        "volume": "sum of sales over months with date ≤ PIT cutoff",
+        "intermittency_zero_share": "zero-month proportion on PIT-truncated series",
+        "intermittency_adi": "average inter-demand interval on PIT-truncated series",
+        "volatility_std": "std of finite sales on PIT-truncated series",
+        "trend_slope": "linear slope vs time index on PIT-truncated series (≥3 pts)",
+        "pit_cutoff": pit_cutoff,
+        "earliest_hb_origin": EARLIEST_HB_ORIGIN_FOR_PIT,
+        "cutoff_rule": "earliest_HB_origin_minus_2_months",
+        "target_period_sales_prohibited": True,
+    }
+
     return {
         "audit_version": "hb_cohort_representativeness_audit_v1",
         "family": FAMILY,
         "created_at": _utc(),
         "hb_outcomes_inspected": False,
         "forecast_or_outcome_columns_read": [],
+        "point_in_time": {
+            "cutoff": pit_cutoff,
+            "earliest_hb_origin": EARLIEST_HB_ORIGIN_FOR_PIT,
+            "cutoff_equals_earliest_hb_minus_2": pit_cutoff == expected_cut,
+            "n_sales_rows_after_cutoff_in_source_file": n_post_cutoff_rows,
+            "feature_definitions": feature_definitions,
+            "target_period_sales_used": False,
+        },
         "invalid_prior_archval55_audit": invalid_prior,
         "populations": {
             "full_eligible_portfolio": {
@@ -528,9 +571,10 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
             "flagged_continuous_axes": covariate_flags,
             "continuous_features": continuous,
             "thresholds": {"continuous_rel_mean_diff_flag": 0.25},
+            "point_in_time_cutoff": pit_cutoff,
             "note": (
-                "Independent of coverage_scope. Low coverage must not automatically "
-                "imply covariate non-representativeness."
+                "Independent of coverage_scope. Features use sales date ≤ "
+                f"{pit_cutoff} only."
             ),
         },
         "categorical_balance": {
@@ -539,12 +583,17 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
             "features": categorical,
             "thresholds": {"categorical_tvd_flag": 0.20},
         },
-        "engine_fallback_balance": {
-            "status": engine_balance,
-            "flagged_axes": engine_flags,
+        "native_fallback_balance_among_present": {
+            "status": native_fallback_balance,
+            "flagged_axes": native_fallback_flags,
             "details": native_block,
             "thresholds": {"fallback_rate_abs_diff_flag": 0.15},
+            "note": (
+                "Computed only among SKUs with machine-policy rows. "
+                "Must not be read as overall machine coverage balance."
+            ),
         },
+        "machine_coverage_balance": machine_coverage_balance,
         "portfolio_conclusion_scope": portfolio_scope,
         "extrapolation_rule": extrapolation,
         "mapping_audit_ref": mapping_ref,
@@ -552,14 +601,23 @@ def build_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
             "relative_path": SALES_FULL_PORTFOLIO_REL.as_posix(),
             "sha256": file_sha256(sales_path),
             "columns_read": ["product", "date", "sales"],
+            "pit_cutoff_applied": pit_cutoff,
             "n_products_in_sales_file": len(sales_products),
-            "n_eligible_with_sales_rows": len(full_skus & sales_products),
-            "n_eligible_missing_sales": len(full_skus - sales_products),
+            "n_eligible_with_sales_rows_through_pit": len(
+                {p for p in full_skus if p in feats}
+            ),
+            "n_eligible_missing_pit_sales": len(full_skus - set(feats)),
             "not_used": SALES_ARCHVAL55_REL.as_posix(),
         },
-        # legacy flat keys for older readers
         "representativeness_conclusion": covariate_status,
-        "flagged_axes": covariate_flags + cat_flags + engine_flags,
+        "flagged_axes": covariate_flags
+        + cat_flags
+        + native_fallback_flags
+        + (
+            ["machine_coverage_incomplete"]
+            if machine_incomplete
+            else []
+        ),
     }
 
 
@@ -582,7 +640,14 @@ def write_hb_cohort_representativeness_audit(*, repo_root: Path) -> dict[str, An
         "coverage_scope": audit["coverage_scope"]["status"],
         "covariate_balance": audit["covariate_balance"]["status"],
         "categorical_balance": audit["categorical_balance"]["status"],
-        "engine_fallback_balance": audit["engine_fallback_balance"]["status"],
+        "native_fallback_balance_among_present": audit[
+            "native_fallback_balance_among_present"
+        ]["status"],
+        "machine_coverage_balance": audit["machine_coverage_balance"].get("status"),
+        "machine_coverage_status": audit["machine_coverage_balance"].get(
+            "coverage_status"
+        ),
+        "pit_cutoff": audit["point_in_time"]["cutoff"],
         "portfolio_conclusion_scope": audit["portfolio_conclusion_scope"],
         "n_eligible": audit["populations"]["full_eligible_portfolio"]["n_skus"],
         "n_hb_cohort": audit["populations"]["hb_group_union_cohort"]["n_skus"],
