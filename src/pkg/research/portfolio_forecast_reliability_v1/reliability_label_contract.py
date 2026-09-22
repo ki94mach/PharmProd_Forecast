@@ -21,6 +21,7 @@ from pkg.portfolio_ts_lock.production_contract import (
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
     CONTRACT_FILENAME,
     CONTRACT_VERSION,
+    DEPLOYABLE_PORTFOLIO_COHORT,
     EVIDENCE_STRENGTH_LIMITED,
     FAMILY,
     FAMILY_DIR_REL,
@@ -31,6 +32,8 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     LABEL_MR_OUT_OF_SCOPE,
     LEGACY_TS_LOCK_HB_ORIGINS_KEY,
     MAPPING_AUDIT_FILENAME,
+    NO_MACHINE_FORECAST,
+    NO_MACHINE_FORECAST_COHORT,
     PROTECTED_HB_ORIGINS,
     PROTECTED_ORIGIN_VALIDATION_FILENAME,
     REPRESENTATIVENESS_AUDIT_FILENAME,
@@ -94,9 +97,14 @@ def mnih_label_meaning() -> dict[str, Any]:
             "(not absolute reliability)."
         ),
         "evidence_strength_when_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
-        "requires_HUMAN_COMPARABLE_COHORT": True,
+        "requires_native_HUMAN_COMPARABLE_COHORT_group": True,
         "blocked_if_any_evaluated_origin_neither_naive": True,
+        "blocked_if_any_evaluated_origin_NO_MACHINE_FORECAST": True,
         "only_positive_executable_label_v1": True,
+        "portfolio_gate_population": DEPLOYABLE_PORTFOLIO_COHORT,
+        "not_portfolio_gate_population": (
+            f"{HUMAN_COMPARABLE_COHORT} with ≥3 origins (SKU×group MNIH only)"
+        ),
     }
 
 
@@ -136,20 +144,20 @@ def canonical_per_group_label_rules() -> dict[str, Any]:
             {
                 "when": (
                     "any evaluated origin for SKU×group has deployable_branch="
-                    "neither_naive"
+                    "neither_naive OR disposition=NO_MACHINE_FORECAST"
                 ),
                 "label": LABEL_HR,
                 "blocks": LABEL_MNIH,
             },
             {
                 "when": (
-                    "SKU in HUMAN_COMPARABLE_COHORT "
-                    "AND n_complete_matched_origins_in_group >= 3 "
+                    "SKU in native HUMAN_COMPARABLE_COHORT_<group> "
+                    "AND n_complete_matched_native_origins_in_group >= 3 "
                     "AND wmape_denominator_valid "
                     "AND WMAPE(machine)-WMAPE(human) <= 2.0 pp "
                     "AND n_origins_noninferior >= ceil(0.75 * n_complete_origins) "
                     "AND portfolio_activation_gate_passed "
-                    "AND no evaluated origin is neither_naive"
+                    "AND no evaluated origin is neither_naive or NO_MACHINE_FORECAST"
                 ),
                 "label": LABEL_MNIH,
                 "evidence_strength": EVIDENCE_STRENGTH_LIMITED,
@@ -171,7 +179,8 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     gates = list(port.get("gates_apply_here_only") or [])
     required_gates = [
         "complete_1_15_required_never_silent_drop",
-        "primary_population_skus_ge3_complete_matched_origins",
+        "primary_population_DEPLOYABLE_PORTFOLIO_COHORT",
+        "exclude_NO_MACHINE_FORECAST_from_accuracy_denominators",
         "wmape_noninferiority_le_2pp",
         "rmse_p95_p99_le_1_02x",
         "max_ae_ratio",
@@ -182,16 +191,31 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     for g in required_gates:
         if g not in gates:
             gates.append(g)
-    # Ensure max_ae_ratio sits near other AE gates
+    # Remove contradictory native≥3 portfolio population gate if present
+    gates = [
+        g
+        for g in gates
+        if g
+        not in {
+            "primary_population_skus_ge3_complete_matched_origins",
+            "primary_population_HUMAN_COMPARABLE_COHORT_ge3_origins",
+        }
+    ]
     if "p99_ae_ratio" in gates and "max_ae_ratio" in gates:
         gates = [x for x in gates if x != "max_ae_ratio"]
         gates.insert(gates.index("p99_ae_ratio") + 1, "max_ae_ratio")
     port["gates_apply_here_only"] = gates
-    port["primary_population"] = (
-        f"{HUMAN_COMPARABLE_COHORT} SKUs with ≥3 complete matched origins"
+    port["primary_population"] = DEPLOYABLE_PORTFOLIO_COHORT
+    port["primary_population_definition"] = (
+        "HB-complete product×origins with an actual frozen-policy forecast "
+        "(native or valid naive_last_value); excludes NO_MACHINE_FORECAST"
+    )
+    port["not_primary_population"] = (
+        f"{HUMAN_COMPARABLE_COHORT} with ≥3 origins — SKU×group MNIH only"
     )
     port["sensitivity_population"] = (
-        "all complete matched product×origin cases + leave-one-origin"
+        "all complete matched product×origin cases + leave-one-origin "
+        "(still excluding NO_MACHINE_FORECAST from accuracy denominators)"
     )
     port["absolute_wmape_ceilings"] = "OUT_OF_EXECUTABLE_V1_SCOPE"
 
@@ -226,15 +250,15 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     labels[LABEL_MNIH] = mnih_label_meaning()
     labels[LABEL_HR] = {
         "meaning": (
-            "Two complete matched origins, relative/portfolio/branch failure, "
-            "or any evaluated origin with neither_naive."
+            "Two complete matched origins, relative/portfolio failure, "
+            "or any evaluated origin with neither_naive or NO_MACHINE_FORECAST."
         )
     }
     labels[LABEL_IHE] = {
         "meaning": (
             "0–1 complete matched HB origins in the group, incomplete/missing "
-            "coverage, invalid WMAPE denominator (Σ|actual| <= 1e-9 or non-finite) "
-            "at the relevant scope, or non-computable metrics."
+            "HB evidence, invalid WMAPE denominator (Σ|actual| <= 1e-9 or "
+            "non-finite) at the relevant scope, or non-computable metrics."
         )
     }
     if LABEL_MR_OUT_OF_SCOPE in labels:
@@ -246,9 +270,12 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     checklist = list(review.get("approval_checklist") or [])
     for item in (
         "Confirm MACHINE_NONINFERIOR_TO_HUMAN is the only positive executable label",
-        "Confirm HUMAN_COMPARABLE_COHORT gate for MNIH",
+        "Confirm portfolio gate population is DEPLOYABLE_PORTFOLIO_COHORT (not native≥3)",
+        "Confirm HUMAN_COMPARABLE_COHORT_<group> native≥3 is SKU×group MNIH only",
         "Confirm 0–1→INSUFFICIENT_HUMAN_EVIDENCE, 2→HUMAN_REVIEW_REQUIRED, ≥3 MNIH-eligible",
-        "Confirm neither_naive on any evaluated origin blocks MNIH → HUMAN_REVIEW_REQUIRED",
+        "Confirm neither_naive or NO_MACHINE_FORECAST blocks MNIH → HUMAN_REVIEW_REQUIRED",
+        "Confirm NO_MACHINE_FORECAST never enters accuracy denominators",
+        "Confirm 615 native + 224 valid naive + 41 NO_MACHINE_FORECAST = 880",
         "Confirm validity_range_prefix uses MNIH (not MACHINE_RELIABLE)",
         "Confirm WMAPE denom applies separately at portfolio, SKU×group, SKU×origin",
         "Confirm protected HB origins include 140401 (not 140312) for reliability joins",
@@ -257,6 +284,14 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     ):
         if item not in checklist:
             checklist.append(item)
+    # Drop contradictory checklist items
+    checklist = [
+        c
+        for c in checklist
+        if "HUMAN_COMPARABLE_COHORT gate for MNIH" not in c
+        or "SKU×group" in c
+        or "native≥3" in c
+    ]
     review["approval_checklist"] = checklist
 
 
@@ -305,6 +340,7 @@ def decide_sku_group_label(
     deployable_branch: str,
     in_human_comparable_cohort: bool = True,
     any_evaluated_origin_neither_naive: bool | None = None,
+    any_evaluated_origin_no_machine_forecast: bool = False,
     # Deprecated kwargs retained for call-site compatibility; ignored for gates.
     sku_group_ceiling_pct: float | None = None,
     portfolio_ceiling_pct: float | None = None,
@@ -328,7 +364,6 @@ def decide_sku_group_label(
     if n_complete_origins == 2:
         return LABEL_HR
 
-    # neither_naive: single-branch arg OR explicit any-origin flag
     neither = bool(any_evaluated_origin_neither_naive)
     if any_evaluated_origin_neither_naive is None:
         neither = deployable_branch == "neither_naive"
@@ -336,7 +371,10 @@ def decide_sku_group_label(
         neither = bool(any_evaluated_origin_neither_naive) or (
             deployable_branch == "neither_naive"
         )
-    if neither:
+    no_machine = bool(any_evaluated_origin_no_machine_forecast) or (
+        deployable_branch == NO_MACHINE_FORECAST
+    )
+    if neither or no_machine:
         return LABEL_HR
 
     if not in_human_comparable_cohort:
@@ -371,13 +409,23 @@ def locked_thresholds() -> dict[str, Any]:
             "applies_separately_to_scopes": list(WMAPE_DENOM_SCOPES),
         },
         "portfolio": {
-            "primary_population": (
-                f"{HUMAN_COMPARABLE_COHORT} with ≥3 complete matched origins"
+            "primary_population": DEPLOYABLE_PORTFOLIO_COHORT,
+            "primary_population_definition": (
+                "HB-complete product×origins with an actual frozen-policy forecast "
+                "(native or valid naive_last_value)"
+            ),
+            "excludes_from_accuracy_denominators": NO_MACHINE_FORECAST_COHORT,
+            "not_primary_population": (
+                f"{HUMAN_COMPARABLE_COHORT} with ≥3 origins (SKU×group MNIH only)"
             ),
             "sensitivity_population": (
-                "all complete matched product×origin + leave-one-origin"
+                "all complete matched product×origin + leave-one-origin "
+                f"(exclude {NO_MACHINE_FORECAST} from accuracy denominators)"
             ),
-            "min_skus_with_at_least_3_complete_origins": 40,
+            "min_skus_structural_coverage_note": (
+                "Structural min-SKU coverage may still be reported; portfolio "
+                f"activation population is {DEPLOYABLE_PORTFOLIO_COHORT}, not native≥3"
+            ),
             "machine_vs_human_noninferiority_wmape_margin_pp": 2.0,
             "machine_vs_human_noninferiority_rmse_ratio_max": 1.02,
             "machine_vs_human_noninferiority_p95_ae_ratio_max": 1.02,
@@ -394,6 +442,7 @@ def locked_thresholds() -> dict[str, Any]:
         },
         "sku_group": {
             "min_complete_origins_per_group_for_mnih": 3,
+            "cohort_for_mnih": f"native {HUMAN_COMPARABLE_COHORT}_<group>",
             "origin_count_labels": {
                 "0_or_1": LABEL_IHE,
                 "2": LABEL_HR,
@@ -404,6 +453,7 @@ def locked_thresholds() -> dict[str, Any]:
             "origin_stability_rule": "required_noninferior_origins=ceil(0.75*complete_origins)",
             "wmape_denominator_rule": WMAPE_DENOM_RULE,
             "neither_naive_blocks_mnih": True,
+            "NO_MACHINE_FORECAST_blocks_mnih": True,
             "evidence_strength_when_mnih_and_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
             "absolute_wmape_ceiling": "OUT_OF_EXECUTABLE_V1_SCOPE",
         },
@@ -411,7 +461,8 @@ def locked_thresholds() -> dict[str, Any]:
             "wmape_denominator_rule": WMAPE_DENOM_RULE,
             "note": (
                 "Origin-stability per-origin WMAPE uses the same denominator rule "
-                "independently."
+                f"independently. {NO_MACHINE_FORECAST} origins never enter accuracy "
+                "denominators."
             ),
         },
     }
@@ -452,7 +503,8 @@ def build_decision_table() -> dict[str, Any]:
         "portfolio_activation_gate": {
             "order": [
                 "complete_1_15_required_never_silent_drop",
-                "primary_population_HUMAN_COMPARABLE_COHORT_ge3_origins",
+                "primary_population_DEPLOYABLE_PORTFOLIO_COHORT",
+                "exclude_NO_MACHINE_FORECAST_from_accuracy_denominators",
                 "valid_wmape_denominator_per_portfolio_scope",
                 "wmape_noninferiority_le_2pp",
                 "rmse_p95_p99_le_1_02x",
@@ -461,11 +513,13 @@ def build_decision_table() -> dict[str, Any]:
                 "drop_top3_by_sum_ae_machine_advantage_remaining_noninferior",
             ],
             "if_fails": "no_MACHINE_NONINFERIOR_TO_HUMAN_anywhere",
-            "primary_population": (
-                f"{HUMAN_COMPARABLE_COHORT} with ≥3 complete matched origins"
+            "primary_population": DEPLOYABLE_PORTFOLIO_COHORT,
+            "not_primary_population": (
+                f"{HUMAN_COMPARABLE_COHORT} with ≥3 origins — SKU×group MNIH only"
             ),
             "sensitivity_population": (
-                "all complete matched product×origin + leave-one-origin"
+                "all complete matched product×origin + leave-one-origin "
+                f"(exclude {NO_MACHINE_FORECAST})"
             ),
             "wmape_denominator": {"rule": WMAPE_DENOM_RULE, "scope": "portfolio"},
             "drop_top_k": {
@@ -496,10 +550,16 @@ def build_decision_table() -> dict[str, Any]:
                     "blocks": LABEL_MNIH,
                 },
                 {
+                    "when": "any_evaluated_origin_NO_MACHINE_FORECAST",
+                    "label": LABEL_HR,
+                    "blocks": LABEL_MNIH,
+                },
+                {
                     "when": (
-                        "in_HUMAN_COMPARABLE_COHORT AND n>=3 AND denom_ok "
+                        "native HUMAN_COMPARABLE_COHORT_<group> AND n>=3 AND denom_ok "
                         "AND (machine-human)<=2pp AND origin_stability "
-                        "AND portfolio_gate_passed AND no neither_naive"
+                        "AND portfolio_gate_passed AND no neither_naive "
+                        "AND no NO_MACHINE_FORECAST"
                     ),
                     "label": LABEL_MNIH,
                     "evidence_strength": EVIDENCE_STRENGTH_LIMITED,
@@ -516,6 +576,10 @@ def build_decision_table() -> dict[str, Any]:
                 "longest contiguous MACHINE_NONINFERIOR_TO_HUMAN prefix from h1_3"
             ),
             "neither_naive": "blocks_MACHINE_NONINFERIOR_TO_HUMAN_assign_HUMAN_REVIEW_REQUIRED",
+            "NO_MACHINE_FORECAST": (
+                "blocks_MACHINE_NONINFERIOR_TO_HUMAN_assign_HUMAN_REVIEW_REQUIRED;"
+                "never_enters_accuracy_denominator"
+            ),
             "incomplete_later_group_does_not_discard_earlier": True,
         },
         "sku_x_origin": {
@@ -694,15 +758,23 @@ def write_corrected_review(
             "reconciliation_status": (
                 mapping.get("deployable_frozen_policy_reconciliation") or {}
             ).get("reconciliation_status"),
+            "identity": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("identity"),
+            "deployable_coverage_pct": (
+                mapping.get("deployable_frozen_policy_reconciliation") or {}
+            ).get("deployable_coverage_pct"),
             "n_hb_complete_product_origins_required": (
                 mapping.get("deployable_frozen_policy_reconciliation") or {}
             ).get("n_hb_complete_product_origins_required"),
             "n_deployable_with_forecast": (
                 mapping.get("deployable_frozen_policy_reconciliation") or {}
             ).get("n_deployable_with_forecast"),
-            "n_failed_no_deployable_forecast": (
+            "n_no_machine_forecast": (
                 mapping.get("deployable_frozen_policy_reconciliation") or {}
-            ).get("n_failed_no_deployable_forecast"),
+            ).get("n_no_machine_forecast"),
+            DEPLOYABLE_PORTFOLIO_COHORT: mapping.get(DEPLOYABLE_PORTFOLIO_COHORT),
+            NO_MACHINE_FORECAST_COHORT: mapping.get(NO_MACHINE_FORECAST_COHORT),
             "sku_x_group_mnih_policy": (
                 mapping.get("deployable_frozen_policy_reconciliation") or {}
             ).get("sku_x_group_mnih_policy"),
@@ -826,10 +898,64 @@ def write_corrected_review(
     }
     review["HUMAN_COMPARABLE_COHORT"] = {
         "definition": (
-            "Full h1–15 matched machine∩HB SKUs — portfolio activation gate population"
+            "Native-matched complete machine∩HB SKUs — SKU×validity-group MNIH only"
         ),
-        "role": "portfolio_gate",
-        "only_may_receive_MNIH_at_portfolio_gate": True,
+        "role": "sku_x_group_MNIH_only",
+        "not_portfolio_activation_population": True,
+    }
+    review[DEPLOYABLE_PORTFOLIO_COHORT] = {
+        "definition": (
+            "HB-complete product×origins with an actual frozen-policy forecast, "
+            "including valid naive_last_value fallbacks"
+        ),
+        "role": "portfolio_activation_gate_population",
+        "enters_accuracy_denominator": True,
+        "n_product_origin_pairs": (
+            (mapping_ref.get("deployable_frozen_policy_reconciliation") or {}).get(
+                "n_deployable_with_forecast"
+            )
+            if mapping_ref.get("exists")
+            else None
+        ),
+        "identity": (
+            (mapping_ref.get("deployable_frozen_policy_reconciliation") or {}).get(
+                "identity"
+            )
+            if mapping_ref.get("exists")
+            else None
+        ),
+        "deployable_coverage_pct": (
+            (mapping_ref.get("deployable_frozen_policy_reconciliation") or {}).get(
+                "deployable_coverage_pct"
+            )
+            if mapping_ref.get("exists")
+            else None
+        ),
+    }
+    review[NO_MACHINE_FORECAST_COHORT] = {
+        "definition": (
+            "HB-complete without native V2.1/A0 or sales through origin−2; "
+            "coverage failures; never zero-filled; excluded from accuracy denominators"
+        ),
+        "enters_accuracy_denominator": False,
+        "n_product_origin_pairs": (
+            (mapping_ref.get("deployable_frozen_policy_reconciliation") or {}).get(
+                "n_no_machine_forecast"
+            )
+            if mapping_ref.get("exists")
+            else None
+        ),
+        "n_skus": (
+            ((mapping_ref.get(NO_MACHINE_FORECAST_COHORT) or {}) or {}).get("n_skus")
+            if mapping_ref.get("exists")
+            else None
+        ),
+        "skus": (
+            ((mapping_ref.get(NO_MACHINE_FORECAST_COHORT) or {}) or {}).get("skus")
+            if mapping_ref.get("exists")
+            else None
+        ),
+        "reported_as": "coverage_failures",
     }
     review["HUMAN_COMPARABLE_COHORT_by_group"] = {
         f"{HUMAN_COMPARABLE_COHORT}_{g}": {
@@ -837,7 +963,8 @@ def write_corrected_review(
             "role": "sku_validity_group_label_origin_counts",
             "note": (
                 "Group completeness does not require full h1–15; "
-                "140401 partial horizons may still contribute."
+                "140401 partial horizons may still contribute. "
+                "Native comparisons with ≥3 group-complete origins may qualify for MNIH."
             ),
         }
         for g, hs in VALIDITY_GROUPS
@@ -846,7 +973,7 @@ def write_corrected_review(
         "scope": "per_SKU_x_validity_group_using_group_specific_complete_matched_origins",
         "0_or_1": LABEL_IHE,
         "2": LABEL_HR,
-        "ge_3": "eligible_for_locked_MNIH_rules",
+        "ge_3": "eligible_for_locked_MNIH_rules_native_only",
     }
     review["mnih_gates_locked"] = {
         "min_complete_group_specific_origins": 3,
@@ -854,24 +981,26 @@ def write_corrected_review(
         "origin_consistency": "ceil(0.75 * n_complete)",
         "wmape_denominator_scopes": list(WMAPE_DENOM_SCOPES),
         "portfolio_relative_gates_required": True,
-        "portfolio_activation_uses_deployable_incl_naive": True,
+        "portfolio_activation_population": DEPLOYABLE_PORTFOLIO_COHORT,
         "neither_naive_any_evaluated_origin_blocks_mnih": True,
+        "NO_MACHINE_FORECAST_any_evaluated_origin_blocks_mnih": True,
         "evidence_strength_when_n_in_3_or_4": EVIDENCE_STRENGTH_LIMITED,
     }
     review["evaluation_scopes"] = {
-        "primary_portfolio_activation": (
-            "HB-complete product×origins with deployable frozen-policy forecast "
-            "(native V2.1/A0 or production naive_last_value from sales through origin−2)"
-        ),
+        "primary_portfolio_activation": DEPLOYABLE_PORTFOLIO_COHORT,
         "sku_labels": (
-            "group-specific HUMAN_COMPARABLE_COHORT_<group> native-matched origin "
-            "counts; any neither_naive evaluated origin blocks MNIH"
+            f"native {HUMAN_COMPARABLE_COHORT}_<group>; "
+            f"neither_naive or {NO_MACHINE_FORECAST} → HUMAN_REVIEW_REQUIRED; "
+            "missing/incomplete HB → INSUFFICIENT_HUMAN_EVIDENCE"
         ),
-        "sensitivity": "all complete matched product×origin + leave-one-origin",
+        "sensitivity": (
+            "all complete matched product×origin + leave-one-origin "
+            f"(exclude {NO_MACHINE_FORECAST} from accuracy denominators)"
+        ),
         "never_silent_discard": True,
         "never_renumber_horizons": True,
         "full_h1_15_must_not_discard_earlier_complete_group": True,
-        "deployable_reconciliation_must_cover_all_hb_complete": True,
+        "never_zero_fill_NO_MACHINE_FORECAST": True,
     }
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,
@@ -913,13 +1042,13 @@ def write_corrected_review(
         LABEL_HR: {
             "meaning": (
                 "Two complete matched group-specific origins, relative/portfolio "
-                "failure, or neither_naive on any evaluated origin."
+                "failure, or any evaluated neither_naive / NO_MACHINE_FORECAST origin."
             )
         },
         LABEL_IHE: {
             "meaning": (
-                "0–1 complete matched group-specific origins, incomplete coverage, "
-                "invalid WMAPE denominator, or non-computable metrics."
+                "0–1 complete matched group-specific origins, incomplete/missing "
+                "HB evidence, invalid WMAPE denominator, or non-computable metrics."
             )
         },
     }
@@ -961,6 +1090,8 @@ def write_corrected_review(
         "Do not use Archval55 sales for full-portfolio representativeness",
         "Do not use post-PIT-cutoff (after 140302) sales for representativeness features",
         "Do not treat among-present native/fallback balance as full eligible machine coverage",
+        "Do not zero-fill NO_MACHINE_FORECAST or treat it as a deployable naive forecast",
+        "Do not use HUMAN_COMPARABLE_COHORT with ≥3 origins as the portfolio activation population",
     ):
         if g not in non_goals:
             non_goals.append(g)
@@ -989,10 +1120,41 @@ def write_corrected_review(
         raise ValueError("Stale live n_skus_ge3 leaked into review")
     if depth.get("n_skus") in STALE_COVERAGE_FIGURES_FORBIDDEN:
         raise ValueError("Stale live n_skus leaked into review")
+
+    # Guard: no contradictory native≥3 portfolio primary population
+    port_pop = (
+        (review.get("locked_thresholds_preview") or {})
+        .get("portfolio", {})
+        .get("primary_population")
+    )
+    if port_pop != DEPLOYABLE_PORTFOLIO_COHORT:
+        raise ValueError(
+            f"portfolio primary_population must be {DEPLOYABLE_PORTFOLIO_COHORT}, "
+            f"got {port_pop!r}"
+        )
+    dt_order = (
+        (review.get("decision_table_preview") or {})
+        .get("portfolio_activation_gate", {})
+        .get("order")
+        or []
+    )
+    if any("HUMAN_COMPARABLE_COHORT_ge3" in str(x) for x in dt_order):
+        raise ValueError("contradictory native≥3 portfolio order gate remains")
+    if any(
+        "primary_population_skus_ge3" in str(x) for x in dt_order
+    ):
+        raise ValueError("contradictory ge3 SKU portfolio order gate remains")
+
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
     tmp.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(out_path)
 
+    recon = (
+        (review.get("hb_origin_mapping_audit") or {}).get(
+            "deployable_frozen_policy_reconciliation"
+        )
+        or {}
+    )
     return {
         "ok": True,
         "review_path": out_path.as_posix(),
@@ -1005,6 +1167,10 @@ def write_corrected_review(
         "wmape_denominator_rule": WMAPE_DENOM_RULE,
         "coverage_scope": review.get("coverage_scope"),
         "covariate_balance": review.get("covariate_balance"),
+        "deployable_identity": recon.get("identity"),
+        "n_deployable_with_forecast": recon.get("n_deployable_with_forecast"),
+        "n_no_machine_forecast": recon.get("n_no_machine_forecast"),
+        "deployable_coverage_pct": recon.get("deployable_coverage_pct"),
         "upstream_evidence": upstream,
     }
 

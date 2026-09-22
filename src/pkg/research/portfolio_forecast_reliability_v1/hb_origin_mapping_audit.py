@@ -21,6 +21,7 @@ from pkg.portfolio_ts_lock.production_contract import file_sha256
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
     A0_PANEL_REL,
     BUDGET_UNIVERSE_V2_REL,
+    DEPLOYABLE_PORTFOLIO_COHORT,
     FAMILY,
     FAMILY_DIR_REL,
     FORBIDDEN_OUTCOME_COLS,
@@ -29,6 +30,8 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     ID_COLS_MACHINE,
     LEGACY_TS_LOCK_HB_ORIGINS_KEY,
     MAPPING_AUDIT_FILENAME,
+    NO_MACHINE_FORECAST,
+    NO_MACHINE_FORECAST_COHORT,
     POSTLOCK_REL,
     PROTECTED_HB_ORIGINS,
     REQUIRED_HORIZONS,
@@ -499,28 +502,62 @@ def build_hb_origin_mapping_audit(*, repo_root: Path) -> dict[str, Any]:
             ),
             "definition_matched_machine_any": (
                 "Human complete ∩ (A0 complete ∪ V2.1 complete) on same product×origin "
-                "— native-only; used for HUMAN_COMPARABLE_COHORT / MNIH eligibility"
+                "— native-only; used for HUMAN_COMPARABLE_COHORT_<group> / MNIH"
             ),
             "definition_portfolio_activation_deployable": (
-                "Human complete with deployable frozen-policy forecast including "
-                "production naive_last_value when neither native"
+                f"{DEPLOYABLE_PORTFOLIO_COHORT}: HB-complete with actual frozen-policy "
+                "forecast (native or valid naive_last_value)"
             ),
-            "role_native_matched": "HUMAN_COMPARABLE_COHORT and SKU×group MNIH eligibility",
-            "role_deployable": "portfolio_activation_gate_population",
+            "role_native_matched": (
+                f"{HUMAN_COMPARABLE_COHORT}_<group> / SKU×group MNIH eligibility only"
+            ),
+            "role_deployable": (
+                f"portfolio_activation_gate_population = {DEPLOYABLE_PORTFOLIO_COHORT}"
+            ),
+            "not_portfolio_population": (
+                f"{HUMAN_COMPARABLE_COHORT} with ≥3 origins"
+            ),
             "n_human_complete_1_15": len(human_pairs),
             "n_machine_any_matched_complete_1_15": len(matched_native),
             "n_both_native_matched_complete_1_15": branches_full[
                 "n_both_native_matched"
             ],
-            "n_neither_naive_human_complete": branches_full["n_neither_naive"],
+            "n_native_deployable": deployable_recon["identity"]["n_native"],
+            "n_valid_naive_deployable": deployable_recon["identity"]["n_valid_naive"],
+            "n_no_machine_forecast": deployable_recon["identity"][
+                "n_no_machine_forecast"
+            ],
+            "identity_equation": deployable_recon["identity"]["equation"],
+            "identity_holds": deployable_recon["identity"]["holds"],
+            "n_neither_naive_human_complete_legacy_note": (
+                "Prefer disposition counts: valid naive vs NO_MACHINE_FORECAST; "
+                "legacy _branch_breakdown.neither_naive lumps both"
+            ),
             "n_portfolio_activation_deployable": portfolio_deployable_n,
+            "identity": deployable_recon.get("identity"),
+            "deployable_coverage_pct": deployable_recon.get("deployable_coverage_pct"),
+            "by_disposition_among_hb_complete": deployable_recon[
+                "by_disposition_among_hb_complete"
+            ],
             "by_branch_human_complete": branches_full["by_branch"],
             "by_origin_by_branch": branches_full["by_origin_by_branch"],
             "sku_depth_human_complete": sku_hist_human,
             "sku_depth_machine_any_matched": sku_hist_matched,
             "stale_prior_counts_superseded": stale_prior,
         },
-        "deployable_frozen_policy_reconciliation": deployable_recon,        # Back-compat key for earlier review writers
+        "deployable_frozen_policy_reconciliation": deployable_recon,
+        DEPLOYABLE_PORTFOLIO_COHORT: deployable_recon[DEPLOYABLE_PORTFOLIO_COHORT],
+        NO_MACHINE_FORECAST_COHORT: {
+            "definition": deployable_recon[NO_MACHINE_FORECAST_COHORT]["definition"],
+            "n_product_origin_pairs": deployable_recon[NO_MACHINE_FORECAST_COHORT][
+                "n_product_origin_pairs"
+            ],
+            "n_skus": deployable_recon[NO_MACHINE_FORECAST_COHORT]["n_skus"],
+            "skus": deployable_recon[NO_MACHINE_FORECAST_COHORT]["skus"],
+            "enters_accuracy_denominator": False,
+            "reported_as": "coverage_failures",
+        },
+        # Back-compat key for earlier review writers
         "matched_counts_regenerated": {
             "n_human_complete_1_15": len(human_pairs),
             "n_machine_any_matched_complete_1_15": len(matched_for_cohort),
@@ -532,12 +569,13 @@ def build_hb_origin_mapping_audit(*, repo_root: Path) -> dict[str, Any]:
         "group_specific_matched_coverage": group_coverage,
         "group_vs_full_horizon_policy": {
             "full_h1_15_cohort": (
-                "Portfolio activation gate population "
-                f"({HUMAN_COMPARABLE_COHORT} full-horizon)"
+                f"Portfolio activation gate population = {DEPLOYABLE_PORTFOLIO_COHORT} "
+                "(HB-complete with actual frozen-policy forecast; "
+                f"not {HUMAN_COMPARABLE_COHORT} with ≥3 origins)"
             ),
             "group_cohorts": (
                 "SKU×validity-group labels use HUMAN_COMPARABLE_COHORT_<group> "
-                "origin counts; requiring full h1–15 must not discard a valid "
+                "native origin counts; requiring full h1–15 must not discard a valid "
                 "earlier group (e.g. 140401 may contribute to h1_3/h4_6/h7_12 "
                 "even when h15 is missing)."
             ),
@@ -546,29 +584,38 @@ def build_hb_origin_mapping_audit(*, repo_root: Path) -> dict[str, Any]:
             "definition": (
                 "SKUs with matched, complete native machine and HB forecasts "
                 "(complete {1..15} on both sides for ≥1 protected origin) — "
-                "MNIH eligibility cohort (native-only)"
+                "SKU×validity-group MNIH eligibility only (not portfolio gate)"
             ),
             "n_skus": len(cohort_skus),
             "n_product_origin_pairs": len(matched_for_cohort),
+            "role": "sku_x_group_MNIH_only",
+            "not_portfolio_activation_population": True,
             "primary_portfolio_evaluation": {
                 "definition": (
-                    "Portfolio activation gate: HB-complete product×origins with "
-                    "deployable frozen-policy forecast (native or naive_last_value)"
+                    f"Portfolio activation gate = {DEPLOYABLE_PORTFOLIO_COHORT} "
+                    f"({portfolio_deployable_n} product×origins); "
+                    f"{NO_MACHINE_FORECAST_COHORT} excluded from accuracy denominators"
                 ),
                 "n_product_origin_pairs_deployable": portfolio_deployable_n,
-                "n_skus_native_ge3_complete_origins": len(primary_skus),
+                "deployable_coverage_pct": deployable_recon.get(
+                    "deployable_coverage_pct"
+                ),
+                "n_skus_native_ge3_complete_origins_for_MNIH_context_only": len(
+                    primary_skus
+                ),
                 "deployable_reconciliation_status": deployable_recon[
                     "reconciliation_status"
                 ],
             },
             "sensitivity_evaluation": {
                 "definition": (
-                    "All complete matched product×origin cases, plus leave-one-origin"
+                    "All complete matched product×origin cases, plus leave-one-origin "
+                    f"(exclude {NO_MACHINE_FORECAST} from accuracy denominators)"
                 ),
                 "n_product_origin_pairs": len(matched_for_cohort),
             },
             "only_native_cohort_may_receive_MACHINE_NONINFERIOR_TO_HUMAN": True,
-            "neither_naive_blocks_MNIH_at_sku_group": True,
+            "neither_naive_or_NO_MACHINE_FORECAST_blocks_MNIH_at_sku_group": True,
         },
         "sales_used_for_naive_availability_only": {
             "relative_path": SALES_FULL_PORTFOLIO_REL.as_posix(),
@@ -579,7 +626,8 @@ def build_hb_origin_mapping_audit(*, repo_root: Path) -> dict[str, Any]:
             "earliest_origin_minus_2_example": int(
                 shamsi_add_months(min(protected), -2)
             ),
-        },        "postlock_140401_140402_context": postlock_note,
+        },
+        "postlock_140401_140402_context": postlock_note,
         "never_silent_discard": {
             "policy": (
                 "Missing or invalid origins are recorded in incomplete_groups; "
@@ -647,13 +695,18 @@ def write_hb_origin_mapping_audit(*, repo_root: Path) -> dict[str, Any]:
                 "n_machine_any_matched_complete_1_15",
                 "n_both_native_matched_complete_1_15",
                 "n_portfolio_activation_deployable",
+                "deployable_coverage_pct",
             )
         },
+        "identity": audit["full_horizon_matched_counts_regenerated"].get("identity"),
         "deployable_reconciliation_status": audit[
             "deployable_frozen_policy_reconciliation"
         ]["reconciliation_status"],
-        "n_failed_no_deployable": audit["deployable_frozen_policy_reconciliation"][
-            "n_failed_no_deployable_forecast"
+        "n_no_machine_forecast": audit["deployable_frozen_policy_reconciliation"][
+            "n_no_machine_forecast"
+        ],
+        "n_valid_naive": audit["deployable_frozen_policy_reconciliation"]["identity"][
+            "n_valid_naive"
         ],
         "group_mnih_eligible": {
             g: gcov[g]["n_skus_mnih_eligible_ge3_origins"] for g in gcov

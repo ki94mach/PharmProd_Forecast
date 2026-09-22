@@ -444,6 +444,9 @@ def test_supersede_origin_validation_erratum(tmp_path: Path):
 
 
 def test_deployable_naive_reconciliation_explicit_fail():
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        NO_MACHINE_FORECAST,
+    )
     from pkg.research.portfolio_forecast_reliability_v1.deployable_policy import (
         reconcile_hb_complete_deployable,
     )
@@ -451,22 +454,20 @@ def test_deployable_naive_reconciliation_explicit_fail():
     human = {("A", 140304), ("B", 140304)}
     a0 = {("A", 140304)}
     v21 = {("A", 140304)}
-    # B has neither native; sales empty → explicit fail
-    sales = pd.DataFrame(
-        {"product": ["A"], "date": [140301], "sales": [10.0]}
-    )
+    sales = pd.DataFrame({"product": ["A"], "date": [140301], "sales": [10.0]})
     out = reconcile_hb_complete_deployable(
         human_complete=human,
         a0_complete=a0,
         v21_complete=v21,
         sales=sales,
     )
-    assert out["n_hb_complete_product_origins_required"] == 2
+    assert out["identity"]["holds"] is True
     assert out["n_deployable_with_forecast"] == 1
-    assert out["n_failed_no_deployable_forecast"] == 1
-    assert out["reconciliation_status"] == "FAILED"
-    assert out["failures"][0]["product"] == "B"
-    assert out["sku_x_group_mnih_policy"]["any_evaluated_neither_naive_blocks_MNIH"] is True
+    assert out["n_no_machine_forecast"] == 1
+    assert out["reconciliation_status"] == "RECONCILED"
+    assert out["NO_MACHINE_FORECAST_COHORT"]["rows"][0]["disposition"] == NO_MACHINE_FORECAST
+    assert out["NO_MACHINE_FORECAST_COHORT"]["enters_accuracy_denominator"] is False
+    assert out["sku_x_group_mnih_policy"]["any_evaluated_NO_MACHINE_FORECAST_blocks_MNIH"] is True
 
 
 def test_deployable_naive_available_from_sales_through_fo_minus_2():
@@ -476,11 +477,7 @@ def test_deployable_naive_available_from_sales_through_fo_minus_2():
     )
 
     sales = pd.DataFrame(
-        {
-            "product": ["Z", "Z"],
-            "date": [140301, 140302],
-            "sales": [1.0, 2.0],
-        }
+        {"product": ["Z", "Z"], "date": [140301, 140302], "sales": [1.0, 2.0]}
     )
     nav = naive_available_through_origin_minus_2(sales, "Z", 140304)
     assert nav["naive_available"] is True
@@ -491,8 +488,39 @@ def test_deployable_naive_available_from_sales_through_fo_minus_2():
         v21_complete=set(),
         sales=sales,
     )
-    assert out["reconciliation_status"] == "PASSED"
-    assert out["n_neither_naive_with_naive_available"] == 1
+    assert out["reconciliation_status"] == "RECONCILED"
+    assert out["identity"]["n_valid_naive"] == 1
+    assert out["DEPLOYABLE_PORTFOLIO_COHORT"]["n_product_origin_pairs"] == 1
+
+
+def test_label_hr_no_machine_forecast_blocks_mnih():
+    assert (
+        decide_sku_group_label(
+            **_base(
+                deployable_branch="both_native",
+                any_evaluated_origin_no_machine_forecast=True,
+            )
+        )
+        == LABEL_HR
+    )
+
+
+def test_no_contradictory_native_ge3_portfolio_definition():
+    from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
+        build_decision_table,
+        locked_thresholds,
+    )
+
+    thr = locked_thresholds()
+    assert thr["portfolio"]["primary_population"] == "DEPLOYABLE_PORTFOLIO_COHORT"
+    assert "≥3" not in thr["portfolio"]["primary_population"]
+    dt = build_decision_table()
+    assert dt["portfolio_activation_gate"]["primary_population"] == (
+        "DEPLOYABLE_PORTFOLIO_COHORT"
+    )
+    assert "HUMAN_COMPARABLE_COHORT_ge3" not in str(
+        dt["portfolio_activation_gate"]["order"]
+    )
 
 
 def test_pit_cutoff_constant():
@@ -649,9 +677,64 @@ def test_write_corrected_review_marks_stale_artifacts(tmp_path: Path):
     assert review["covariate_balance"] == "REPRESENTATIVE"
     assert 140312 not in review["reliability_execution_origins"]
     assert review["mnih_gates_locked"]["neither_naive_any_evaluated_origin_blocks_mnih"] is True
+    assert review["mnih_gates_locked"][
+        "NO_MACHINE_FORECAST_any_evaluated_origin_blocks_mnih"
+    ] is True
+    assert review["mnih_gates_locked"]["portfolio_activation_population"] == (
+        "DEPLOYABLE_PORTFOLIO_COHORT"
+    )
+    assert review["evaluation_scopes"]["primary_portfolio_activation"] == (
+        "DEPLOYABLE_PORTFOLIO_COHORT"
+    )
+    assert review["locked_thresholds_preview"]["portfolio"]["primary_population"] == (
+        "DEPLOYABLE_PORTFOLIO_COHORT"
+    )
+    assert review["decision_table_preview"]["portfolio_activation_gate"][
+        "primary_population"
+    ] == "DEPLOYABLE_PORTFOLIO_COHORT"
+    assert "primary_population_HUMAN_COMPARABLE_COHORT_ge3_origins" not in (
+        review["decision_table_preview"]["portfolio_activation_gate"]["order"]
+    )
+    assert review["final_contract_written"] is False
     live = review["hb_origin_mapping_audit"]["full_horizon_matched_counts_regenerated"]
     assert live["n_human_complete_1_15"] == 880
     assert live["n_human_complete_1_15"] not in {55, 50, 167, 161}
     assert "sales_full_portfolio_v1" in (
         review["hb_cohort_representativeness_audit"]["sales_source"]["relative_path"]
     )
+
+
+def test_identity_native_naive_no_machine():
+    from pkg.research.portfolio_forecast_reliability_v1.deployable_policy import (
+        reconcile_hb_complete_deployable,
+    )
+
+    # 2 native + 1 valid naive + 1 NO_MACHINE = 4
+    human = {
+        ("N1", 140304),
+        ("N2", 140304),
+        ("V", 140304),
+        ("U", 140304),
+    }
+    a0 = {("N1", 140304), ("N2", 140304)}
+    v21 = {("N1", 140304), ("N2", 140304)}
+    sales = pd.DataFrame(
+        {"product": ["V"], "date": [140301], "sales": [5.0]}
+    )
+    out = reconcile_hb_complete_deployable(
+        human_complete=human,
+        a0_complete=a0,
+        v21_complete=v21,
+        sales=sales,
+    )
+    ident = out["identity"]
+    assert ident["n_native"] == 2
+    assert ident["n_valid_naive"] == 1
+    assert ident["n_no_machine_forecast"] == 1
+    assert ident["n_hb_complete"] == 4
+    assert ident["holds"] is True
+    assert out["DEPLOYABLE_PORTFOLIO_COHORT"]["n_product_origin_pairs"] == 3
+    assert out["NO_MACHINE_FORECAST_COHORT"]["enters_accuracy_denominator"] is False
+    for row in out["NO_MACHINE_FORECAST_COHORT"]["rows"]:
+        assert row["enters_accuracy_denominator"] is False
+        assert row["deployable"] is False
