@@ -120,6 +120,84 @@ def test_label_ihe_0_or_1_origins():
     assert decide_sku_group_label(**_base(n_complete_origins=1)) == LABEL_IHE
 
 
+def test_label_hr_no_machine_wins_over_0_or_1_origins():
+    """HB present + machine cannot forecast → HR, not IHE via n<=1."""
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        NO_MACHINE_FORECAST,
+    )
+
+    for n in (0, 1):
+        assert (
+            decide_sku_group_label(
+                **_base(
+                    n_complete_origins=n,
+                    deployable_branch=NO_MACHINE_FORECAST,
+                    machine_group_wmape=None,
+                    human_group_wmape=None,
+                )
+            )
+            == LABEL_HR
+        )
+        assert (
+            decide_sku_group_label(
+                **_base(
+                    n_complete_origins=n,
+                    deployable_branch="neither_naive",
+                    machine_group_wmape=None,
+                )
+            )
+            == LABEL_HR
+        )
+
+
+def test_label_ihe_incomplete_hb_still_wins_over_no_machine():
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        NO_MACHINE_FORECAST,
+    )
+
+    assert (
+        decide_sku_group_label(
+            **_base(
+                group_horizons_exact=False,
+                deployable_branch=NO_MACHINE_FORECAST,
+                n_complete_origins=0,
+            )
+        )
+        == LABEL_IHE
+    )
+
+
+def test_label_ihe_bad_denom_still_wins_over_neither_naive():
+    assert (
+        decide_sku_group_label(
+            **_base(
+                sum_abs_actual=0.0,
+                deployable_branch="neither_naive",
+                n_complete_origins=0,
+            )
+        )
+        == LABEL_IHE
+    )
+
+
+def test_sku_group_rule_order_neither_before_origin_count():
+    from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
+        build_decision_table,
+        canonical_per_group_label_rules,
+    )
+
+    ordered = canonical_per_group_label_rules()["ordered"]
+    whens = [b["when"] for b in ordered]
+    neither_i = next(i for i, w in enumerate(whens) if "neither_naive" in w or "NO_MACHINE" in w)
+    origin_01_i = next(i for i, w in enumerate(whens) if "in {0,1}" in w)
+    assert neither_i < origin_01_i
+    branches = build_decision_table()["sku_x_validity_group"]["branches"]
+    b_whens = [b["when"] for b in branches]
+    b_neither = next(i for i, w in enumerate(b_whens) if "neither_naive" in w)
+    b_01 = next(i for i, w in enumerate(b_whens) if "<= 1" in w)
+    assert b_neither < b_01
+
+
 def test_label_ihe_bad_denominator():
     assert decide_sku_group_label(**_base(sum_abs_actual=0.0)) == LABEL_IHE
     assert decide_sku_group_label(**_base(sum_abs_actual=1e-9)) == LABEL_IHE

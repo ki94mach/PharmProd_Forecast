@@ -122,24 +122,32 @@ def future_out_of_scope_absolute_ceilings() -> dict[str, Any]:
 
 
 def canonical_per_group_label_rules() -> dict[str, Any]:
-    """Ordered SKU×group label rules — MNIH is the only positive executable label."""
+    """Ordered SKU×group label rules — MNIH is the only positive executable label.
+
+    Precedence (must hold):
+      1. missing/incomplete HB evidence → IHE
+      2. invalid denominator → IHE
+      3. any neither_naive or NO_MACHINE_FORECAST → HR
+         (even with 0–1 native origins or absent machine WMAPE)
+      4. non-computable metrics on native path → IHE
+      5. 0–1 native matched origins → IHE
+      6. 2 native matched origins → HR
+      7. ≥3 → evaluate MNIH gates
+    """
     return {
+        "precedence_note": (
+            "neither_naive / NO_MACHINE_FORECAST → HUMAN_REVIEW_REQUIRED "
+            "before 0–1 native-origin → INSUFFICIENT_HUMAN_EVIDENCE; "
+            "HB evidence with no machine forecast must not become IHE"
+        ),
         "ordered": [
             {
-                "when": "n_complete_matched_origins_in_group in {0,1}",
+                "when": "group_horizons_incomplete OR missing_HB_evidence",
                 "label": LABEL_IHE,
             },
             {
                 "when": "wmape_denominator_invalid (Σ|actual| <= 1e-9 or non-finite)",
                 "label": LABEL_IHE,
-            },
-            {
-                "when": "group_horizons_incomplete OR metrics_noncomputable",
-                "label": LABEL_IHE,
-            },
-            {
-                "when": "n_complete_matched_origins_in_group == 2",
-                "label": LABEL_HR,
             },
             {
                 "when": (
@@ -148,6 +156,22 @@ def canonical_per_group_label_rules() -> dict[str, Any]:
                 ),
                 "label": LABEL_HR,
                 "blocks": LABEL_MNIH,
+                "note": (
+                    "Wins over 0–1 native-origin IHE and over absent machine WMAPE; "
+                    "HB present + machine cannot forecast → HUMAN_REVIEW_REQUIRED"
+                ),
+            },
+            {
+                "when": "metrics_noncomputable (native path only)",
+                "label": LABEL_IHE,
+            },
+            {
+                "when": "n_complete_matched_native_origins_in_group in {0,1}",
+                "label": LABEL_IHE,
+            },
+            {
+                "when": "n_complete_matched_native_origins_in_group == 2",
+                "label": LABEL_HR,
             },
             {
                 "when": (
@@ -250,15 +274,17 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
     labels[LABEL_MNIH] = mnih_label_meaning()
     labels[LABEL_HR] = {
         "meaning": (
-            "Two complete matched origins, relative/portfolio failure, "
-            "or any evaluated origin with neither_naive or NO_MACHINE_FORECAST."
+            "Any evaluated neither_naive / NO_MACHINE_FORECAST (even with 0–1 "
+            "native origins), two native matched origins, or relative/portfolio "
+            "failure. Precedence: machine-unavailable → HR before 0–1 → IHE."
         )
     }
     labels[LABEL_IHE] = {
         "meaning": (
-            "0–1 complete matched HB origins in the group, incomplete/missing "
-            "HB evidence, invalid WMAPE denominator (Σ|actual| <= 1e-9 or "
-            "non-finite) at the relevant scope, or non-computable metrics."
+            "Missing/incomplete HB evidence, invalid WMAPE denominator "
+            "(Σ|actual| <= 1e-9 or non-finite), non-computable metrics when a "
+            "machine forecast exists, or 0–1 native matched origins after "
+            "neither_naive / NO_MACHINE_FORECAST have been ruled out."
         )
     }
     if LABEL_MR_OUT_OF_SCOPE in labels:
@@ -272,8 +298,8 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
         "Confirm MACHINE_NONINFERIOR_TO_HUMAN is the only positive executable label",
         "Confirm portfolio gate population is DEPLOYABLE_PORTFOLIO_COHORT (not native≥3)",
         "Confirm HUMAN_COMPARABLE_COHORT_<group> native≥3 is SKU×group MNIH only",
-        "Confirm 0–1→INSUFFICIENT_HUMAN_EVIDENCE, 2→HUMAN_REVIEW_REQUIRED, ≥3 MNIH-eligible",
-        "Confirm neither_naive or NO_MACHINE_FORECAST blocks MNIH → HUMAN_REVIEW_REQUIRED",
+        "Confirm rule order: incomplete HB / bad denom → IHE; then neither_naive/NO_MACHINE_FORECAST → HR; then 0–1→IHE, 2→HR, ≥3 MNIH-eligible",
+        "Confirm neither_naive or NO_MACHINE_FORECAST → HUMAN_REVIEW_REQUIRED even when native origin count is 0–1",
         "Confirm NO_MACHINE_FORECAST never enters accuracy denominators",
         "Confirm 615 native + 224 valid naive + 41 NO_MACHINE_FORECAST = 880",
         "Confirm validity_range_prefix uses MNIH (not MACHINE_RELIABLE)",
@@ -346,23 +372,22 @@ def decide_sku_group_label(
     portfolio_ceiling_pct: float | None = None,
     allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling: bool = True,
 ) -> str:
-    """Apply SKU×validity-group decision table (MNIH-primary; no HB I/O)."""
+    """Apply SKU×validity-group decision table (MNIH-primary; no HB I/O).
+
+    Precedence: incomplete HB / invalid denom → IHE; then neither_naive /
+    NO_MACHINE_FORECAST → HR (before 0–1 native-origin IHE); then origin-count
+    and MNIH gates.
+    """
     del sku_group_ceiling_pct, portfolio_ceiling_pct
     del allow_MACHINE_NONINFERIOR_TO_HUMAN_without_sku_ceiling
 
+    # 1. Missing / incomplete HB evidence
     if not group_horizons_exact:
         return LABEL_IHE
-    if n_complete_origins <= 1:
-        return LABEL_IHE
+
+    # 2. Invalid denominator (actuals side; independent of machine availability)
     if not wmape_denominator_valid(sum_abs_actual):
         return LABEL_IHE
-    if machine_group_wmape is None or human_group_wmape is None:
-        return LABEL_IHE
-    if machine_group_wmape != machine_group_wmape or human_group_wmape != human_group_wmape:
-        return LABEL_IHE
-
-    if n_complete_origins == 2:
-        return LABEL_HR
 
     neither = bool(any_evaluated_origin_neither_naive)
     if any_evaluated_origin_neither_naive is None:
@@ -374,9 +399,24 @@ def decide_sku_group_label(
     no_machine = bool(any_evaluated_origin_no_machine_forecast) or (
         deployable_branch == NO_MACHINE_FORECAST
     )
+
+    # 3. Machine cannot forecast → HR even with 0–1 native origins / absent WMAPE
     if neither or no_machine:
         return LABEL_HR
 
+    # 2b. Non-computable outcomes when a machine forecast is expected
+    if machine_group_wmape is None or human_group_wmape is None:
+        return LABEL_IHE
+    if machine_group_wmape != machine_group_wmape or human_group_wmape != human_group_wmape:
+        return LABEL_IHE
+
+    # 4–5. Native origin-count gates
+    if n_complete_origins <= 1:
+        return LABEL_IHE
+    if n_complete_origins == 2:
+        return LABEL_HR
+
+    # 6. ≥3 → evaluate MNIH relative/portfolio gates
     if not in_human_comparable_cohort:
         return LABEL_HR
 
@@ -447,6 +487,7 @@ def locked_thresholds() -> dict[str, Any]:
                 "0_or_1": LABEL_IHE,
                 "2": LABEL_HR,
                 "ge_3": "eligible_for_locked_MNIH_rules",
+                "applies_after": "neither_naive_or_NO_MACHINE_FORECAST_ruled_out",
             },
             "machine_vs_human_noninferiority_wmape_margin_pp": 2.0,
             "origin_stability_frac": 0.75,
@@ -536,14 +577,11 @@ def build_decision_table() -> dict[str, Any]:
                 "scope": "sku_x_validity_group",
             },
             "branches": [
-                {"when": "group_horizons_not_exact", "label": LABEL_IHE},
-                {"when": "n_complete_origins <= 1", "label": LABEL_IHE},
+                {"when": "group_horizons_not_exact OR missing_HB_evidence", "label": LABEL_IHE},
                 {
                     "when": f"not ({WMAPE_DENOM_RULE}) at sku×group scope",
                     "label": LABEL_IHE,
                 },
-                {"when": "metrics_noncomputable", "label": LABEL_IHE},
-                {"when": "n_complete_origins == 2", "label": LABEL_HR},
                 {
                     "when": "any_evaluated_origin_neither_naive",
                     "label": LABEL_HR,
@@ -553,7 +591,11 @@ def build_decision_table() -> dict[str, Any]:
                     "when": "any_evaluated_origin_NO_MACHINE_FORECAST",
                     "label": LABEL_HR,
                     "blocks": LABEL_MNIH,
+                    "note": "before n_complete_origins<=1 IHE",
                 },
+                {"when": "metrics_noncomputable (native path)", "label": LABEL_IHE},
+                {"when": "n_complete_native_origins <= 1", "label": LABEL_IHE},
+                {"when": "n_complete_native_origins == 2", "label": LABEL_HR},
                 {
                     "when": (
                         "native HUMAN_COMPARABLE_COHORT_<group> AND n>=3 AND denom_ok "
@@ -565,6 +607,13 @@ def build_decision_table() -> dict[str, Any]:
                     "evidence_strength": EVIDENCE_STRENGTH_LIMITED,
                 },
                 {"when": "otherwise", "label": LABEL_HR},
+            ],
+            "rule_order": [
+                "incomplete_HB_or_invalid_denom → IHE",
+                "neither_naive_or_NO_MACHINE_FORECAST → HR",
+                "0_or_1_native_origins → IHE",
+                "2_native_origins → HR",
+                "ge3 → evaluate_MNIH_gates",
             ],
             "origin_stability": {
                 "formula": "ceil(0.75 * n_complete_origins)",
@@ -971,9 +1020,14 @@ def write_corrected_review(
     }
     review["origin_count_label_map"] = {
         "scope": "per_SKU_x_validity_group_using_group_specific_complete_matched_origins",
+        "applies_after": "neither_naive_or_NO_MACHINE_FORECAST_ruled_out",
         "0_or_1": LABEL_IHE,
         "2": LABEL_HR,
         "ge_3": "eligible_for_locked_MNIH_rules_native_only",
+        "note": (
+            "Origin-count map is for the native path only. "
+            "neither_naive / NO_MACHINE_FORECAST → HUMAN_REVIEW_REQUIRED first."
+        ),
     }
     review["mnih_gates_locked"] = {
         "min_complete_group_specific_origins": 3,
@@ -1041,14 +1095,16 @@ def write_corrected_review(
         LABEL_MNIH: mnih_label_meaning(),
         LABEL_HR: {
             "meaning": (
-                "Two complete matched group-specific origins, relative/portfolio "
-                "failure, or any evaluated neither_naive / NO_MACHINE_FORECAST origin."
+                "Any evaluated neither_naive / NO_MACHINE_FORECAST (even with 0–1 "
+                "native origins), two native matched origins, or relative/portfolio "
+                "failure."
             )
         },
         LABEL_IHE: {
             "meaning": (
-                "0–1 complete matched group-specific origins, incomplete/missing "
-                "HB evidence, invalid WMAPE denominator, or non-computable metrics."
+                "Missing/incomplete HB evidence, invalid WMAPE denominator, "
+                "non-computable metrics on the native path, or 0–1 native matched "
+                "origins after neither_naive / NO_MACHINE_FORECAST ruled out."
             )
         },
     }
