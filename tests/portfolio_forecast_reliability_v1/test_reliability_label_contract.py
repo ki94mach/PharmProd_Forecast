@@ -816,3 +816,171 @@ def test_identity_native_naive_no_machine():
     for row in out["NO_MACHINE_FORECAST_COHORT"]["rows"]:
         assert row["enters_accuracy_denominator"] is False
         assert row["deployable"] is False
+
+
+def test_140404_pending_maturity_not_in_protected():
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        ORIGIN_STATUS_PENDING_MATURITY,
+        PROPOSED_FINAL_FULL_ORIGINS,
+        PROSPECTIVE_HB_ORIGIN_140404,
+    )
+    from pkg.research.portfolio_forecast_reliability_v1.reliability_label_contract import (
+        portfolio_temporal_gate,
+        prospective_origins_block,
+    )
+
+    assert PROSPECTIVE_HB_ORIGIN_140404 == 140404
+    assert 140404 not in PROTECTED_HB_ORIGINS
+    block = prospective_origins_block()
+    assert block["140404"]["status"] == ORIGIN_STATUS_PENDING_MATURITY
+    assert block["140404"]["admitted_to_PROTECTED_HB_ORIGINS"] is False
+    assert block["140401"]["role"] == "group_specific_evidence_only"
+    assert list(PROPOSED_FINAL_FULL_ORIGINS) == [140304, 140307, 140310, 140404]
+    tg = portfolio_temporal_gate()
+    assert tg["required_noninferior_origins"] == required_noninferior_origins(4)
+    assert tg["required_noninferior_origins"] == 3
+    assert tg["leave_one_origin"]["every_pooled_fold_machine_minus_human_wmape_pp_max"] == 2.0
+    assert 140401 in tg["excluded_from_full_horizon_gate"]
+    assert 140401 not in tg["full_horizon_origins"]
+
+
+def test_candidate_manifest_fail_keeps_140404_excluded():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
+        build_candidate_origin_manifest,
+    )
+
+    audit = {
+        "all_gates_pass": False,
+        "admission_gates": [
+            {"id": "hb_exact_horizons_1_15", "passed": False},
+            {"id": "scoring_sales_complete_through_140506", "passed": False},
+        ],
+        "hb_outcomes_inspected": False,
+    }
+    man = build_candidate_origin_manifest(audit)
+    assert man["excluded"] is True
+    assert man["stop"] is True
+    assert man["proposed_final_origins"] is None
+    assert man["140404_status"] == "PENDING_MATURITY"
+
+
+def test_candidate_manifest_pass_proposes_final_set():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
+        build_candidate_origin_manifest,
+    )
+
+    audit = {"all_gates_pass": True, "admission_gates": [], "hb_outcomes_inspected": False}
+    man = build_candidate_origin_manifest(audit)
+    assert man["excluded"] is False
+    assert man["stop"] is False
+    assert man["proposed_final_origins"] == [140304, 140307, 140310, 140404]
+    assert 140401 in man["group_specific_evidence_only"]
+
+
+def test_scoring_sales_gate_rejects_v1_max_date_alone(tmp_path: Path):
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
+        evaluate_scoring_sales_maturity_gate,
+    )
+
+    v1 = tmp_path / "src/data/results/product_universe/sales_full_portfolio_v1"
+    v1.mkdir(parents=True)
+    # Fake v1 with late max date — must still fail without v2 + closure
+    pd.DataFrame({"product": ["A"], "date": [140506], "sales": [1.0]}).to_parquet(
+        v1 / "sales.parquet", index=False
+    )
+    detail = evaluate_scoring_sales_maturity_gate(repo_root=tmp_path)
+    assert detail["passed"] is False
+    assert detail["v1_max_date_cannot_prove_closure"] is True
+    assert detail["v1_max_date_observed"] == 140506
+    assert any("warehouse_closure" in r or "v2" in r for r in detail["fail_reasons"])
+
+
+def test_scoring_sales_gate_passes_with_validated_v2_and_closure(tmp_path: Path):
+    import hashlib
+
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
+        evaluate_scoring_sales_maturity_gate,
+    )
+
+    v2 = tmp_path / "src/data/results/product_universe/sales_full_portfolio_v2"
+    v2.mkdir(parents=True)
+    pq = v2 / "sales.parquet"
+    pd.DataFrame({"product": ["A"], "date": [140506], "sales": [1.0]}).to_parquet(
+        pq, index=False
+    )
+    h = hashlib.sha256()
+    with pq.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    sha = h.hexdigest()
+    (v2 / "meta.json").write_text(
+        json.dumps(
+            {
+                "snapshot_version": "sales_full_portfolio_v2",
+                "immutable": True,
+                "sales": {"content_sha256": sha, "n_rows": 1},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (v2 / "warehouse_closure.json").write_text(
+        json.dumps(
+            {
+                "closed_through": 140506,
+                "closed_at_utc": "2026-10-01T00:00:00Z",
+                "validated": True,
+                "source": "test_fixture",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    detail = evaluate_scoring_sales_maturity_gate(repo_root=tmp_path)
+    assert detail["passed"] is True
+
+
+def test_identifier_trace_offline_panel_counts():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_identifier_trace import (
+        build_hb_140404_identifier_trace,
+    )
+
+    repo = Path(__file__).resolve().parents[2]
+    audit = build_hb_140404_identifier_trace(repo_root=repo, load_sql=False)
+    assert audit["hb_outcomes_inspected"] is False
+    assert audit["diagnosis"]["missing_target_month"] == 140505
+    assert audit["diagnosis"]["missing_horizon"] == 14
+    panel = audit["frozen_v2_panel"]
+    if panel.get("exists"):
+        assert panel.get("target_140505_present_in_panel") is False
+        assert panel.get("horizon_14_present_in_panel") is False
+        comp = panel["per_sku_horizon_completeness"]
+        assert comp["n_skus_complete_1_15"] == 0
+        assert comp["n_skus_missing_each_horizon"]["14"] == comp["n_skus_with_any_row"]
+
+
+def test_sales_v2_prepare_only_no_parquet(tmp_path: Path):
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "extract_sales_full_portfolio_v2.py"
+    spec = importlib.util.spec_from_file_location("extract_sales_v2", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    # Seed a fake v1 sales path reference under tmp via symlink-less copy of constants:
+    # prepare manifest only needs existence flags.
+    family = tmp_path / FAMILY_DIR_REL
+    v1 = tmp_path / "src/data/results/product_universe/sales_full_portfolio_v1"
+    v1.mkdir(parents=True)
+    (v1 / "sales.parquet").write_bytes(b"PAR1")  # non-parquet ok for exists check only
+    # write_prepare_manifest uses repo_root / SALES_FULL_PORTFOLIO_REL
+    out = mod.write_prepare_manifest(repo_root=tmp_path)
+    assert out["ok"] is True
+    assert out["parquet_written"] is False
+    man = json.loads((family / "sales_full_portfolio_v2_prepare_manifest.json").read_text(encoding="utf-8"))
+    assert man["parquet_written"] is False
+    assert man["never_overwrite_v1"] is True
+    assert not (tmp_path / "src/data/results/product_universe/sales_full_portfolio_v2/sales.parquet").exists()
+    with pytest.raises(RuntimeError):
+        mod.extract_v2(repo_root=tmp_path)

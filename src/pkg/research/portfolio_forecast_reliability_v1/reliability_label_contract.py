@@ -19,12 +19,14 @@ from pkg.portfolio_ts_lock.production_contract import (
     write_immutable_json,
 )
 from pkg.research.portfolio_forecast_reliability_v1.constants import (
+    CANDIDATE_ORIGIN_MANIFEST_FILENAME,
     CONTRACT_FILENAME,
     CONTRACT_VERSION,
     DEPLOYABLE_PORTFOLIO_COHORT,
     EVIDENCE_STRENGTH_LIMITED,
     FAMILY,
     FAMILY_DIR_REL,
+    GROUP_SPECIFIC_ONLY_ORIGIN,
     HUMAN_COMPARABLE_COHORT,
     LABEL_HR,
     LABEL_IHE,
@@ -32,16 +34,28 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     LABEL_MR_OUT_OF_SCOPE,
     LEGACY_TS_LOCK_HB_ORIGINS_KEY,
     MAPPING_AUDIT_FILENAME,
+    MATURITY_AUDIT_FILENAME,
     NO_MACHINE_FORECAST,
     NO_MACHINE_FORECAST_COHORT,
+    ORIGIN_STATUS_PENDING_MATURITY,
+    PROPOSED_FINAL_FULL_ORIGINS,
+    PROSPECTIVE_HB_ORIGIN_140404,
+    PROSPECTIVE_HB_QUARTER_140404,
+    PROSPECTIVE_MACHINE_TRAIN_END,
+    PROSPECTIVE_SCORING_SALES_THROUGH,
     PROTECTED_HB_ORIGINS,
     PROTECTED_ORIGIN_VALIDATION_FILENAME,
     REPRESENTATIVENESS_AUDIT_FILENAME,
     REVIEW_FILENAME,
+    IDENTIFIER_TRACE_FILENAME,
+    SALES_FULL_PORTFOLIO_REL,
+    SALES_FULL_PORTFOLIO_V2_REL,
+    SALES_V2_PREPARE_MANIFEST_FILENAME,
     STALE_COVERAGE_AUDIT_FILENAME,
     STALE_COVERAGE_FIGURES_FORBIDDEN,
     UPSTREAM_RESIDUAL_PIPELINE_LOCK_REL,
     VALIDITY_GROUPS,
+    VPS_140404_COMMANDS_FILENAME,
     WMAPE_DENOM_EPS,
     WMAPE_DENOM_RULE,
 )
@@ -70,6 +84,100 @@ def required_noninferior_origins(n_complete: int) -> int:
     if n_complete <= 0:
         return 0
     return int(math.ceil(0.75 * float(n_complete)))
+
+
+def prospective_140404_admission_gates() -> list[dict[str, Any]]:
+    """Preregistered admission gates for origin 140404 (identifier / policy only)."""
+    return [
+        {
+            "id": "hb_version_quarter_maps_to_140404",
+            "rule": (
+                f"HB Version→quarter mapping for {PROSPECTIVE_HB_QUARTER_140404} "
+                f"gives origin {PROSPECTIVE_HB_ORIGIN_140404}"
+            ),
+        },
+        {
+            "id": "hb_exact_horizons_1_15",
+            "rule": "HB contains exact horizons {1..15} for product×origin 140404",
+        },
+        {
+            "id": "scoring_sales_complete_through_140506",
+            "rule": (
+                f"Validated sales_full_portfolio_v2 snapshot exists with explicit "
+                f"warehouse_closure.closed_through>={PROSPECTIVE_SCORING_SALES_THROUGH}; "
+                "v1 max_date alone cannot prove warehouse closure"
+            ),
+        },
+        {
+            "id": "machine_training_ends_at_140402",
+            "rule": (
+                f"Machine training ends at {PROSPECTIVE_MACHINE_TRAIN_END} "
+                "(origin−2; frozen sales_full_portfolio_v1)"
+            ),
+        },
+        {
+            "id": "never_renumber_or_silent_drop",
+            "rule": "No horizons are renumbered or silently dropped",
+        },
+    ]
+
+
+def prospective_origins_block() -> dict[str, Any]:
+    """Review/contract prospective origin registry (140404 not yet admitted)."""
+    return {
+        str(PROSPECTIVE_HB_ORIGIN_140404): {
+            "status": ORIGIN_STATUS_PENDING_MATURITY,
+            "quarter": PROSPECTIVE_HB_QUARTER_140404,
+            "admission_gates": prospective_140404_admission_gates(),
+            "admitted_to_PROTECTED_HB_ORIGINS": False,
+            "in_current_PROTECTED_HB_ORIGINS": (
+                PROSPECTIVE_HB_ORIGIN_140404 in PROTECTED_HB_ORIGINS
+            ),
+            "scoring_sales_through": PROSPECTIVE_SCORING_SALES_THROUGH,
+            "machine_train_end": PROSPECTIVE_MACHINE_TRAIN_END,
+            "machine_sales_source": SALES_FULL_PORTFOLIO_REL.as_posix(),
+            "scoring_sales_source_after_close": SALES_FULL_PORTFOLIO_V2_REL.as_posix(),
+        },
+        str(GROUP_SPECIFIC_ONLY_ORIGIN): {
+            "role": "group_specific_evidence_only",
+            "note": (
+                "140401 remains in current PROTECTED_HB_ORIGINS for group-level "
+                "labels; excluded from proposed full-horizon portfolio temporal "
+                "gate once 140404 is admitted."
+            ),
+            "in_current_PROTECTED_HB_ORIGINS": True,
+            "in_proposed_final_full_origins": False,
+        },
+        "proposed_final_full_origins_after_admission": list(PROPOSED_FINAL_FULL_ORIGINS),
+        "current_PROTECTED_HB_ORIGINS_unchanged": sorted(PROTECTED_HB_ORIGINS),
+    }
+
+
+def portfolio_temporal_gate() -> dict[str, Any]:
+    """Generic portfolio leave-one-origin temporal gate (preregistered; not scored)."""
+    n_full = len(PROPOSED_FINAL_FULL_ORIGINS)
+    return {
+        "status": "PREREGISTERED_NOT_EXECUTED",
+        "hb_outcomes_inspected": False,
+        "n_full_origins": n_full,
+        "full_horizon_origins": list(PROPOSED_FINAL_FULL_ORIGINS),
+        "excluded_from_full_horizon_gate": [GROUP_SPECIFIC_ONLY_ORIGIN],
+        "group_specific_evidence_only": [GROUP_SPECIFIC_ONLY_ORIGIN],
+        "required_noninferior_origins_rule": "ceil(0.75 * n_full_origins)",
+        "required_noninferior_origins": required_noninferior_origins(n_full),
+        "with_four_full_origins_require": "3/4",
+        "leave_one_origin": {
+            "every_pooled_fold_machine_minus_human_wmape_pp_max": 2.0,
+            "rule": (
+                "Every leave-one-origin pooled result must satisfy "
+                "WMAPE(machine)−WMAPE(human) <= 2.0 pp"
+            ),
+        },
+        "note": (
+            "Do not open HB outcomes in this prepare step. "
+            "140401 is group-specific evidence only for the full-origin temporal gate."
+        ),
+    }
 
 
 def wmape_denominator_valid(sum_abs_actual: float) -> bool:
@@ -241,6 +349,12 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
         "all complete matched product×origin cases + leave-one-origin "
         "(still excluding NO_MACHINE_FORECAST from accuracy denominators)"
     )
+    port["temporal_gate"] = portfolio_temporal_gate()
+    if "temporal_leave_one_origin_every_fold_wmape_le_2pp" not in gates:
+        gates.append("temporal_leave_one_origin_every_fold_wmape_le_2pp")
+    if "temporal_required_noninferior_origins_ceil_0_75_n_full" not in gates:
+        gates.append("temporal_required_noninferior_origins_ceil_0_75_n_full")
+    port["gates_apply_here_only"] = gates
     port["absolute_wmape_ceilings"] = "OUT_OF_EXECUTABLE_V1_SCOPE"
 
     sku = two.setdefault("sku_validity_group_labels", {})
@@ -305,6 +419,9 @@ def apply_review_structure_corrections(review: dict[str, Any]) -> None:
         "Confirm validity_range_prefix uses MNIH (not MACHINE_RELIABLE)",
         "Confirm WMAPE denom applies separately at portfolio, SKU×group, SKU×origin",
         "Confirm protected HB origins include 140401 (not 140312) for reliability joins",
+        "Confirm 140404 is PENDING_MATURITY until all admission gates pass",
+        "Confirm portfolio temporal gate: ceil(0.75*n_full) and every LOO fold ≤2 pp WMAPE",
+        "Confirm 140401 is group-specific evidence only for proposed full-horizon set",
         "Confirm representativeness audit limits portfolio conclusions if non-representative",
         "Confirm no HB outcomes opened; no router trained; no final contract yet",
     ):
@@ -462,6 +579,7 @@ def locked_thresholds() -> dict[str, Any]:
                 "all complete matched product×origin + leave-one-origin "
                 f"(exclude {NO_MACHINE_FORECAST} from accuracy denominators)"
             ),
+            "temporal_gate": portfolio_temporal_gate(),
             "min_skus_structural_coverage_note": (
                 "Structural min-SKU coverage may still be reported; portfolio "
                 f"activation population is {DEPLOYABLE_PORTFOLIO_COHORT}, not native≥3"
@@ -552,6 +670,8 @@ def build_decision_table() -> dict[str, Any]:
                 "max_ae_le_1_10x",
                 "sku_cluster_bootstrap_frac_ge_0_90",
                 "drop_top3_by_sum_ae_machine_advantage_remaining_noninferior",
+                "temporal_leave_one_origin_every_fold_wmape_le_2pp",
+                "temporal_required_noninferior_origins_ceil_0_75_n_full",
             ],
             "if_fails": "no_MACHINE_NONINFERIOR_TO_HUMAN_anywhere",
             "primary_population": DEPLOYABLE_PORTFOLIO_COHORT,
@@ -562,6 +682,7 @@ def build_decision_table() -> dict[str, Any]:
                 "all complete matched product×origin + leave-one-origin "
                 f"(exclude {NO_MACHINE_FORECAST})"
             ),
+            "temporal_gate": portfolio_temporal_gate(),
             "wmape_denominator": {"rule": WMAPE_DENOM_RULE, "scope": "portfolio"},
             "drop_top_k": {
                 "k": 3,
@@ -920,6 +1041,8 @@ def write_corrected_review(
     review["positive_executable_label"] = LABEL_MNIH
     review["protected_hb_origins_reliability"] = sorted(PROTECTED_HB_ORIGINS)
     review["reliability_execution_origins"] = sorted(PROTECTED_HB_ORIGINS)
+    review["prospective_origins"] = prospective_origins_block()
+    review["portfolio_temporal_gate"] = portfolio_temporal_gate()
     review[LEGACY_TS_LOCK_HB_ORIGINS_KEY] = {
         "note": (
             "Immutable TS-lock holdout list (may still include 140312). "
@@ -1051,11 +1174,57 @@ def write_corrected_review(
             "all complete matched product×origin + leave-one-origin "
             f"(exclude {NO_MACHINE_FORECAST} from accuracy denominators)"
         ),
+        "portfolio_temporal_gate": "PREREGISTERED_NOT_EXECUTED",
         "never_silent_discard": True,
         "never_renumber_horizons": True,
         "full_h1_15_must_not_discard_earlier_complete_group": True,
         "never_zero_fill_NO_MACHINE_FORECAST": True,
     }
+    # Link prepared 140404 extension artifacts when present (additive; never mutate locks).
+    for key, fname in (
+        ("hb_140404_maturity_audit", MATURITY_AUDIT_FILENAME),
+        ("candidate_origin_manifest", CANDIDATE_ORIGIN_MANIFEST_FILENAME),
+        ("sales_full_portfolio_v2_prepare", SALES_V2_PREPARE_MANIFEST_FILENAME),
+        ("vps_140404_commands", VPS_140404_COMMANDS_FILENAME),
+        ("hb_140404_identifier_trace", IDENTIFIER_TRACE_FILENAME),
+    ):
+        p = family / fname
+        block: dict[str, Any] = {
+            "exists": p.is_file(),
+            "relative_path": (FAMILY_DIR_REL / fname).as_posix(),
+        }
+        if p.is_file():
+            block["sha256"] = file_sha256(p)
+            try:
+                payload = json.loads(p.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            if key == "candidate_origin_manifest":
+                block["140404_status"] = payload.get("140404_status")
+                block["excluded"] = payload.get("excluded")
+                block["proposed_final_origins"] = payload.get("proposed_final_origins")
+                block["stop"] = payload.get("stop")
+            elif key == "hb_140404_maturity_audit":
+                block["all_gates_pass"] = payload.get("all_gates_pass")
+                block["hb_outcomes_inspected"] = payload.get(
+                    "hb_outcomes_inspected", False
+                )
+            elif key == "sales_full_portfolio_v2_prepare":
+                block["status"] = payload.get("status")
+                block["parquet_written"] = payload.get("parquet_written", False)
+            elif key == "hb_140404_identifier_trace":
+                block["hb_outcomes_inspected"] = payload.get(
+                    "hb_outcomes_inspected", False
+                )
+                block["missing_target_month"] = (payload.get("diagnosis") or {}).get(
+                    "missing_target_month"
+                )
+                block["n_skus_complete_1_15"] = (
+                    (payload.get("frozen_v2_panel") or {})
+                    .get("per_sku_horizon_completeness")
+                    or {}
+                ).get("n_skus_complete_1_15")
+        review[key] = block
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,
         "eps": WMAPE_DENOM_EPS,
