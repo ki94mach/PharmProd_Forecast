@@ -877,6 +877,61 @@ def test_candidate_manifest_pass_proposes_final_set():
     assert 140401 in man["group_specific_evidence_only"]
 
 
+def test_identifier_panel_restores_140505_without_incomplete_filter():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_reliability_extract import (
+        build_identifier_panel,
+        evaluate_hb_forecast_coverage_gate,
+    )
+
+    # Synthetic earliest-edition ids including 140505 (h14 for origin 140404)
+    rows = []
+    for h, d in enumerate(
+        [
+            140404,
+            140405,
+            140406,
+            140407,
+            140408,
+            140409,
+            140410,
+            140411,
+            140412,
+            140501,
+            140502,
+            140503,
+            140504,
+            140505,
+            140506,
+        ],
+        start=1,
+    ):
+        rows.append(
+            {
+                "product": "SKU_A",
+                "generic": "G",
+                "date": d,
+                "version": 14040201,
+                "qrt": "1404Q2",
+                "edition": 1,
+            }
+        )
+    raw = pd.DataFrame(rows)
+    panel, _excl, stats = build_identifier_panel(raw)
+    assert stats["incomplete_shamsi_months_filter_applied"] is False
+    assert 140505 in set(panel["target_date"].astype(int))
+    assert 14 in set(panel["horizon"].astype(int))
+    gate = evaluate_hb_forecast_coverage_gate(panel=panel)
+    assert gate["passed"] is True
+    assert gate["n_skus_complete_1_15"] == 1
+
+
+def test_load_line_budget_identifiers_sql_has_no_budgetqty():
+    from pkg.db.query import product_budget as pb
+
+    assert "BudgetQty" not in pb.LINE_BUDGET_IDENTIFIERS_ALL
+    assert "forecast" not in pb.LINE_BUDGET_IDENTIFIERS_ALL.lower()
+
+
 def test_scoring_sales_gate_rejects_v1_max_date_alone(tmp_path: Path):
     from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
         evaluate_scoring_sales_maturity_gate,
@@ -957,6 +1012,133 @@ def test_identifier_trace_offline_panel_counts():
         comp = panel["per_sku_horizon_completeness"]
         assert comp["n_skus_complete_1_15"] == 0
         assert comp["n_skus_missing_each_horizon"]["14"] == comp["n_skus_with_any_row"]
+
+
+def test_provenance_publication_timing_unverified():
+    from pkg.research.portfolio_forecast_reliability_v1.hb_reliability_extract import (
+        provenance_audit,
+    )
+
+    panel = pd.DataFrame(
+        {
+            "product": ["A", "B"],
+            "budget_version": [14040201, 14040202],
+            "budget_origin": [140404, 140404],
+            "source_budget_quarter": ["1404Q2", "1404Q2"],
+            "target_date": [140404, 140405],
+            "horizon": [1, 2],
+        }
+    )
+    prov = provenance_audit(panel, panel)
+    assert prov["publication_timing_status"] == "PUBLICATION_TIMING_UNVERIFIED"
+    assert prov["publication_timestamps_available"] is False
+    assert prov["earliest_edition_proves_availability_at_origin"] is False
+    assert prov["edition_gt_01_proves_late_forecast"] is False
+    assert prov["n_panel_rows_earliest_edition_gt_01"] == 1
+
+
+def test_machine_ready_points_at_140404_exports_not_frozen_v2(tmp_path: Path):
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        MACHINE_140404_A0_EXPORT_REL,
+        MACHINE_140404_V21_EXPORT_REL,
+    )
+    from pkg.research.portfolio_forecast_reliability_v1.hb_reliability_extract import (
+        evaluate_machine_ready_gate,
+    )
+
+    # Minimal 140404 configs with pinned training contract
+    for rel, seeds in (
+        (
+            Path("configs/forecast_jobs/portfolio_v21_backfill_140404.win.yaml"),
+            None,
+        ),
+        (
+            Path("configs/forecast_jobs/portfolio_a0_backfill_140404.win.yaml"),
+            [41, 42, 43],
+        ),
+    ):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        body = {
+            "origins": [140404],
+            "sales": {
+                "path": (
+                    "src/data/results/product_universe/"
+                    "sales_full_portfolio_v1/sales.parquet"
+                ),
+                "expected": {
+                    "content_sha256": (
+                        "b67382d451974271c209f3c371219505cfa3fe45e3ad43d9769a93dfc5f1cfcc"
+                    ),
+                    "n_rows": 22041,
+                },
+            },
+            "reliability_prepare": {"machine_train_end": 140402},
+        }
+        if seeds is not None:
+            body["seeds"] = seeds
+        import yaml
+
+        p.write_text(yaml.safe_dump(body), encoding="utf-8")
+
+    gate = evaluate_machine_ready_gate(repo_root=tmp_path)
+    assert gate["status"] == "PENDING"
+    assert gate["passed"] is False
+    discovers = gate["discovers"]
+    assert MACHINE_140404_V21_EXPORT_REL.as_posix() in discovers["export_panels"]
+    assert MACHINE_140404_A0_EXPORT_REL.as_posix() in discovers["export_panels"]
+    assert all("backfill_v2_export" not in p for p in discovers["export_panels"])
+    assert all(
+        "backfill_140404" in rid for rid in discovers["run_ids"]
+    )
+    assert gate["engines"]["v21"]["training_contract"]["passed"] is True
+    assert gate["engines"]["a0"]["training_contract"]["passed"] is True
+    assert gate["engines"]["v21"]["export_exists"] is False
+    assert gate["engines"]["a0"]["required_a0_seeds"] == [41, 42, 43]
+
+
+def test_quantity_retrieval_prepare_asserts_exact_key_agreement(tmp_path: Path):
+    from pkg.research.portfolio_forecast_reliability_v1.constants import (
+        HB_RELIABILITY_EXTRACT_DIR_REL,
+        HB_RELIABILITY_IDENTIFIERS_PANEL_REL,
+    )
+    from pkg.research.portfolio_forecast_reliability_v1.hb_reliability_extract import (
+        assert_exact_quantity_key_agreement,
+        build_quantity_retrieval_prepare,
+    )
+
+    panel_path = tmp_path / HB_RELIABILITY_IDENTIFIERS_PANEL_REL
+    panel_path.parent.mkdir(parents=True, exist_ok=True)
+    panel = pd.DataFrame(
+        {
+            "product": ["A", "A"],
+            "budget_version": [14040201, 14040201],
+            "edition": [1, 1],
+            "source_budget_quarter": ["1404Q2", "1404Q2"],
+            "budget_origin": [140404, 140404],
+            "target_date": [140404, 140405],
+            "horizon": [1, 2],
+        }
+    )
+    panel.to_parquet(panel_path, index=False)
+    prep = build_quantity_retrieval_prepare(repo_root=tmp_path)
+    assert prep["status"] == "PREPARED_NOT_EXECUTED"
+    assert prep["hb_quantities_fetched"] is False
+    assert prep["identifiers_cannot_provide_hb_values"] is True
+    assert prep["quantity_query"]["assert_exact_key_agreement"] is True
+    assert prep["key_stats"]["n_rows"] == 2
+
+    ok = assert_exact_quantity_key_agreement(panel, panel.copy())
+    assert ok["passed"] is True
+
+    drifted = panel.copy()
+    drifted.loc[0, "budget_version"] = 14040202
+    drifted.loc[0, "edition"] = 2
+    with pytest.raises(AssertionError, match="absent from identifiers_panel"):
+        assert_exact_quantity_key_agreement(panel, drifted)
+
+    # extract dir path exists only for prepare stats
+    assert (tmp_path / HB_RELIABILITY_EXTRACT_DIR_REL).is_dir()
 
 
 def test_sales_v2_prepare_only_no_parquet(tmp_path: Path):

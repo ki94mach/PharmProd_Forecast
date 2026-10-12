@@ -26,6 +26,81 @@ PROTECTED_HB_ORIGINS: frozenset[int] = frozenset(
     {140304, 140307, 140310, 140401}
 )
 
+# Prospective full-horizon origin (not admitted until maturity gates pass).
+ORIGIN_STATUS_PENDING_MATURITY = "PENDING_MATURITY"
+PROSPECTIVE_HB_ORIGIN_140404 = 140404
+PROSPECTIVE_HB_QUARTER_140404 = "1404Q2"
+# Scoring actuals for h1–15 at origin 140404 require sales through origin+14.
+PROSPECTIVE_SCORING_SALES_THROUGH = 140506
+# Machine training cutoff for origin 140404 (origin−2).
+PROSPECTIVE_MACHINE_TRAIN_END = 140402
+# Proposed full-horizon portfolio set after 140404 admission (140401 group-specific only).
+PROPOSED_FINAL_FULL_ORIGINS: tuple[int, ...] = (140304, 140307, 140310, 140404)
+GROUP_SPECIFIC_ONLY_ORIGIN = 140401
+
+MATURITY_AUDIT_FILENAME = "hb_140404_maturity_audit_v1.json"
+CANDIDATE_ORIGIN_MANIFEST_FILENAME = "candidate_origin_manifest_v1.json"
+SALES_V2_PREPARE_MANIFEST_FILENAME = "sales_full_portfolio_v2_prepare_manifest.json"
+VPS_140404_COMMANDS_FILENAME = "vps_140404_commands.json"
+IDENTIFIER_TRACE_FILENAME = "hb_140404_identifier_trace_v1.json"
+
+# Versioned HB reliability extract (outside frozen benchmarks/; no INCOMPLETE_SHAMSI drop).
+HB_RELIABILITY_EXTRACT_DIR_REL = FAMILY_DIR_REL / "hb_reliability_extract_v1"
+HB_RELIABILITY_IDENTIFIERS_PANEL_REL = (
+    HB_RELIABILITY_EXTRACT_DIR_REL / "identifiers_panel.parquet"
+)
+HB_RELIABILITY_EXTRACT_META_REL = HB_RELIABILITY_EXTRACT_DIR_REL / "meta.json"
+HB_FORECAST_COVERAGE_AUDIT_FILENAME = "hb_reliability_forecast_coverage_audit_v1.json"
+HB_RELIABILITY_CANDIDATE_MANIFEST_FILENAME = (
+    "hb_reliability_candidate_manifest_v1.json"
+)
+HB_SCORING_PATH_PREPARE_FILENAME = "hb_reliability_scoring_path_prepare_v1.json"
+HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME = (
+    "hb_reliability_quantity_retrieval_prepare_v1.json"
+)
+
+# Origins evaluated for HB forecast coverage (current protected + prospective 140404).
+HB_RELIABILITY_COVERAGE_ORIGINS: frozenset[int] = frozenset(
+    {140304, 140307, 140310, 140401, 140404}
+)
+
+# 140404-only machine backfill runs (not the frozen portfolio_*_backfill_v2 exports).
+MACHINE_140404_V21_RUN_ID = "portfolio_v21_backfill_140404"
+MACHINE_140404_A0_RUN_ID = "portfolio_a0_backfill_140404"
+MACHINE_140404_V21_EXPORT_REL = Path(
+    "src/data/results/product_universe/portfolio_v21_backfill_140404_export/"
+    "forecasts_panel.parquet"
+)
+MACHINE_140404_A0_EXPORT_REL = Path(
+    "src/data/results/product_universe/portfolio_a0_backfill_140404_export/"
+    "forecasts_panel.parquet"
+)
+MACHINE_140404_V21_CONFIG_REL = Path(
+    "configs/forecast_jobs/portfolio_v21_backfill_140404.win.yaml"
+)
+MACHINE_140404_A0_CONFIG_REL = Path(
+    "configs/forecast_jobs/portfolio_a0_backfill_140404.win.yaml"
+)
+MACHINE_140404_A0_SEEDS: tuple[int, ...] = (41, 42, 43)
+# Pinned training sales contract for 140404 machine jobs (frozen v1).
+MACHINE_140404_TRAINING_SALES_REL = Path(
+    "src/data/results/product_universe/sales_full_portfolio_v1/sales.parquet"
+)
+MACHINE_140404_TRAINING_SALES_SHA256 = (
+    "b67382d451974271c209f3c371219505cfa3fe45e3ad43d9769a93dfc5f1cfcc"
+)
+MACHINE_140404_TRAINING_SALES_N_ROWS = 22041
+
+SALES_FULL_PORTFOLIO_V2_DIR_REL = Path(
+    "src/data/results/product_universe/sales_full_portfolio_v2"
+)
+SALES_FULL_PORTFOLIO_V2_REL = SALES_FULL_PORTFOLIO_V2_DIR_REL / "sales.parquet"
+SALES_FULL_PORTFOLIO_V2_META_REL = SALES_FULL_PORTFOLIO_V2_DIR_REL / "meta.json"
+# Explicit warehouse closure proof (not inferred from v1 max_date).
+SALES_WAREHOUSE_CLOSURE_V2_REL = (
+    SALES_FULL_PORTFOLIO_V2_DIR_REL / "warehouse_closure.json"
+)
+
 # Immutable TS-lock holdout list — never drives reliability execution.
 LEGACY_TS_LOCK_HB_ORIGINS_KEY = "legacy_ts_lock_hb_origins_immutable"
 

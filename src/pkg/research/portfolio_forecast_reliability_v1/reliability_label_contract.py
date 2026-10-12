@@ -47,6 +47,10 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     PROTECTED_ORIGIN_VALIDATION_FILENAME,
     REPRESENTATIVENESS_AUDIT_FILENAME,
     REVIEW_FILENAME,
+    HB_FORECAST_COVERAGE_AUDIT_FILENAME,
+    HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME,
+    HB_RELIABILITY_CANDIDATE_MANIFEST_FILENAME,
+    HB_SCORING_PATH_PREPARE_FILENAME,
     IDENTIFIER_TRACE_FILENAME,
     SALES_FULL_PORTFOLIO_REL,
     SALES_FULL_PORTFOLIO_V2_REL,
@@ -1187,6 +1191,13 @@ def write_corrected_review(
         ("sales_full_portfolio_v2_prepare", SALES_V2_PREPARE_MANIFEST_FILENAME),
         ("vps_140404_commands", VPS_140404_COMMANDS_FILENAME),
         ("hb_140404_identifier_trace", IDENTIFIER_TRACE_FILENAME),
+        ("hb_reliability_forecast_coverage_audit", HB_FORECAST_COVERAGE_AUDIT_FILENAME),
+        ("hb_reliability_candidate_manifest", HB_RELIABILITY_CANDIDATE_MANIFEST_FILENAME),
+        ("hb_reliability_scoring_path_prepare", HB_SCORING_PATH_PREPARE_FILENAME),
+        (
+            "hb_reliability_quantity_retrieval_prepare",
+            HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME,
+        ),
     ):
         p = family / fname
         block: dict[str, Any] = {
@@ -1224,6 +1235,34 @@ def write_corrected_review(
                     .get("per_sku_horizon_completeness")
                     or {}
                 ).get("n_skus_complete_1_15")
+            elif key == "hb_reliability_forecast_coverage_audit":
+                prov = payload.get("provenance") or {}
+                block["publication_timing_status"] = prov.get(
+                    "publication_timing_status"
+                )
+                gates = payload.get("gates") or {}
+                block["machine_ready_status"] = (gates.get("machine_ready") or {}).get(
+                    "status"
+                )
+                block["hb_forecast_coverage_status"] = (
+                    gates.get("hb_forecast_coverage") or {}
+                ).get("status")
+            elif key == "hb_reliability_candidate_manifest":
+                gates = payload.get("gates") or {}
+                block["machine_ready_status"] = (gates.get("machine_ready") or {}).get(
+                    "status"
+                )
+                block["excluded_from_contract_freeze"] = payload.get(
+                    "excluded_from_contract_freeze"
+                )
+            elif key == "hb_reliability_quantity_retrieval_prepare":
+                block["status"] = payload.get("status")
+                block["hb_quantities_fetched"] = payload.get(
+                    "hb_quantities_fetched", False
+                )
+                block["assert_exact_key_agreement"] = (
+                    payload.get("quantity_query") or {}
+                ).get("assert_exact_key_agreement")
         review[key] = block
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,

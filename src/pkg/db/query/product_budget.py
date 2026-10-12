@@ -34,6 +34,20 @@ LINE_BUDGET_FORECASTS_ALL = """
         AND p.[ProductTitleEN] IS NOT NULL
 """
 
+# Identifier-only: never selects BudgetQty / forecast quantities.
+LINE_BUDGET_IDENTIFIERS_ALL = """
+    SELECT
+        p.[ProductTitleEN] AS product,
+        p.[GenericEN] AS generic,
+        CAST(b.[FK_Date_ID] AS bigint) AS fk_date_id,
+        CAST(b.[Version] AS bigint) AS version
+    FROM [Iris_DW].[Fact].[VW_Product_Budget] b
+    INNER JOIN [Iris_DW].[Dim].[Product] p
+        ON b.[FK_Product_ID] = p.[ID]
+    WHERE b.[Budget_Type] = 'Line Budget'
+        AND p.[ProductTitleEN] IS NOT NULL
+"""
+
 
 def version_to_qrt(version: int) -> str:
     """Map Version YYYYQQEE to qrt label, e.g. 14040401 -> 1404Q4."""
@@ -100,3 +114,53 @@ def load_line_budget_forecasts(
     )
     df = read_sql(sql, **engine_kwargs)
     return _normalize_line_budget(df, earliest_edition_only=earliest_edition_only)
+
+
+def _normalize_line_budget_identifiers(
+    df: pd.DataFrame, *, earliest_edition_only: bool
+) -> pd.DataFrame:
+    """Normalize identifier-only Line Budget rows (no forecast column)."""
+    if df.empty:
+        return pd.DataFrame(
+            columns=["product", "generic", "date", "version", "qrt", "edition"]
+        )
+
+    out = df.copy()
+    out["version"] = out["version"].astype(int)
+    out["date"] = (out["fk_date_id"].astype(int) // 100).astype(int)
+    out["qrt"] = out["version"].map(version_to_qrt)
+    out["product"] = out["product"].astype(str)
+    out["edition"] = out["version"] % 100
+
+    if earliest_edition_only:
+        earliest = (
+            out.groupby(["product", "qrt"], as_index=False)["version"]
+            .min()
+            .rename(columns={"version": "_earliest_version"})
+        )
+        out = out.merge(earliest, on=["product", "qrt"], how="inner")
+        out = out.loc[out["version"] == out["_earliest_version"]].drop(
+            columns=["_earliest_version"]
+        )
+
+    cols = ["product", "generic", "date", "version", "qrt", "edition"]
+    return out[[c for c in cols if c in out.columns]].copy()
+
+
+def load_line_budget_identifiers(
+    *,
+    earliest_edition_only: bool = True,
+    **engine_kwargs,
+) -> pd.DataFrame:
+    """Load Line Budget identifiers only (no BudgetQty in SQL).
+
+    Full portfolio (no TARGET_GENERIC_EN filter). True identifier-only query:
+    ``BudgetQty`` is never selected. Dropping forecast after a qty-bearing
+    load does **not** qualify as identifier-only.
+
+    Returns: product, generic, date, version, qrt, edition.
+    """
+    df = read_sql(LINE_BUDGET_IDENTIFIERS_ALL, **engine_kwargs)
+    return _normalize_line_budget_identifiers(
+        df, earliest_edition_only=earliest_edition_only
+    )
