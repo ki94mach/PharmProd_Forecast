@@ -62,6 +62,13 @@ HB_140404_MACHINE_RECONCILIATION_FILENAME = (
     "hb_140404_machine_backfill_reconciliation_v1.json"
 )
 HB_140404_READINESS_AUDIT_FILENAME = "hb_140404_readiness_audit_v1.json"
+HB_140404_A0_H14_DIAGNOSIS_FILENAME = "hb_140404_a0_h14_export_diagnosis_v1.json"
+HB_140404_A0_RERUN_PREPARE_FILENAME = "hb_140404_a0_h14_rerun_prepare_v1.json"
+# Versioned repaired A0 export (written only after VPS rerun + re-export).
+MACHINE_140404_A0_EXPORT_V2_REL = Path(
+    "src/data/results/product_universe/portfolio_a0_backfill_140404_export_v2/"
+    "forecasts_panel.parquet"
+)
 
 # Origins evaluated for HB forecast coverage (current protected + prospective 140404).
 HB_RELIABILITY_COVERAGE_ORIGINS: frozenset[int] = frozenset(

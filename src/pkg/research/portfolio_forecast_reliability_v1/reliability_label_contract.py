@@ -47,6 +47,8 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     PROTECTED_ORIGIN_VALIDATION_FILENAME,
     REPRESENTATIVENESS_AUDIT_FILENAME,
     REVIEW_FILENAME,
+    HB_140404_A0_H14_DIAGNOSIS_FILENAME,
+    HB_140404_A0_RERUN_PREPARE_FILENAME,
     HB_140404_MACHINE_RECONCILIATION_FILENAME,
     HB_140404_READINESS_AUDIT_FILENAME,
     HB_FORECAST_COVERAGE_AUDIT_FILENAME,
@@ -1205,6 +1207,8 @@ def write_corrected_review(
             HB_140404_MACHINE_RECONCILIATION_FILENAME,
         ),
         ("hb_140404_readiness_audit", HB_140404_READINESS_AUDIT_FILENAME),
+        ("hb_140404_a0_h14_export_diagnosis", HB_140404_A0_H14_DIAGNOSIS_FILENAME),
+        ("hb_140404_a0_h14_rerun_prepare", HB_140404_A0_RERUN_PREPARE_FILENAME),
     ):
         p = family / fname
         block: dict[str, Any] = {
@@ -1285,6 +1289,23 @@ def write_corrected_review(
                 )
                 block["final_contract_written"] = payload.get(
                     "final_contract_written", False
+                )
+                block["vps_refit_necessary"] = (
+                    payload.get("a0_h14_diagnosis") or {}
+                ).get("vps_refit_necessary")
+            elif key == "hb_140404_a0_h14_export_diagnosis":
+                trace = payload.get("trace") or {}
+                block["vps_refit_necessary"] = trace.get("vps_refit_necessary")
+                block["responsible_stage"] = trace.get("responsible_stage")
+                block["n_missing_h14_rows"] = (
+                    payload.get("observed_export") or {}
+                ).get("n_missing_h14_rows")
+            elif key == "hb_140404_a0_h14_rerun_prepare":
+                block["status"] = payload.get("status")
+                block["n_jobs_to_rerun"] = payload.get("n_jobs_to_rerun")
+                block["n_products_to_rerun"] = payload.get("n_products_to_rerun")
+                block["execute_in_this_step"] = payload.get(
+                    "execute_in_this_step", False
                 )
         review[key] = block
     review["wmape_denominator"] = {

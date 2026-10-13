@@ -562,6 +562,50 @@ class TestOuterMetrics(unittest.TestCase):
             min_internal_validation_windows=1,
         )
 
+    def test_explicit_origins_emit_full_horizon_despite_missing_actual_month(self):
+        """forecast_jobs path must persist predictions when one target actual is missing."""
+        # Sales cover most post-origin months but omit 140505 (h14 @ origin 140404).
+        sales = _monthly_sales_frame("H14", 140301, 30, base=10.0, step=0.0)
+        sales = sales.loc[pd.to_numeric(sales["date"], errors="coerce") != 140505].copy()
+        v2_cfg = TSForecastConfig(
+            forecast_horizon=15,
+            min_train_months=3,
+            activity_start_min_sales=None,
+        )
+        neural_cfg = NeuralExperimentConfig(
+            architecture_name=ArchitectureName.A1_SMALL_RECURSIVE_LSTM.value,
+            max_epochs=1,
+            early_stopping_patience=1,
+            horizon=15,
+            lookback=3,
+            random_seeds=(41,),
+            min_successful_seeds=1,
+            min_internal_train_windows=2,
+            min_internal_validation_windows=1,
+        )
+        with patch(
+            "pkg.ts_v3a.backtest.create_neural_model",
+            side_effect=_patch_factory(RecordingStubModel),
+        ):
+            result = backtest_product_architectures(
+                sales,
+                "H14",
+                architectures=(ArchitectureName.A1_SMALL_RECURSIVE_LSTM,),
+                seeds=(41,),
+                config=neural_cfg,
+                v2_config=v2_cfg,
+                explicit_origins=(140404,),
+            )
+        preds = result.predictions
+        self.assertFalse(preds.empty)
+        horizons = set(int(h) for h in preds["horizon"].tolist())
+        self.assertEqual(horizons, set(range(1, 16)))
+        self.assertIn(140505, set(int(t) for t in preds["target_date"].tolist()))
+        # Missing actual stays NaN — prediction row must still exist.
+        h14 = preds.loc[preds["horizon"].astype(int) == 14]
+        self.assertEqual(len(h14), 1)
+        self.assertTrue(pd.isna(h14.iloc[0]["actual"]))
+
     def test_metrics_from_raw_unit_forecasts(self):
         # actuals are exact base values; stub predicts 7.5 in raw units.
         sales = _monthly_sales_frame("R", 140311, 20, base=123.45, step=0.0)

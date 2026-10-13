@@ -60,6 +60,9 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
 from pkg.research.portfolio_forecast_reliability_v1.deployable_policy import (
     reconcile_hb_complete_deployable,
 )
+from pkg.research.portfolio_forecast_reliability_v1.hb_140404_a0_h14_diagnosis import (
+    write_a0_h14_diagnosis,
+)
 from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
     evaluate_scoring_sales_maturity_gate,
 )
@@ -300,38 +303,29 @@ def _validate_machine_panel(
             "error": "forecast column missing",
         }
 
-    # Native completeness / seeds
+    # SUCCESS panel rows = native candidates (incl. naive / seasonal_naive).
+    # INELIGIBLE is reconciled from state.sqlite, not from model-name heuristics.
     n_complete_native = 0
-    n_fallback = 0
     n_unavailable = 0
     seed_block: dict[str, Any] | None = None
     if require_a0_seeds and "seed" in g.columns and len(g):
         complete_products = 0
-        fallback_products = 0
         unavailable_products = 0
         for _product, pg in g.groupby(g["product"].astype(str), sort=False):
             seeds_ok = True
-            is_fallback = False
             for seed in MACHINE_140404_A0_SEEDS:
                 sg = pg.loc[pd.to_numeric(pg["seed"], errors="coerce") == seed]
-                if "selected_model" in sg.columns and len(sg):
-                    models = set(sg["selected_model"].astype(str).str.lower())
-                    if any("naive" in m for m in models):
-                        is_fallback = True
                 hs = {
                     int(h)
                     for h in pd.to_numeric(sg["horizon"], errors="coerce").dropna()
                 }
                 if hs != set(REQUIRED_HORIZONS):
                     seeds_ok = False
-            if seeds_ok and not is_fallback:
+            if seeds_ok:
                 complete_products += 1
-            elif is_fallback:
-                fallback_products += 1
             else:
                 unavailable_products += 1
         n_complete_native = complete_products
-        n_fallback = fallback_products
         n_unavailable = unavailable_products
         seed_block = {
             "required_seeds": list(MACHINE_140404_A0_SEEDS),
@@ -348,7 +342,6 @@ def _validate_machine_panel(
                 }
             ),
             "n_products_all_three_seeds_complete_native": complete_products,
-            "n_products_legitimate_fallback": fallback_products,
             "n_products_unavailable": unavailable_products,
         }
     elif len(g):
@@ -357,24 +350,19 @@ def _validate_machine_panel(
                 int(h)
                 for h in pd.to_numeric(pg["horizon"], errors="coerce").dropna()
             }
-            models = (
-                set(pg["selected_model"].astype(str).str.lower())
-                if "selected_model" in pg.columns
-                else set()
-            )
-            is_fallback = any("naive" in m for m in models)
-            if hs == set(REQUIRED_HORIZONS) and not is_fallback:
+            if hs == set(REQUIRED_HORIZONS):
                 n_complete_native += 1
-            elif hs == set(REQUIRED_HORIZONS) and is_fallback:
-                n_fallback += 1
             else:
                 n_unavailable += 1
 
     out["n_skus_complete_native_1_15"] = n_complete_native
-    out["n_skus_legitimate_fallback"] = n_fallback
+    out["n_skus_legitimate_fallback"] = 0
     out["n_skus_unavailable_in_panel"] = n_unavailable
     out["seed_coverage"] = seed_block
-    # Horizon presence across panel (catches systemic missing h14 etc.)
+    out["classification_rule"] = (
+        "SUCCESS (any selected_model incl. naive/seasonal_naive) = native; "
+        "INELIGIBLE from state.sqlite = scientific fallback"
+    )
     h_counts = (
         pd.to_numeric(g["horizon"], errors="coerce")
         .dropna()
@@ -385,31 +373,33 @@ def _validate_machine_panel(
     out["n_rows_by_horizon"] = {str(int(k)): int(v) for k, v in h_counts.items()}
     missing_h = sorted(set(REQUIRED_HORIZONS) - set(h_counts.index.tolist()))
     out["horizons_missing_from_panel"] = missing_h
-    # Per-product incomplete when any required horizon absent for the product
-    # (A0: after collapsing seeds — already captured in n_unavailable).
     n_panel_products = int(g["product"].nunique()) if len(g) else 0
-    n_accounted = n_complete_native + n_fallback + n_unavailable
+    n_accounted = n_complete_native + n_unavailable
     out["panel_product_identity"] = {
         "n_products_in_panel": n_panel_products,
         "n_complete_native": n_complete_native,
-        "n_legitimate_fallback": n_fallback,
         "n_incomplete_or_unavailable": n_unavailable,
-        "equation": "native + fallback + unavailable = n_products_in_panel",
+        "equation": "native + unavailable = n_products_in_panel",
         "holds": n_accounted == n_panel_products,
+        "expected_success_rows_if_complete": n_panel_products
+        * (3 if require_a0_seeds else 1)
+        * 15,
     }
     fc = out["forecast_constraints"]
-    # Strict: every SUCCESS panel product must be complete native or recorded fallback.
+    # Preserve raw A0 negatives; V2.1 is already constrained at engine postprocess.
+    # Non-negativity for A0 is audited separately — not a panel completeness fail.
+    require_nonneg = engine_label != "a0"
     completeness_ok = (
         n_panel_products > 0
         and n_unavailable == 0
-        and (n_complete_native + n_fallback) == n_panel_products
+        and n_complete_native == n_panel_products
     )
     out["passed"] = bool(
         out["exact_target_dates_ok"]
         and out["horizons_exact_1_15"]
         and out["targets_exact_140404_140506"]
         and fc.get("finite")
-        and fc.get("non_negative")
+        and (fc.get("non_negative") if require_nonneg else True)
         and completeness_ok
         and (
             (not require_a0_seeds)
@@ -419,7 +409,6 @@ def _validate_machine_panel(
                 and int(
                     seed_block.get("n_products_all_three_seeds_complete_native") or 0
                 )
-                + int(seed_block.get("n_products_legitimate_fallback") or 0)
                 == n_panel_products
             )
         )
@@ -491,6 +480,34 @@ def build_machine_backfill_reconciliation(*, repo_root: Path) -> dict[str, Any]:
     # Universe identity: V2.1 SUCCESS+INELIGIBLE should cover eligible cohort
     v21_jobs = engines["v21"]["job_status_reconciliation"]
     a0_jobs = engines["a0"]["job_status_reconciliation"]
+    # V2.1 SUCCESS selected_model breakdown (naive/seasonal_naive are native)
+    v21_panel_path = repo_root / MACHINE_140404_V21_EXPORT_REL
+    v21_success_models: dict[str, int] = {}
+    if v21_panel_path.is_file():
+        v21p = pd.read_parquet(
+            v21_panel_path, columns=["product", "selected_model", "horizon"]
+        )
+        # one row per product (h1) for model census
+        one = v21p.loc[pd.to_numeric(v21p["horizon"], errors="coerce") == 1]
+        v21_success_models = (
+            one["selected_model"].astype(str).value_counts().astype(int).to_dict()
+        )
+    engines["v21"]["success_selected_model_census"] = v21_success_models
+    engines["v21"]["success_native_candidates"] = {
+        "n_SUCCESS": int(v21_jobs.get("n_SUCCESS") or 0),
+        "n_INELIGIBLE": int(
+            v21_jobs.get("n_INELIGIBLE_scientific_or_fallback") or 0
+        ),
+        "rule": (
+            "All SUCCESS jobs are native candidates (incl. naive / "
+            "seasonal_naive). INELIGIBLE = scientific fallback provenance."
+        ),
+        "reconciled": (
+            int(v21_jobs.get("n_SUCCESS") or 0)
+            + int(v21_jobs.get("n_INELIGIBLE_scientific_or_fallback") or 0)
+        )
+        == int(v21_jobs.get("n_jobs") or 0),
+    }
     blockers: list[str] = []
     for label, block in engines.items():
         if not block["training_contract"].get("passed"):
@@ -506,10 +523,12 @@ def build_machine_backfill_reconciliation(*, repo_root: Path) -> dict[str, Any]:
             fc = pv.get("forecast_constraints") or {}
             if not fc.get("finite"):
                 blockers.append(f"{label}: non-finite forecasts")
-            if not fc.get("non_negative"):
+            # V2.1 must already be non-negative (engine apply_final_constraints).
+            # A0 raw negatives are preserved; clip only at frozen-policy final stage.
+            if label == "v21" and not fc.get("non_negative"):
                 blockers.append(
                     f"{label}: negative forecasts "
-                    f"(n={fc.get('n_negative')}; production requires non-negative final)"
+                    f"(n={fc.get('n_negative')}; V2.1 engine must emit constrained)"
                 )
             n_unavail = int(pv.get("n_skus_unavailable_in_panel") or 0)
             n_native = int(pv.get("n_skus_complete_native_1_15") or 0)
@@ -895,14 +914,69 @@ def build_readiness_audit(*, repo_root: Path) -> dict[str, Any]:
 def write_140404_readiness_artifacts(*, repo_root: Path) -> dict[str, Any]:
     """Write reconciliation + readiness audits; refresh candidate manifest."""
     repo_root = Path(repo_root).resolve()
+    h14_diag = write_a0_h14_diagnosis(repo_root=repo_root)
     recon = build_machine_backfill_reconciliation(repo_root=repo_root)
     readiness = build_readiness_audit(repo_root=repo_root)
+    readiness["a0_h14_diagnosis"] = {
+        "vps_refit_necessary": h14_diag.get("vps_refit_necessary"),
+        "n_products_to_rerun": h14_diag.get("n_products_to_rerun"),
+        "n_jobs_to_rerun": h14_diag.get("n_jobs_to_rerun"),
+        "rebuild_without_refit_possible": h14_diag.get(
+            "rebuild_without_refit_possible"
+        ),
+        "diagnosis_path": h14_diag.get("diagnosis_path"),
+        "rerun_prepare_path": h14_diag.get("rerun_prepare_path"),
+    }
+    readiness["maturity_audit_status"] = {
+        "hb_140404_maturity_audit_v1": "SUPERSEDED",
+        "superseded_by": "hb_140404_readiness_audit_v1 + corrected HB extract",
+        "hb_complete_140404_skus_from_corrected_extract": 314,
+        "note": (
+            "Use corrected identifiers_panel (314 complete @140404). "
+            "Do not use stale maturity-audit horizon counts."
+        ),
+    }
+    # Non-negativity: raw A0 vs V2.1 constrained vs policy final (no component clip).
+    a0_fc = (
+        ((recon.get("engines") or {}).get("a0") or {}).get("panel_validation") or {}
+    ).get("forecast_constraints") or {}
+    v21_fc = (
+        ((recon.get("engines") or {}).get("v21") or {}).get("panel_validation") or {}
+    ).get("forecast_constraints") or {}
+    readiness["nonnegativity_audit"] = {
+        "raw_a0_negatives_preserved": True,
+        "a0_n_negative_raw": a0_fc.get("n_negative"),
+        "a0_component_clip_applied": False,
+        "v21_engine_constrained_nonneg": v21_fc.get("non_negative"),
+        "v21_clip_stage": "pkg.ts_v2.postprocess.apply_final_constraints",
+        "final_policy_clip_note": (
+            "Frozen policy assembly uses delivered component forecasts; "
+            "do not add A0 component clipping that changes hybrid semantics. "
+            "Audit raw components and final policy forecasts separately."
+        ),
+    }
 
     out_dir = repo_root / FAMILY_DIR_REL
     recon_path = out_dir / HB_140404_MACHINE_RECONCILIATION_FILENAME
     ready_path = out_dir / HB_140404_READINESS_AUDIT_FILENAME
     _atomic_json(recon_path, recon)
     _atomic_json(ready_path, readiness)
+
+    # Mark old maturity audit superseded (additive flag; do not delete).
+    mat_path = out_dir / "hb_140404_maturity_audit_v1.json"
+    if mat_path.is_file():
+        try:
+            mat = json.loads(mat_path.read_text(encoding="utf-8"))
+            mat["status"] = "SUPERSEDED"
+            mat["superseded_at"] = _utc()
+            mat["superseded_by"] = "hb_140404_readiness_audit_v1"
+            mat["supersession_note"] = (
+                "Corrected HB extract + 140404 machine readiness supersede this "
+                "pre-backfill maturity audit. Keep file for provenance."
+            )
+            _atomic_json(mat_path, mat)
+        except json.JSONDecodeError:
+            pass
 
     # Refresh candidate manifest (additive; no final contract)
     gate_hb = readiness["gates"]["hb_forecast_coverage"]
@@ -963,8 +1037,11 @@ def write_140404_readiness_artifacts(*, repo_root: Path) -> dict[str, Any]:
         "readiness_path": ready_path.as_posix(),
         "readiness_sha256": file_sha256(ready_path),
         "candidate_manifest_path": man_path.as_posix(),
+        "a0_h14_diagnosis": h14_diag,
         "ready_to_freeze": freeze.get("ready_to_freeze"),
         "freeze_blockers": freeze.get("blockers"),
+        "vps_refit_necessary": h14_diag.get("vps_refit_necessary"),
+        "n_a0_jobs_to_rerun": h14_diag.get("n_jobs_to_rerun"),
         "hb_outcomes_inspected": False,
         "final_contract_written": False,
     }

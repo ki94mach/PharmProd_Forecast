@@ -393,6 +393,7 @@ def _run_one_fold(
     product: str,
     product_id: Optional[Any],
     full_sales: pd.Series,
+    emit_full_horizon: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fit + predict one fold; return (prediction rows, fold metadata row)."""
     origin = int(cover.window.forecast_origin)
@@ -425,9 +426,13 @@ def _run_one_fold(
         )
 
         pred_rows: list[dict[str, Any]] = []
-        # Screening scores only months with actuals. When an explicit origin has
-        # no evaluable actuals yet (live delivery), emit the full H-step forecast.
-        emit_h = evaluable_h if evaluable_h else {int(h) for h in outcome.horizons}
+        # Screening scores only months with actuals. Forecast-jobs delivery with
+        # explicit origins must persist the full H-step prediction independently
+        # of actual availability (incomplete months must not delete forecasts).
+        if emit_full_horizon:
+            emit_h = {int(h) for h in outcome.horizons}
+        else:
+            emit_h = evaluable_h if evaluable_h else {int(h) for h in outcome.horizons}
         for h, target, pred in zip(
             outcome.horizons,
             outcome.target_dates,
@@ -623,6 +628,7 @@ def backtest_product_architectures(
                     product=product,
                     product_id=product_id,
                     full_sales=full_sales,
+                    emit_full_horizon=explicit_origins is not None,
                 )
                 pred_rows.extend(fold_preds)
                 meta_rows.append(fold_meta)

@@ -440,73 +440,60 @@ def _validate_panel_targets_and_seeds(
     n_unavailable = 0
     seed_coverage: dict[str, Any] = {"required_seeds": list(MACHINE_140404_A0_SEEDS)}
 
+    # Classification rule (frozen-policy aligned):
+    # - SUCCESS rows are native engine candidates (incl. naive / seasonal_naive).
+    # - INELIGIBLE is scientific ineligibility / explicit fallback provenance
+    #   (typically naive_last_value). Never treat SUCCESS model names as fallback.
     if require_a0_seeds and len(work) and "seed" in work.columns:
-        # Per product: need all three seeds with exact {1..15} and matching targets
         complete_products = 0
-        fallback_products = 0
         unavailable_products = 0
-        for product, pg in work.groupby(work["product"].astype(str), sort=False):
+        for _product, pg in work.groupby(work["product"].astype(str), sort=False):
             seeds_ok = True
-            is_fallback = False
             for seed in MACHINE_140404_A0_SEEDS:
                 sg = pg.loc[pd.to_numeric(pg["seed"], errors="coerce") == seed]
-                if "selected_model" in sg.columns and len(sg):
-                    models = set(sg["selected_model"].astype(str).str.lower())
-                    if any("naive" in m for m in models):
-                        is_fallback = True
-                if "job_status" in sg.columns and len(sg):
-                    statuses = set(sg["job_status"].astype(str).str.upper())
-                    if "INELIGIBLE" in statuses:
-                        is_fallback = True
+                statuses = (
+                    set(sg["job_status"].astype(str).str.upper())
+                    if "job_status" in sg.columns and len(sg)
+                    else set()
+                )
+                if statuses and statuses != {"SUCCESS"}:
+                    seeds_ok = False
                 hs = {
                     int(h)
                     for h in pd.to_numeric(sg["horizon"], errors="coerce").dropna()
                 }
                 if hs != set(REQUIRED_HORIZONS):
                     seeds_ok = False
-            if is_fallback and not seeds_ok:
-                # fallback may still deliver complete horizons via naive
-                hs_any = {
-                    int(h)
-                    for h in pd.to_numeric(pg["horizon"], errors="coerce").dropna()
-                }
-                if hs_any == set(REQUIRED_HORIZONS):
-                    fallback_products += 1
-                else:
-                    unavailable_products += 1
-            elif seeds_ok and not is_fallback:
+            if seeds_ok:
                 complete_products += 1
-            elif is_fallback:
-                fallback_products += 1
             else:
                 unavailable_products += 1
         n_complete_native = complete_products
-        n_fallback = fallback_products
+        n_fallback = 0  # INELIGIBLE A0 jobs are not in SUCCESS export panel
         n_unavailable = unavailable_products
         seed_coverage["n_products_all_three_seeds_complete_native"] = complete_products
-        seed_coverage["n_products_legitimate_fallback"] = fallback_products
+        seed_coverage["n_products_legitimate_fallback"] = 0
         seed_coverage["n_products_unavailable"] = unavailable_products
+        seed_coverage["classification_rule"] = (
+            "SUCCESS panel rows = native candidates; "
+            "INELIGIBLE reconciled from state.sqlite separately"
+        )
     elif len(work):
-        for product, pg in work.groupby(work["product"].astype(str), sort=False):
+        for _product, pg in work.groupby(work["product"].astype(str), sort=False):
             hs = {
                 int(h)
                 for h in pd.to_numeric(pg["horizon"], errors="coerce").dropna()
             }
-            models = (
-                set(pg["selected_model"].astype(str).str.lower())
-                if "selected_model" in pg.columns
-                else set()
-            )
             statuses = (
                 set(pg["job_status"].astype(str).str.upper())
                 if "job_status" in pg.columns
-                else set()
+                else {"SUCCESS"}
             )
-            is_fallback = any("naive" in m for m in models) or ("INELIGIBLE" in statuses)
-            if hs == set(REQUIRED_HORIZONS) and not is_fallback:
+            # Export panel is SUCCESS-only; treat complete SUCCESS as native.
+            if hs == set(REQUIRED_HORIZONS) and (
+                not statuses or statuses == {"SUCCESS"}
+            ):
                 n_complete_native += 1
-            elif hs == set(REQUIRED_HORIZONS) and is_fallback:
-                n_fallback += 1
             else:
                 n_unavailable += 1
 
@@ -518,6 +505,10 @@ def _validate_panel_targets_and_seeds(
         "n_target_date_mismatches": target_mismatches,
         "exact_target_dates_ok": target_mismatches == 0 and n_skus > 0,
         "seed_coverage": seed_coverage if require_a0_seeds else None,
+        "classification_rule": (
+            "SUCCESS (any selected_model incl. naive/seasonal_naive) = native; "
+            "INELIGIBLE = scientific fallback (state.sqlite); never silent drop"
+        ),
         "columns_read": id_cols,
         "forecast_qty_read": False,
     }
