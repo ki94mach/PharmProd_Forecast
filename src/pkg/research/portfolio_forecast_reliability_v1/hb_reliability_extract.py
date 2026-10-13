@@ -606,16 +606,22 @@ def evaluate_machine_ready_gate(*, repo_root: Path) -> dict[str, Any]:
         # A0 has all three seeds where required; fallbacks reported separately (not fail alone).
         passed_engine = bool(training[label].get("passed")) and export_path.is_file()
         if panel_check is not None:
+            n_native = int(panel_check.get("n_skus_complete_native_1_15") or 0)
+            n_fb = int(panel_check.get("n_skus_legitimate_fallback") or 0)
+            n_unavail = int(panel_check.get("n_skus_unavailable") or 0)
+            n_skus = int(panel_check.get("n_skus_with_origin_rows") or 0)
+            # Every SUCCESS panel product must be complete native or recorded fallback.
             passed_engine = (
                 passed_engine
-                and panel_check.get("exact_target_dates_ok")
-                and int(panel_check.get("n_skus_complete_native_1_15") or 0) > 0
+                and bool(panel_check.get("exact_target_dates_ok"))
+                and n_skus > 0
+                and n_unavail == 0
+                and (n_native + n_fb) == n_skus
             )
             if require_seeds:
                 sc = panel_check.get("seed_coverage") or {}
-                passed_engine = passed_engine and int(
-                    sc.get("n_products_all_three_seeds_complete_native") or 0
-                ) > 0
+                n_seed_un = int(sc.get("n_products_unavailable") or 0)
+                passed_engine = passed_engine and n_seed_un == 0
         else:
             passed_engine = False
 

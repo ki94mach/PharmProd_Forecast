@@ -1014,6 +1014,17 @@ def test_identifier_trace_offline_panel_counts():
         assert comp["n_skus_missing_each_horizon"]["14"] == comp["n_skus_with_any_row"]
 
 
+def test_readiness_audit_reports_freeze_blockers_without_scoring(tmp_path: Path):
+    """Readiness path must not require HB qty; missing sales_v2 is a freeze blocker."""
+    from pkg.research.portfolio_forecast_reliability_v1.hb_140404_maturity_audit import (
+        evaluate_scoring_sales_maturity_gate,
+    )
+
+    detail = evaluate_scoring_sales_maturity_gate(repo_root=tmp_path)
+    assert detail["passed"] is False
+    assert detail["v1_max_date_cannot_prove_closure"] is True
+
+
 def test_provenance_publication_timing_unverified():
     from pkg.research.portfolio_forecast_reliability_v1.hb_reliability_extract import (
         provenance_audit,

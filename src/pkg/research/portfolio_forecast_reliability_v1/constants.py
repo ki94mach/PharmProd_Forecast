@@ -58,6 +58,10 @@ HB_SCORING_PATH_PREPARE_FILENAME = "hb_reliability_scoring_path_prepare_v1.json"
 HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME = (
     "hb_reliability_quantity_retrieval_prepare_v1.json"
 )
+HB_140404_MACHINE_RECONCILIATION_FILENAME = (
+    "hb_140404_machine_backfill_reconciliation_v1.json"
+)
+HB_140404_READINESS_AUDIT_FILENAME = "hb_140404_readiness_audit_v1.json"
 
 # Origins evaluated for HB forecast coverage (current protected + prospective 140404).
 HB_RELIABILITY_COVERAGE_ORIGINS: frozenset[int] = frozenset(

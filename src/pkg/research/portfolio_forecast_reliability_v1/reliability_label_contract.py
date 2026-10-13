@@ -47,6 +47,8 @@ from pkg.research.portfolio_forecast_reliability_v1.constants import (
     PROTECTED_ORIGIN_VALIDATION_FILENAME,
     REPRESENTATIVENESS_AUDIT_FILENAME,
     REVIEW_FILENAME,
+    HB_140404_MACHINE_RECONCILIATION_FILENAME,
+    HB_140404_READINESS_AUDIT_FILENAME,
     HB_FORECAST_COVERAGE_AUDIT_FILENAME,
     HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME,
     HB_RELIABILITY_CANDIDATE_MANIFEST_FILENAME,
@@ -1198,6 +1200,11 @@ def write_corrected_review(
             "hb_reliability_quantity_retrieval_prepare",
             HB_QUANTITY_RETRIEVAL_PREPARE_FILENAME,
         ),
+        (
+            "hb_140404_machine_backfill_reconciliation",
+            HB_140404_MACHINE_RECONCILIATION_FILENAME,
+        ),
+        ("hb_140404_readiness_audit", HB_140404_READINESS_AUDIT_FILENAME),
     ):
         p = family / fname
         block: dict[str, Any] = {
@@ -1263,6 +1270,22 @@ def write_corrected_review(
                 block["assert_exact_key_agreement"] = (
                     payload.get("quantity_query") or {}
                 ).get("assert_exact_key_agreement")
+            elif key == "hb_140404_machine_backfill_reconciliation":
+                block["passed"] = payload.get("passed")
+                block["blockers"] = payload.get("blockers")
+                block["hb_outcomes_inspected"] = payload.get(
+                    "hb_outcomes_inspected", False
+                )
+            elif key == "hb_140404_readiness_audit":
+                freeze = payload.get("contract_freeze_readiness") or {}
+                block["ready_to_freeze"] = freeze.get("ready_to_freeze")
+                block["freeze_blockers"] = freeze.get("blockers")
+                block["hb_outcomes_inspected"] = payload.get(
+                    "hb_outcomes_inspected", False
+                )
+                block["final_contract_written"] = payload.get(
+                    "final_contract_written", False
+                )
         review[key] = block
     review["wmape_denominator"] = {
         "rule": WMAPE_DENOM_RULE,
